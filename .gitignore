@@ -1,0 +1,37 @@
+# Dependências
+node_modules/
+.npm
+
+# Build
+dist/
+build/
+.vite/
+
+# Prisma
+backend/generated/
+
+# Variáveis de ambiente — NUNCA commitar
+.env
+.env.local
+.env.production
+backend/.env
+frontend/.env
+
+# Logs
+*.log
+npm-debug.log*
+pm2*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
+*.suo
+*.user
+
+# Temporários
+*.tmp
+*.bak
