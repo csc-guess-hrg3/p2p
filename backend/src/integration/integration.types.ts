@@ -8,8 +8,17 @@ export type CompanyCode = 'GUESS' | 'HERING';
 export interface ErpBranch {
   codigo: string;
   nome: string;
+  razaoSocial: string | null;
   cnpj: string | null;
+  ie: string | null;
+  logradouro: string | null;
+  numero: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  uf: string | null;
+  cep: string | null;
   tipo: string | null;
+  inativo: boolean;
 }
 
 export interface ErpCostCenter {

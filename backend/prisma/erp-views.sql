@@ -6,13 +6,29 @@
 -- ============================================================
 
 -- ---------- FILIAIS ----------
+-- Dados cadastrais (razão social, IE, endereço) vêm de CADASTRO_CLI_FOR,
+-- ligado por FILIAIS.CLIFOR. Filial inativa = marcada inativa no cadastro
+-- mestre ou com data de fechamento preenchida (RN-FIL-02).
 CREATE OR ALTER VIEW dbo.v_p2p_branches AS
-SELECT 'GUESS' AS empresa, RTRIM(COD_FILIAL) AS codigo, RTRIM(FILIAL) AS nome,
-       RTRIM(CGC_CPF) AS cnpj, RTRIM(TIPO_FILIAL) AS tipo
-FROM GUESS_PRODUCAO.dbo.FILIAIS
+SELECT 'GUESS' AS empresa, RTRIM(f.COD_FILIAL) AS codigo, RTRIM(f.FILIAL) AS nome,
+       RTRIM(c.RAZAO_SOCIAL) AS razao_social, RTRIM(f.CGC_CPF) AS cnpj,
+       RTRIM(c.RG_IE) AS ie, RTRIM(c.ENDERECO) AS logradouro,
+       RTRIM(c.NUMERO) AS numero, RTRIM(c.BAIRRO) AS bairro,
+       RTRIM(c.CIDADE) AS cidade, RTRIM(c.UF) AS uf, RTRIM(c.CEP) AS cep,
+       RTRIM(f.TIPO_FILIAL) AS tipo,
+       CAST(CASE WHEN c.INATIVO = 1 OR f.DATA_FECHAMENTO IS NOT NULL
+                 THEN 1 ELSE 0 END AS BIT) AS inativo
+FROM GUESS_PRODUCAO.dbo.FILIAIS f
+LEFT JOIN GUESS_PRODUCAO.dbo.CADASTRO_CLI_FOR c ON c.CLIFOR = f.CLIFOR
 UNION ALL
-SELECT 'HERING', RTRIM(COD_FILIAL), RTRIM(FILIAL), RTRIM(CGC_CPF), RTRIM(TIPO_FILIAL)
-FROM DB_HRG3.dbo.FILIAIS;
+SELECT 'HERING', RTRIM(f.COD_FILIAL), RTRIM(f.FILIAL), RTRIM(c.RAZAO_SOCIAL),
+       RTRIM(f.CGC_CPF), RTRIM(c.RG_IE), RTRIM(c.ENDERECO), RTRIM(c.NUMERO),
+       RTRIM(c.BAIRRO), RTRIM(c.CIDADE), RTRIM(c.UF), RTRIM(c.CEP),
+       RTRIM(f.TIPO_FILIAL),
+       CAST(CASE WHEN c.INATIVO = 1 OR f.DATA_FECHAMENTO IS NOT NULL
+                 THEN 1 ELSE 0 END AS BIT)
+FROM DB_HRG3.dbo.FILIAIS f
+LEFT JOIN DB_HRG3.dbo.CADASTRO_CLI_FOR c ON c.CLIFOR = f.CLIFOR;
 GO
 
 -- ---------- CENTROS DE CUSTO ----------

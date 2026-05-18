@@ -40,12 +40,16 @@ export class IntegrationService {
   }
 
   /** Filiais da empresa. */
-  async getBranches(company: string): Promise<ErpBranch[]> {
+  async getBranches(
+    company: string,
+    onlyActive = true,
+  ): Promise<ErpBranch[]> {
     const c = this.assertCompany(company);
     return this.prisma.$queryRaw<ErpBranch[]>`
-      SELECT codigo, nome, cnpj, tipo
+      SELECT codigo, nome, razao_social AS razaoSocial, cnpj, ie,
+             logradouro, numero, bairro, cidade, uf, cep, tipo, inativo
       FROM dbo.v_p2p_branches
-      WHERE empresa = ${c}
+      WHERE empresa = ${c} ${this.activeFilter(onlyActive)}
       ORDER BY nome`;
   }
 
@@ -178,7 +182,9 @@ export class IntegrationService {
   ): Promise<ErpBranch | null> {
     const c = this.assertCompany(company);
     const rows = await this.prisma.$queryRaw<ErpBranch[]>`
-      SELECT codigo, nome, cnpj, tipo FROM dbo.v_p2p_branches
+      SELECT codigo, nome, razao_social AS razaoSocial, cnpj, ie,
+             logradouro, numero, bairro, cidade, uf, cep, tipo, inativo
+      FROM dbo.v_p2p_branches
       WHERE empresa = ${c} AND codigo = ${codigo}`;
     return rows[0] ?? null;
   }

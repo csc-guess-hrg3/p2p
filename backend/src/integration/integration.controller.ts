@@ -1,20 +1,26 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { IntegrationService } from './integration.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 /**
  * Endpoints de leitura dos dados de referência do ERP.
  * :company aceita GUESS ou HERING.
  */
 @ApiTags('Integração ERP')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 @Controller('integration/:company')
 export class IntegrationController {
   constructor(private readonly integration: IntegrationService) {}
 
   @Get('branches')
   @ApiOperation({ summary: 'Lista as filiais da empresa' })
-  branches(@Param('company') company: string) {
-    return this.integration.getBranches(company);
+  branches(
+    @Param('company') company: string,
+    @Query('includeInactive') includeInactive?: string,
+  ) {
+    return this.integration.getBranches(company, includeInactive !== 'true');
   }
 
   @Get('cost-centers')
