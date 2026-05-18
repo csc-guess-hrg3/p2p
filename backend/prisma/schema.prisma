@@ -401,11 +401,32 @@ model PurchaseOrderItem {
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
-  purchaseOrder  PurchaseOrder   @relation(fields: [purchaseOrderId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  purchaseOrder  PurchaseOrder            @relation(fields: [purchaseOrderId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   receivingItems ReceivingItem[]
+  rateios        PurchaseOrderItemRateio[]
 
   @@index([purchaseOrderId])
   @@map("purchase_order_items")
+}
+
+// Snapshot do rateio do item do pedido — copiado da requisição na conversão.
+// É o que vai para o ERP; congelado, não muda com alterações de template.
+model PurchaseOrderItemRateio {
+  id                  String   @id @default(uuid()) @db.UniqueIdentifier
+  purchaseOrderItemId String   @db.UniqueIdentifier
+  kind                String   @db.NVarChar(15)  // BRANCH | COST_CENTER
+  rateioCode          String   @db.NVarChar(20)
+  targetCode          String   @db.NVarChar(20)
+  branchCode          String?  @db.NVarChar(20)
+  percentage          Decimal  @db.Decimal(9, 4)
+  amount              Decimal  @db.Decimal(15, 2)
+  createdAt           DateTime @default(now())
+
+  purchaseOrderItem PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@index([purchaseOrderItemId])
+  @@index([kind, targetCode])
+  @@map("purchase_order_item_rateios")
 }
 
 // ============================================================
