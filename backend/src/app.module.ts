@@ -12,6 +12,7 @@ import { CompaniesModule } from './companies/companies.module';
 import { TeamsModule } from './teams/teams.module';
 import { BudgetModule } from './budget/budget.module';
 import { ApprovalsModule } from './approvals/approvals.module';
+import { DelegationsModule } from './delegations/delegations.module';
 import { RequisitionsModule } from './requisitions/requisitions.module';
 import { PurchaseOrdersModule } from './purchase-orders/purchase-orders.module';
 import { ReceivingModule } from './receiving/receiving.module';
@@ -32,6 +33,7 @@ import { IntegrationModule } from './integration/integration.module';
     TeamsModule,
     BudgetModule,
     ApprovalsModule,
+    DelegationsModule,
     RequisitionsModule,
     PurchaseOrdersModule,
     ReceivingModule,

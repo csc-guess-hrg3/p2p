@@ -139,13 +139,40 @@ export class ApprovalsService {
     return needed[0].level;
   }
 
-  /** Lista os steps pendentes que o usuário pode decidir agora. */
-  async pendingForUser(user: AuthenticatedUser) {
-    const tiers = await this.prisma.userApprovalTier.findMany({
-      where: { userId: user.id },
+  /**
+   * Alçadas em que o usuário pode atuar: as próprias + as dos delegantes
+   * que estão com delegação ativa para ele neste momento.
+   */
+  private async getActingTierIds(userId: string): Promise<string[]> {
+    const now = new Date();
+    const direct = await this.prisma.userApprovalTier.findMany({
+      where: { userId },
       select: { tierId: true },
     });
-    const tierIds = tiers.map((t) => t.tierId);
+    const activeDelegations = await this.prisma.delegation.findMany({
+      where: {
+        delegateId: userId,
+        active: true,
+        startsAt: { lte: now },
+        endsAt: { gte: now },
+      },
+      select: { delegatorId: true },
+    });
+    const delegatorIds = activeDelegations.map((d) => d.delegatorId);
+    const delegated = delegatorIds.length
+      ? await this.prisma.userApprovalTier.findMany({
+          where: { userId: { in: delegatorIds } },
+          select: { tierId: true },
+        })
+      : [];
+    return [
+      ...new Set([...direct, ...delegated].map((t) => t.tierId)),
+    ];
+  }
+
+  /** Lista os steps pendentes que o usuário pode decidir agora. */
+  async pendingForUser(user: AuthenticatedUser) {
+    const tierIds = await this.getActingTierIds(user.id);
     if (tierIds.length === 0) return [];
 
     const steps = await this.prisma.approvalStep.findMany({
@@ -193,13 +220,15 @@ export class ApprovalsService {
   ) {
     const step = await this.prisma.approvalStep.findUnique({
       where: { id: stepId },
-      include: { tier: { include: { approvers: true } } },
     });
     if (!step) throw new NotFoundException('Etapa de aprovação não encontrada.');
     if (step.status !== ApprovalStepStatus.PENDING) {
       throw new BadRequestException('Esta etapa já foi decidida.');
     }
-    if (!step.tier.approvers.some((a) => a.userId === user.id)) {
+
+    // O usuário precisa pertencer à alçada — direto ou por delegação ativa.
+    const actingTiers = await this.getActingTierIds(user.id);
+    if (!actingTiers.includes(step.tierId)) {
       throw new ForbiddenException('Você não faz parte desta alçada.');
     }
 
