@@ -47,7 +47,7 @@ model Company {
   id        String    @id @default(uuid()) @db.UniqueIdentifier
   code      String    @unique @db.NVarChar(20)  // GUESS | HERING (casa com coluna empresa das views)
   name      String    @db.NVarChar(255)
-  cnpj      String    @unique @db.NVarChar(18)
+  cnpj      String?   @db.NVarChar(18)
   erpDbName String    @db.NVarChar(100)         // GUESS_PRODUCAO | DB_HRG3
   active    Boolean   @default(true)
   createdAt DateTime  @default(now())
@@ -71,9 +71,9 @@ model Company {
 
 model User {
   id            String    @id @default(uuid()) @db.UniqueIdentifier
-  email         String    @unique @db.NVarChar(255)
+  adUsername    String    @unique @db.NVarChar(255)  // login do AD (sAMAccountName) — chave do usuário
+  email         String?   @db.NVarChar(255)          // sincronizado do AD; usado para notificações
   name          String    @db.NVarChar(255)
-  adUsername    String?   @unique @db.NVarChar(255)
   profile       String    @db.NVarChar(20)
   status        String    @default("PENDING_SETUP") @db.NVarChar(20)
   approvalLimit Decimal?  @db.Decimal(15, 2)

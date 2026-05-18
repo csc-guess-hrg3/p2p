@@ -32,39 +32,42 @@ export class AuthService {
 
   /**
    * Provisionamento JIT: a partir da entrada LDAP, encontra o usuário no
-   * P2P ou o cria no primeiro login (status PENDING_SETUP — o admin
-   * configura perfil e empresas depois).
+   * P2P (chave = login do AD / sAMAccountName) ou o cria no primeiro login
+   * (status PENDING_SETUP — o admin configura perfil e empresas depois).
    */
   async provisionFromLdap(ldapUser: Record<string, unknown>): Promise<string> {
-    const email = ldapAttr(ldapUser, 'mail');
-    const adUsername =
-      ldapAttr(ldapUser, 'userPrincipalName') ??
-      ldapAttr(ldapUser, 'sAMAccountName');
+    const adUsername = (
+      ldapAttr(ldapUser, 'sAMAccountName') ??
+      ldapAttr(ldapUser, 'userPrincipalName')
+    )?.toLowerCase();
+    const email = ldapAttr(ldapUser, 'mail') ?? null;
     const name =
       ldapAttr(ldapUser, 'displayName') ??
       ldapAttr(ldapUser, 'cn') ??
       adUsername;
 
-    if (!email) {
+    if (!adUsername) {
       throw new UnauthorizedException(
-        'Usuário do AD sem e-mail cadastrado — contate o TI.',
+        'Usuário do AD sem identificador de login — contate o TI.',
       );
     }
 
-    const existing = await this.prisma.user.findUnique({ where: { email } });
+    const existing = await this.prisma.user.findUnique({
+      where: { adUsername },
+    });
 
     if (!existing) {
       const created = await this.prisma.user.create({
         data: {
-          email,
-          name: name ?? email,
           adUsername,
+          email,
+          name: name ?? adUsername,
           profile: UserProfile.OPERATOR,
           status: UserStatus.PENDING_SETUP,
           lastLoginAt: new Date(),
         },
       });
-      this.logger.log(`Usuário provisionado via JIT: ${email}`);
+      this.logger.log(`Usuário provisionado via JIT: ${adUsername}`);
       return created.id;
     }
 
@@ -76,9 +79,9 @@ export class AuthService {
       where: { id: existing.id },
       data: {
         lastLoginAt: new Date(),
-        // mantém nome/adUsername sincronizados com o AD
+        // mantém nome/e-mail sincronizados com o AD
         name: name ?? existing.name,
-        adUsername: adUsername ?? existing.adUsername,
+        email: email ?? existing.email,
       },
     });
     return existing.id;
@@ -94,6 +97,7 @@ export class AuthService {
 
     const payload: JwtPayload = {
       sub: user.id,
+      adUsername: user.adUsername,
       email: user.email,
       name: user.name,
       profile: user.profile,

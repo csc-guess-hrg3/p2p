@@ -1,7 +1,8 @@
 /** Payload do JWT de acesso. */
 export interface JwtPayload {
   sub: string; // userId
-  email: string;
+  adUsername: string;
+  email: string | null;
   name: string;
   profile: string;
   status: string;
@@ -11,7 +12,8 @@ export interface JwtPayload {
 /** Usuário autenticado anexado à request após o JwtAuthGuard. */
 export interface AuthenticatedUser {
   id: string;
-  email: string;
+  adUsername: string;
+  email: string | null;
   name: string;
   profile: string;
   status: string;
