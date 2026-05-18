@@ -51,6 +51,15 @@ export class ConvertToPurchaseOrderDto {
   expectedDelivery?: string;
 
   @ApiPropertyOptional({
+    description:
+      'Vencimento do título da SV (ISO 8601). Usado apenas quando a ' +
+      'requisição é NF_FUTURA e gera adiantamento. Padrão: hoje.',
+  })
+  @IsOptional()
+  @IsISO8601()
+  fundRequestDueDate?: string;
+
+  @ApiPropertyOptional({
     type: [PoItemAdjustmentDto],
     description: 'Preços negociados; itens não listados mantêm o estimado',
   })

@@ -15,6 +15,7 @@ import { ApprovalsModule } from './approvals/approvals.module';
 import { DelegationsModule } from './delegations/delegations.module';
 import { RequisitionsModule } from './requisitions/requisitions.module';
 import { PurchaseOrdersModule } from './purchase-orders/purchase-orders.module';
+import { FundRequestsModule } from './fund-requests/fund-requests.module';
 import { ReceivingModule } from './receiving/receiving.module';
 import { FiscalDocumentsModule } from './fiscal-documents/fiscal-documents.module';
 import { FinancialModule } from './financial/financial.module';
@@ -36,6 +37,7 @@ import { IntegrationModule } from './integration/integration.module';
     DelegationsModule,
     RequisitionsModule,
     PurchaseOrdersModule,
+    FundRequestsModule,
     ReceivingModule,
     FiscalDocumentsModule,
     FinancialModule,

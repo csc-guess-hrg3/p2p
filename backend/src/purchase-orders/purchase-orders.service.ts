@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NumberingService } from '../numbering/numbering.service';
 import {
+  FundRequestStatus,
   PurchaseOrderStatus,
   RequisitionNfType,
   RequisitionStatus,
@@ -139,10 +140,20 @@ export class PurchaseOrdersService {
     });
 
     const number = await this.numbering.next(company.code, 'OC');
+    // NF_FUTURA gera, além do PC, uma SV de adiantamento (pagar antes da NF).
+    const isAdvance = req.tipoNotaFiscal === RequisitionNfType.NF_FUTURA;
+    const svNumber = isAdvance
+      ? await this.numbering.next(company.code, 'SV')
+      : null;
+    const svDueDate = dto.fundRequestDueDate
+      ? new Date(dto.fundRequestDueDate)
+      : dto.expectedDelivery
+        ? new Date(dto.expectedDelivery)
+        : new Date();
     const now = new Date();
 
-    const [po] = await this.prisma.$transaction([
-      this.prisma.purchaseOrder.create({
+    const po = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.purchaseOrder.create({
         data: {
           number,
           requisitionId: req.id,
@@ -163,13 +174,57 @@ export class PurchaseOrdersService {
           totalAmount: Number(totalAmount.toFixed(2)),
           items: { create: poItems },
         },
-        include: { items: { include: { rateios: true } } },
-      }),
-      this.prisma.requisition.update({
+        include: { items: true },
+      });
+      await tx.requisition.update({
         where: { id: req.id },
         data: { status: RequisitionStatus.CONVERTED },
-      }),
-    ]);
+      });
+      // SV de adiantamento: espelha os itens do PC, nasce aprovada
+      // (segue a aprovação da requisição) e pronta para virar título no ERP.
+      if (isAdvance) {
+        await tx.fundRequest.create({
+          data: {
+            number: svNumber as string,
+            companyId: req.companyId,
+            requisitionId: req.id,
+            purchaseOrderId: created.id,
+            requesterId: user.id,
+            title: req.title,
+            status: FundRequestStatus.APPROVED,
+            approvedAt: now,
+            totalAmount: created.totalAmount,
+            items: {
+              create: created.items.map((it) => ({
+                itemErpCode: it.itemErpCode,
+                description: it.itemDescription,
+                beneficiaryName: req.supplierName,
+                accountingAccount: it.accountingAccount,
+                accountName: it.accountName,
+                branchRateioCode: it.branchRateioCode,
+                branchRateioDesc: it.branchRateioDesc,
+                costCenterRateioCode: it.costCenterRateioCode,
+                costCenterRateioDesc: it.costCenterRateioDesc,
+                amount: it.totalPrice,
+                dueDate: svDueDate,
+              })),
+            },
+          },
+        });
+      }
+      return tx.purchaseOrder.findUniqueOrThrow({
+        where: { id: created.id },
+        include: {
+          items: { include: { rateios: true } },
+          fundRequest: true,
+        },
+      });
+    }, {
+      // SQL Server remoto: o default de 5s é apertado para a criação
+      // aninhada (PC + itens + rateios + SV).
+      maxWait: 15000,
+      timeout: 30000,
+    });
     return po;
   }
 
