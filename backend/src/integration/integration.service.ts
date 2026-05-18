@@ -168,6 +168,91 @@ export class IntegrationService {
     return this.groupRateios(rows, true);
   }
 
+  // ----------------------------------------------------------------
+  // Lookups individuais — validação de códigos do ERP ao criar documentos
+  // ----------------------------------------------------------------
+
+  async findBranch(
+    company: string,
+    codigo: string,
+  ): Promise<ErpBranch | null> {
+    const c = this.assertCompany(company);
+    const rows = await this.prisma.$queryRaw<ErpBranch[]>`
+      SELECT codigo, nome, cnpj, tipo FROM dbo.v_p2p_branches
+      WHERE empresa = ${c} AND codigo = ${codigo}`;
+    return rows[0] ?? null;
+  }
+
+  async findSupplier(
+    company: string,
+    codigo: string,
+  ): Promise<ErpSupplier | null> {
+    const c = this.assertCompany(company);
+    const rows = await this.prisma.$queryRaw<ErpSupplier[]>`
+      SELECT codigo, nome, razao_social AS razaoSocial, cnpj_cpf AS cnpjCpf,
+             tipo_pessoa AS tipoPessoa, email, telefone, tipo,
+             condicao_pgto AS condicaoPgto, banco, agencia, conta,
+             chave_pix AS chavePix, inativo
+      FROM dbo.v_p2p_suppliers
+      WHERE empresa = ${c} AND codigo = ${codigo}`;
+    return rows[0] ?? null;
+  }
+
+  async findItem(company: string, codigo: string): Promise<ErpItem | null> {
+    const c = this.assertCompany(company);
+    const rows = await this.prisma.$queryRaw<ErpItem[]>`
+      SELECT codigo, descricao, unidade,
+             conta_contabil_padrao AS contaContabilPadrao,
+             rateio_filial_padrao AS rateioFilialPadrao,
+             rateio_cc_padrao AS rateioCcPadrao, grupo, inativo
+      FROM dbo.v_p2p_items
+      WHERE empresa = ${c} AND codigo = ${codigo}`;
+    return rows[0] ?? null;
+  }
+
+  async findAccount(
+    company: string,
+    codigo: string,
+  ): Promise<ErpAccount | null> {
+    const c = this.assertCompany(company);
+    const rows = await this.prisma.$queryRaw<ErpAccount[]>`
+      SELECT codigo, nome, tipo_conta AS tipoConta,
+             controla_orcamento AS controlaOrcamento, inativo
+      FROM dbo.v_p2p_accounts
+      WHERE empresa = ${c} AND codigo = ${codigo}`;
+    return rows[0] ?? null;
+  }
+
+  /** Cabeçalho de um template de rateio de filial (código + descrição). */
+  async findBranchRateio(
+    company: string,
+    codigo: string,
+  ): Promise<{ codigo: string; descricao: string } | null> {
+    const c = this.assertCompany(company);
+    const rows = await this.prisma.$queryRaw<
+      { codigo: string; descricao: string }[]
+    >`
+      SELECT TOP 1 rateio_codigo AS codigo, rateio_descricao AS descricao
+      FROM dbo.v_p2p_branch_rateios
+      WHERE empresa = ${c} AND rateio_codigo = ${codigo}`;
+    return rows[0] ?? null;
+  }
+
+  /** Cabeçalho de um template de rateio de centro de custo. */
+  async findCostCenterRateio(
+    company: string,
+    codigo: string,
+  ): Promise<{ codigo: string; descricao: string } | null> {
+    const c = this.assertCompany(company);
+    const rows = await this.prisma.$queryRaw<
+      { codigo: string; descricao: string }[]
+    >`
+      SELECT TOP 1 rateio_codigo AS codigo, rateio_descricao AS descricao
+      FROM dbo.v_p2p_cc_rateios
+      WHERE empresa = ${c} AND rateio_codigo = ${codigo}`;
+    return rows[0] ?? null;
+  }
+
   /** Agrupa linhas de rateio (uma linha por destino) em templates. */
   private groupRateios(
     rows: Array<{

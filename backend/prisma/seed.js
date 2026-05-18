@@ -4,6 +4,8 @@
  *   node prisma/seed.js
  */
 require('dotenv/config');
+const fs = require('fs');
+const path = require('path');
 const { PrismaClient } = require('@prisma/client');
 const { PrismaMssql } = require('@prisma/adapter-mssql');
 
@@ -27,7 +29,27 @@ const TIERS = [
   { level: 3, name: 'Presidência', maxAmount: null },
 ];
 
+/**
+ * Reaplica as views de integração com o ERP.
+ * As views não fazem parte das migrations Prisma — um `migrate reset`
+ * as remove. Rodar o seed após um reset restaura tudo.
+ */
+async function applyErpViews() {
+  const ddlPath = path.join(__dirname, 'erp-views.sql');
+  const ddl = fs.readFileSync(ddlPath, 'utf8');
+  const batches = ddl
+    .split(/^\s*GO\s*$/im)
+    .map((b) => b.trim())
+    .filter(Boolean);
+  for (const batch of batches) {
+    await prisma.$executeRawUnsafe(batch);
+  }
+  console.log(`Views de integração: ${batches.length} aplicadas`);
+}
+
 async function main() {
+  await applyErpViews();
+
   // Empresas
   const guess = await prisma.company.upsert({
     where: { code: 'GUESS' },
