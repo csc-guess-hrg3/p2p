@@ -66,13 +66,54 @@ export class RequisitionsService {
     };
   }
 
+  /**
+   * Congela as linhas de um rateio: valida soma = 100% e calcula os
+   * valores; a última linha absorve o resíduo de arredondamento.
+   */
+  private snapshotLines(
+    kind: 'BRANCH' | 'COST_CENTER',
+    rateioCode: string,
+    rawLines: { targetCode: string; branchCode: string | null; percentage: number }[],
+    total: number,
+  ) {
+    if (rawLines.length === 0) {
+      throw new BadRequestException(
+        `O rateio ${rateioCode} não tem linhas no ERP.`,
+      );
+    }
+    const sumPct = rawLines.reduce((s, l) => s + l.percentage, 0);
+    if (Math.abs(sumPct - 100) > 0.01) {
+      throw new BadRequestException(
+        `O rateio ${rateioCode} soma ${sumPct.toFixed(2)}% — deveria somar 100%.`,
+      );
+    }
+    let allocated = 0;
+    return rawLines.map((l, i) => {
+      const isLast = i === rawLines.length - 1;
+      const amount = isLast
+        ? Number((total - allocated).toFixed(2))
+        : Number(((total * l.percentage) / 100).toFixed(2));
+      allocated += amount;
+      return {
+        kind,
+        rateioCode,
+        targetCode: l.targetCode,
+        branchCode: l.branchCode,
+        percentage: l.percentage,
+        amount,
+      };
+    });
+  }
+
   /** Valida itens contra o ERP (+ escopo da equipe) e monta os dados + total. */
   private async buildItems(
     companyCode: string,
     items: CreateRequisitionItemDto[],
     teamRateios: { branch: Set<string>; cc: Set<string> } | null,
   ) {
-    const itemsData: Prisma.RequisitionItemCreateManyRequisitionInput[] = [];
+    const built: {
+      fields: Prisma.RequisitionItemCreateWithoutRequisitionInput;
+    }[] = [];
     let totalAmount = 0;
 
     for (const it of items) {
@@ -129,24 +170,60 @@ export class RequisitionsService {
 
       const totalPrice = Number((it.quantity * it.estimatedPrice).toFixed(2));
       totalAmount += totalPrice;
-      itemsData.push({
-        itemErpCode: it.itemErpCode ?? null,
-        itemDescription: it.itemDescription,
-        quantity: it.quantity,
-        unit: it.unit,
-        estimatedPrice: it.estimatedPrice,
-        totalPrice,
-        accountingAccount: it.accountingAccount,
-        accountName: account.nome,
-        branchRateioCode: it.branchRateioCode,
-        branchRateioDesc: branchRateio.descricao,
-        costCenterRateioCode: it.costCenterRateioCode,
-        costCenterRateioDesc: ccRateio.descricao,
-        notes: it.notes ?? null,
+
+      // Snapshot do rateio — congela as linhas no momento da criação.
+      const branchLines = await this.integration.getBranchRateioLines(
+        companyCode,
+        it.branchRateioCode,
+      );
+      const ccLines = await this.integration.getCostCenterRateioLines(
+        companyCode,
+        it.costCenterRateioCode,
+      );
+      const rateioSnapshot = [
+        ...this.snapshotLines(
+          'BRANCH',
+          it.branchRateioCode,
+          branchLines.map((l) => ({
+            targetCode: l.filialCodigo,
+            branchCode: null,
+            percentage: l.porcentagem,
+          })),
+          totalPrice,
+        ),
+        ...this.snapshotLines(
+          'COST_CENTER',
+          it.costCenterRateioCode,
+          ccLines.map((l) => ({
+            targetCode: l.centroCustoCodigo,
+            branchCode: l.filialCodigo,
+            percentage: l.porcentagem,
+          })),
+          totalPrice,
+        ),
+      ];
+
+      built.push({
+        fields: {
+          itemErpCode: it.itemErpCode ?? null,
+          itemDescription: it.itemDescription,
+          quantity: it.quantity,
+          unit: it.unit,
+          estimatedPrice: it.estimatedPrice,
+          totalPrice,
+          accountingAccount: it.accountingAccount,
+          accountName: account.nome,
+          branchRateioCode: it.branchRateioCode,
+          branchRateioDesc: branchRateio.descricao,
+          costCenterRateioCode: it.costCenterRateioCode,
+          costCenterRateioDesc: ccRateio.descricao,
+          notes: it.notes ?? null,
+          rateios: { create: rateioSnapshot },
+        },
       });
     }
 
-    return { itemsData, totalAmount: Number(totalAmount.toFixed(2)) };
+    return { built, totalAmount: Number(totalAmount.toFixed(2)) };
   }
 
   /** Cria uma requisição em rascunho. */
@@ -171,7 +248,7 @@ export class RequisitionsService {
     }
 
     const teamRateios = await this.loadTeamRateios(user.teamId, company.id);
-    const { itemsData, totalAmount } = await this.buildItems(
+    const { built, totalAmount } = await this.buildItems(
       company.code,
       dto.items,
       teamRateios,
@@ -194,9 +271,9 @@ export class RequisitionsService {
         status: RequisitionStatus.DRAFT,
         totalAmount,
         neededBy: dto.neededBy ? new Date(dto.neededBy) : null,
-        items: { createMany: { data: itemsData } },
+        items: { create: built.map((b) => b.fields) },
       },
-      include: { items: true },
+      include: { items: { include: { rateios: true } } },
     });
   }
 
@@ -245,7 +322,7 @@ export class RequisitionsService {
     const req = await this.prisma.requisition.findUnique({
       where: { id },
       include: {
-        items: true,
+        items: { include: { rateios: true } },
         requester: { select: { id: true, name: true } },
         approvalSteps: { orderBy: { level: 'asc' } },
       },
@@ -321,19 +398,32 @@ export class RequisitionsService {
         user.teamId,
         company.id,
       );
-      const { itemsData, totalAmount } = await this.buildItems(
+      const { built, totalAmount } = await this.buildItems(
         company.code,
         dto.items,
         teamRateios,
       );
       data.totalAmount = totalAmount;
+
+      const oldItems = await this.prisma.requisitionItem.findMany({
+        where: { requisitionId: id },
+        select: { id: true },
+      });
+      const oldIds = oldItems.map((o) => o.id);
+
+      // Apaga o snapshot antigo, depois os itens, e recria com snapshot novo.
       await this.prisma.$transaction([
+        this.prisma.requisitionItemRateio.deleteMany({
+          where: { requisitionItemId: { in: oldIds } },
+        }),
         this.prisma.requisitionItem.deleteMany({
           where: { requisitionId: id },
         }),
-        this.prisma.requisitionItem.createMany({
-          data: itemsData.map((i) => ({ ...i, requisitionId: id })),
-        }),
+        ...built.map((b) =>
+          this.prisma.requisitionItem.create({
+            data: { ...b.fields, requisitionId: id },
+          }),
+        ),
       ]);
     }
 

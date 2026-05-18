@@ -303,10 +303,32 @@ model RequisitionItem {
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
-  requisition Requisition @relation(fields: [requisitionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  requisition Requisition             @relation(fields: [requisitionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  rateios     RequisitionItemRateio[]
 
   @@index([requisitionId])
   @@map("requisition_items")
+}
+
+// Snapshot do rateio do item — congelado na criação (RN-RAT-02).
+// Cada item gera N linhas BRANCH (somam 100%) e N linhas COST_CENTER.
+// Alterações futuras nos templates do ERP não afetam o que foi congelado.
+model RequisitionItemRateio {
+  id                String   @id @default(uuid()) @db.UniqueIdentifier
+  requisitionItemId String   @db.UniqueIdentifier
+  kind              String   @db.NVarChar(15)  // BRANCH | COST_CENTER
+  rateioCode        String   @db.NVarChar(20)  // código do template de origem
+  targetCode        String   @db.NVarChar(20)  // filial (BRANCH) ou CC (COST_CENTER)
+  branchCode        String?  @db.NVarChar(20)  // filial da linha de CC, quando houver
+  percentage        Decimal  @db.Decimal(9, 4)
+  amount            Decimal  @db.Decimal(15, 2) // valor rateado congelado
+  createdAt         DateTime @default(now())
+
+  requisitionItem RequisitionItem @relation(fields: [requisitionItemId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@index([requisitionItemId])
+  @@index([kind, targetCode])
+  @@map("requisition_item_rateios")
 }
 
 // ============================================================

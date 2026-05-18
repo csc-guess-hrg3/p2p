@@ -259,6 +259,54 @@ export class IntegrationService {
     return rows[0] ?? null;
   }
 
+  /** Linhas de um template de rateio de filial (filial + %). */
+  async getBranchRateioLines(
+    company: string,
+    codigo: string,
+  ): Promise<{ filialCodigo: string; porcentagem: number }[]> {
+    const c = this.assertCompany(company);
+    const rows = await this.prisma.$queryRaw<
+      { filialCodigo: string; porcentagem: number }[]
+    >`
+      SELECT filial_codigo AS filialCodigo, porcentagem
+      FROM dbo.v_p2p_branch_rateios
+      WHERE empresa = ${c} AND rateio_codigo = ${codigo}`;
+    return rows.map((r) => ({
+      filialCodigo: r.filialCodigo,
+      porcentagem: Number(r.porcentagem),
+    }));
+  }
+
+  /** Linhas de um template de rateio de centro de custo (CC + filial + %). */
+  async getCostCenterRateioLines(
+    company: string,
+    codigo: string,
+  ): Promise<
+    {
+      centroCustoCodigo: string;
+      filialCodigo: string | null;
+      porcentagem: number;
+    }[]
+  > {
+    const c = this.assertCompany(company);
+    const rows = await this.prisma.$queryRaw<
+      {
+        centroCustoCodigo: string;
+        filialCodigo: string | null;
+        porcentagem: number;
+      }[]
+    >`
+      SELECT centro_custo_codigo AS centroCustoCodigo,
+             filial_codigo AS filialCodigo, porcentagem
+      FROM dbo.v_p2p_cc_rateios
+      WHERE empresa = ${c} AND rateio_codigo = ${codigo}`;
+    return rows.map((r) => ({
+      centroCustoCodigo: r.centroCustoCodigo,
+      filialCodigo: r.filialCodigo,
+      porcentagem: Number(r.porcentagem),
+    }));
+  }
+
   /** Agrupa linhas de rateio (uma linha por destino) em templates. */
   private groupRateios(
     rows: Array<{
