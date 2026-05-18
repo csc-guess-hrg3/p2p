@@ -62,8 +62,31 @@ model Company {
   integrationLogs       IntegrationLog[]
   teamBranchRateios     TeamBranchRateio[]
   teamCostCenterRateios TeamCostCenterRateio[]
+  settings              SystemSetting[]
 
   @@map("companies")
+}
+
+// ============================================================
+// PARÂMETROS DA PLATAFORMA — configuráveis pelo Administrador
+// Chave/valor por empresa (cada empresa tem seus próprios valores).
+// Ex.: receiving.divergence_tolerance_pct
+// ============================================================
+
+model SystemSetting {
+  id            String   @id @default(uuid()) @db.UniqueIdentifier
+  companyId     String   @db.UniqueIdentifier
+  key           String   @db.NVarChar(80)
+  value         String   @db.NVarChar(Max)
+  updatedById   String?  @db.UniqueIdentifier
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  company   Company @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  updatedBy User?   @relation(fields: [updatedById], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@unique([companyId, key])
+  @@map("system_settings")
 }
 
 // ============================================================
@@ -174,6 +197,7 @@ model User {
   decidedSteps        ApprovalStep[]  @relation("stepDecider")
   receivings          Receiving[]
   notifications       Notification[]
+  updatedSettings     SystemSetting[]
 
   @@map("users")
 }

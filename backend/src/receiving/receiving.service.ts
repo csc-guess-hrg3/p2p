@@ -13,6 +13,7 @@ import {
   UserProfile,
 } from '../common/enums';
 import { AuthenticatedUser } from '../auth/auth.types';
+import { SettingsService } from '../settings/settings.service';
 import { CreateReceivingDto } from './dto/create-receiving.dto';
 import { QueryReceivingsDto } from './dto/query-receivings.dto';
 
@@ -28,6 +29,7 @@ export class ReceivingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly numbering: NumberingService,
+    private readonly settings: SettingsService,
   ) {}
 
   /** Registra um recebimento (em rascunho) contra um Pedido de Compra. */
@@ -55,6 +57,8 @@ export class ReceivingService {
     const poItemById = new Map(po.items.map((it) => [it.id, it]));
 
     // Valida cada linha do recebimento contra o item do pedido.
+    // Receber acima do saldo é permitido — a divergência é avaliada na
+    // confirmação, conforme a tolerância da empresa.
     const items = dto.items.map((line) => {
       const poItem = poItemById.get(line.purchaseOrderItemId);
       if (!poItem) {
@@ -67,14 +71,6 @@ export class ReceivingService {
       if (sum !== Number(line.receivedQty.toFixed(4))) {
         throw new BadRequestException(
           `Item ${poItem.itemDescription}: aceito + rejeitado deve ser igual ao recebido.`,
-        );
-      }
-      const remaining =
-        Number(poItem.quantity) - Number(poItem.receivedQty);
-      if (line.acceptedQty - remaining > 1e-6) {
-        throw new BadRequestException(
-          `Item ${poItem.itemDescription}: quantidade aceita (${line.acceptedQty}) ` +
-            `excede o saldo do pedido (${remaining}).`,
         );
       }
       return {
@@ -161,9 +157,13 @@ export class ReceivingService {
   }
 
   /**
-   * Confirma um recebimento em rascunho:
-   * acumula a quantidade aceita no saldo dos itens do PC e atualiza o
-   * status do PC (parcial/total). Recebimento com rejeição vira DIVERGENTE.
+   * Confirma um recebimento em rascunho: acumula a quantidade aceita no
+   * saldo dos itens do PC e atualiza o status do PC (parcial/total).
+   *
+   * Marca o recebimento como DIVERGENTE quando, acima da tolerância da
+   * empresa (parâmetro `receiving.divergence_tolerance_pct`):
+   *  - a proporção de itens rejeitados excede o %, ou
+   *  - a quantidade recebida supera a pedida acima do %.
    */
   async confirm(user: AuthenticatedUser, id: string) {
     if (user.profile === UserProfile.REVIEWER) {
@@ -176,9 +176,22 @@ export class ReceivingService {
       );
     }
 
-    const hasRejection = receiving.items.some(
-      (it) => Number(it.rejectedQty) > 0,
+    const tolPct = await this.settings.getNumber(
+      receiving.companyId,
+      'receiving.divergence_tolerance_pct',
     );
+
+    // Proporção rejeitada do recebimento.
+    const totalReceived = receiving.items.reduce(
+      (s, it) => s + Number(it.receivedQty),
+      0,
+    );
+    const totalRejected = receiving.items.reduce(
+      (s, it) => s + Number(it.rejectedQty),
+      0,
+    );
+    const rejectedPct =
+      totalReceived > 0 ? (totalRejected / totalReceived) * 100 : 0;
     const now = new Date();
 
     await this.prisma.$transaction(
@@ -198,6 +211,30 @@ export class ReceivingService {
         const fullyReceived = poItems.every(
           (it) => Number(it.receivedQty) - Number(it.quantity) >= -1e-6,
         );
+        // Maior excedente (% recebido acima do pedido) entre os itens.
+        let overPct = 0;
+        for (const it of poItems) {
+          const ordered = Number(it.quantity);
+          const received = Number(it.receivedQty);
+          if (ordered > 0 && received > ordered) {
+            overPct = Math.max(overPct, ((received - ordered) / ordered) * 100);
+          }
+        }
+
+        const notes: string[] = [];
+        if (rejectedPct - tolPct > 1e-6) {
+          notes.push(
+            `Rejeição de ${rejectedPct.toFixed(2)}% (tolerância ${tolPct}%).`,
+          );
+        }
+        if (overPct - tolPct > 1e-6) {
+          notes.push(
+            `Recebimento ${overPct.toFixed(2)}% acima do pedido ` +
+              `(tolerância ${tolPct}%).`,
+          );
+        }
+        const divergent = notes.length > 0;
+
         await tx.purchaseOrder.update({
           where: { id: receiving.purchaseOrder.id },
           data: {
@@ -209,10 +246,11 @@ export class ReceivingService {
         await tx.receiving.update({
           where: { id: receiving.id },
           data: {
-            status: hasRejection
+            status: divergent
               ? ReceivingStatus.DIVERGENT
               : ReceivingStatus.CONFIRMED,
             confirmedAt: now,
+            divergenceNotes: divergent ? notes.join(' ') : null,
           },
         });
       },

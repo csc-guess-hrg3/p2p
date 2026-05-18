@@ -17,6 +17,7 @@ import { RequisitionsModule } from './requisitions/requisitions.module';
 import { PurchaseOrdersModule } from './purchase-orders/purchase-orders.module';
 import { FundRequestsModule } from './fund-requests/fund-requests.module';
 import { ReceivingModule } from './receiving/receiving.module';
+import { SettingsModule } from './settings/settings.module';
 import { FiscalDocumentsModule } from './fiscal-documents/fiscal-documents.module';
 import { FinancialModule } from './financial/financial.module';
 import { DashboardModule } from './dashboard/dashboard.module';
@@ -39,6 +40,7 @@ import { IntegrationModule } from './integration/integration.module';
     PurchaseOrdersModule,
     FundRequestsModule,
     ReceivingModule,
+    SettingsModule,
     FiscalDocumentsModule,
     FinancialModule,
     DashboardModule,
