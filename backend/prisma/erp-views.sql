@@ -26,20 +26,33 @@ FROM DB_HRG3.dbo.CTB_CENTRO_CUSTO;
 GO
 
 -- ---------- FORNECEDORES ----------
+-- Cadastro mestre = CADASTRO_CLI_FOR (clientes+fornecedores), filtrado por
+-- INDICA_FORNECEDOR=1. FORNECEDORES traz atributos especificos (TIPO, cond. pgto).
+-- Inclui dados bancarios/PIX para auto-preencher beneficiario na Solicitacao de Verba.
 CREATE OR ALTER VIEW dbo.v_p2p_suppliers AS
-SELECT 'GUESS' AS empresa, RTRIM(COD_FORNECEDOR) AS codigo, RTRIM(FORNECEDOR) AS nome,
-       RTRIM(CGC_CPF) AS cnpj_cpf,
-       CASE WHEN LEN(RTRIM(CGC_CPF)) >= 14 THEN 'PJ' ELSE 'PF' END AS tipo_pessoa,
-       RTRIM(TIPO) AS tipo, RTRIM(SUBTIPO_FORNECEDOR) AS subtipo,
-       RTRIM(CONDICAO_PGTO) AS condicao_pgto, RTRIM(CONTA_CONTABIL) AS conta_contabil,
-       INATIVO AS inativo
-FROM GUESS_PRODUCAO.dbo.FORNECEDORES
+SELECT 'GUESS' AS empresa, RTRIM(c.COD_CLIFOR) AS codigo,
+       RTRIM(c.NOME_CLIFOR) AS nome, RTRIM(c.RAZAO_SOCIAL) AS razao_social,
+       RTRIM(c.CGC_CPF) AS cnpj_cpf,
+       CASE WHEN c.PJ_PF = 1 THEN 'PJ' ELSE 'PF' END AS tipo_pessoa,
+       RTRIM(c.EMAIL) AS email,
+       RTRIM(c.DDD1) + RTRIM(c.TELEFONE1) AS telefone,
+       RTRIM(f.TIPO) AS tipo, RTRIM(f.CONDICAO_PGTO) AS condicao_pgto,
+       RTRIM(c.BANCO) AS banco, RTRIM(c.CC_AGENCIA) AS agencia,
+       RTRIM(c.CC_CONTA) AS conta, RTRIM(c.CHAVE_PIX) AS chave_pix,
+       c.INATIVO AS inativo
+FROM GUESS_PRODUCAO.dbo.CADASTRO_CLI_FOR c
+LEFT JOIN GUESS_PRODUCAO.dbo.FORNECEDORES f ON f.CLIFOR = c.CLIFOR
+WHERE c.INDICA_FORNECEDOR = 1
 UNION ALL
-SELECT 'HERING', RTRIM(COD_FORNECEDOR), RTRIM(FORNECEDOR), RTRIM(CGC_CPF),
-       CASE WHEN LEN(RTRIM(CGC_CPF)) >= 14 THEN 'PJ' ELSE 'PF' END,
-       RTRIM(TIPO), RTRIM(SUBTIPO_FORNECEDOR), RTRIM(CONDICAO_PGTO),
-       RTRIM(CONTA_CONTABIL), INATIVO
-FROM DB_HRG3.dbo.FORNECEDORES;
+SELECT 'HERING', RTRIM(c.COD_CLIFOR), RTRIM(c.NOME_CLIFOR), RTRIM(c.RAZAO_SOCIAL),
+       RTRIM(c.CGC_CPF), CASE WHEN c.PJ_PF = 1 THEN 'PJ' ELSE 'PF' END,
+       RTRIM(c.EMAIL), RTRIM(c.DDD1) + RTRIM(c.TELEFONE1),
+       RTRIM(f.TIPO), RTRIM(f.CONDICAO_PGTO),
+       RTRIM(c.BANCO), RTRIM(c.CC_AGENCIA), RTRIM(c.CC_CONTA), RTRIM(c.CHAVE_PIX),
+       c.INATIVO
+FROM DB_HRG3.dbo.CADASTRO_CLI_FOR c
+LEFT JOIN DB_HRG3.dbo.FORNECEDORES f ON f.CLIFOR = c.CLIFOR
+WHERE c.INDICA_FORNECEDOR = 1;
 GO
 
 -- ---------- PLANO DE CONTAS ----------
