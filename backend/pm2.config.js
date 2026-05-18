@@ -2,7 +2,7 @@ module.exports = {
   apps: [
     {
       name: 'p2p-api',
-      script: 'dist/main.js',
+      script: 'dist/src/main.js',
       instances: 1,
       exec_mode: 'fork',
       watch: false,

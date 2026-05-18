@@ -6,6 +6,7 @@ export interface JwtPayload {
   name: string;
   profile: string;
   status: string;
+  teamId: string | null;
   companyIds: string[];
 }
 
@@ -17,6 +18,7 @@ export interface AuthenticatedUser {
   name: string;
   profile: string;
   status: string;
+  teamId: string | null;
   companyIds: string[];
 }
 

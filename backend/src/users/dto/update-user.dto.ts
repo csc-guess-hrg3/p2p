@@ -31,4 +31,11 @@ export class UpdateUserDto {
   @IsNumber()
   @Min(0)
   approvalLimit?: number | null;
+
+  @ApiPropertyOptional({
+    description: 'ID da equipe do usuário (null remove da equipe)',
+  })
+  @IsOptional()
+  @IsString()
+  teamId?: string | null;
 }

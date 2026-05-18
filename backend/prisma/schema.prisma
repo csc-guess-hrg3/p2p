@@ -54,15 +54,67 @@ model Company {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  users           UserCompany[]
-  approvalTiers   ApprovalTier[]
-  requisitions    Requisition[]
-  purchaseOrders  PurchaseOrder[]
-  fundRequests    FundRequest[]
-  budgetEntries   BudgetEntry[]
-  integrationLogs IntegrationLog[]
+  users                 UserCompany[]
+  approvalTiers         ApprovalTier[]
+  requisitions          Requisition[]
+  purchaseOrders        PurchaseOrder[]
+  fundRequests          FundRequest[]
+  budgetEntries         BudgetEntry[]
+  integrationLogs       IntegrationLog[]
+  teamBranchRateios     TeamBranchRateio[]
+  teamCostCenterRateios TeamCostCenterRateio[]
 
   @@map("companies")
+}
+
+// ============================================================
+// EQUIPES — escopo de operação parametrizável
+// Uma equipe pode operar em várias empresas. Define quais rateios de
+// filial e de centro de custo seus membros podem usar e enxergar.
+// ============================================================
+
+model Team {
+  id        String    @id @default(uuid()) @db.UniqueIdentifier
+  name      String    @db.NVarChar(150)
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  members           User[]
+  branchRateios     TeamBranchRateio[]
+  costCenterRateios TeamCostCenterRateio[]
+  requisitions      Requisition[]
+
+  @@map("teams")
+}
+
+// Rateios de filial que a equipe pode usar, por empresa
+model TeamBranchRateio {
+  id               String @id @default(uuid()) @db.UniqueIdentifier
+  teamId           String @db.UniqueIdentifier
+  companyId        String @db.UniqueIdentifier
+  branchRateioCode String @db.NVarChar(20)
+
+  team    Team    @relation(fields: [teamId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  company Company @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@unique([teamId, companyId, branchRateioCode])
+  @@map("team_branch_rateios")
+}
+
+// Rateios de centro de custo que a equipe pode usar, por empresa
+model TeamCostCenterRateio {
+  id                   String @id @default(uuid()) @db.UniqueIdentifier
+  teamId               String @db.UniqueIdentifier
+  companyId            String @db.UniqueIdentifier
+  costCenterRateioCode String @db.NVarChar(20)
+
+  team    Team    @relation(fields: [teamId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  company Company @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@unique([teamId, companyId, costCenterRateioCode])
+  @@map("team_cost_center_rateios")
 }
 
 // ============================================================
@@ -77,11 +129,13 @@ model User {
   profile       String    @db.NVarChar(20)
   status        String    @default("PENDING_SETUP") @db.NVarChar(20)
   approvalLimit Decimal?  @db.Decimal(15, 2)
+  teamId        String?   @db.UniqueIdentifier  // equipe — escopo de operação
   lastLoginAt   DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   deletedAt     DateTime?
 
+  team                Team?           @relation(fields: [teamId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   companies           UserCompany[]
   approvalTiers       UserApprovalTier[]
   delegationsGiven    Delegation[]    @relation("delegator")
@@ -208,6 +262,7 @@ model Requisition {
   supplierErpCode  String    @db.NVarChar(50)
   supplierName     String    @db.NVarChar(255)  // snapshot
   requesterId      String    @db.UniqueIdentifier
+  teamId           String?   @db.UniqueIdentifier  // equipe do solicitante (visibilidade)
   title            String    @db.NVarChar(500)
   justification    String?   @db.NVarChar(Max)
   tipoNotaFiscal   String    @db.NVarChar(15)   // SEM_NF | NF_FUTURA | NF_EXISTENTE
@@ -225,6 +280,7 @@ model Requisition {
 
   company       Company           @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   requester     User              @relation(fields: [requesterId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  team           Team?             @relation(fields: [teamId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   items          RequisitionItem[]
   approvalSteps  ApprovalStep[]
   purchaseOrders PurchaseOrder[]
@@ -233,6 +289,7 @@ model Requisition {
 
   @@index([companyId, status])
   @@index([requesterId, status])
+  @@index([teamId, status])
   @@map("requisitions")
 }
 

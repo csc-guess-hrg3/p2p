@@ -60,9 +60,19 @@ export class UsersService {
     return user;
   }
 
-  /** Atualiza perfil, status, nome e limite de aprovação. */
+  /** Atualiza perfil, status, nome, limite de aprovação e equipe. */
   async update(id: string, dto: UpdateUserDto) {
     await this.findOne(id);
+
+    if (dto.teamId) {
+      const team = await this.prisma.team.findUnique({
+        where: { id: dto.teamId },
+      });
+      if (!team || team.deletedAt) {
+        throw new BadRequestException('Equipe inválida.');
+      }
+    }
+
     return this.prisma.user.update({
       where: { id },
       data: {
@@ -72,6 +82,7 @@ export class UsersService {
         ...(dto.approvalLimit !== undefined
           ? { approvalLimit: dto.approvalLimit }
           : {}),
+        ...(dto.teamId !== undefined ? { teamId: dto.teamId } : {}),
       },
     });
   }

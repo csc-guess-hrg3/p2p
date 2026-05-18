@@ -48,10 +48,29 @@ export class RequisitionsService {
     return { id: company.id, code: company.code };
   }
 
-  /** Valida itens contra o ERP e monta os dados + total. */
+  /** Carrega os rateios liberados para a equipe na empresa. */
+  private async loadTeamRateios(
+    teamId: string | null,
+    companyId: string,
+  ): Promise<{ branch: Set<string>; cc: Set<string> } | null> {
+    if (!teamId) return null; // sem equipe (ex.: admin) — sem restrição
+    const [branch, cc] = await Promise.all([
+      this.prisma.teamBranchRateio.findMany({ where: { teamId, companyId } }),
+      this.prisma.teamCostCenterRateio.findMany({
+        where: { teamId, companyId },
+      }),
+    ]);
+    return {
+      branch: new Set(branch.map((b) => b.branchRateioCode)),
+      cc: new Set(cc.map((c) => c.costCenterRateioCode)),
+    };
+  }
+
+  /** Valida itens contra o ERP (+ escopo da equipe) e monta os dados + total. */
   private async buildItems(
     companyCode: string,
     items: CreateRequisitionItemDto[],
+    teamRateios: { branch: Set<string>; cc: Set<string> } | null,
   ) {
     const itemsData: Prisma.RequisitionItemCreateManyRequisitionInput[] = [];
     let totalAmount = 0;
@@ -91,6 +110,20 @@ export class RequisitionsService {
         );
         if (!erpItem) {
           throw new BadRequestException(`Item inválido: ${it.itemErpCode}`);
+        }
+      }
+
+      // Escopo da equipe: o item só pode usar rateios liberados para ela.
+      if (teamRateios) {
+        if (!teamRateios.branch.has(it.branchRateioCode)) {
+          throw new BadRequestException(
+            `O rateio de filial ${it.branchRateioCode} não está liberado para a sua equipe.`,
+          );
+        }
+        if (!teamRateios.cc.has(it.costCenterRateioCode)) {
+          throw new BadRequestException(
+            `O rateio de centro de custo ${it.costCenterRateioCode} não está liberado para a sua equipe.`,
+          );
         }
       }
 
@@ -137,9 +170,11 @@ export class RequisitionsService {
       );
     }
 
+    const teamRateios = await this.loadTeamRateios(user.teamId, company.id);
     const { itemsData, totalAmount } = await this.buildItems(
       company.code,
       dto.items,
+      teamRateios,
     );
     const number = await this.numbering.next(company.code, 'REQ');
 
@@ -152,6 +187,7 @@ export class RequisitionsService {
         supplierErpCode: dto.supplierErpCode,
         supplierName: supplier.nome,
         requesterId: user.id,
+        teamId: user.teamId,
         title: dto.title,
         justification: dto.justification,
         tipoNotaFiscal: dto.tipoNotaFiscal,
@@ -175,6 +211,10 @@ export class RequisitionsService {
     const where: Prisma.RequisitionWhereInput = {
       deletedAt: null,
       companyId: companyId ? companyId : { in: user.companyIds },
+      // Escopo de visibilidade: não-admin vê só a própria equipe.
+      ...(user.profile !== UserProfile.ADMIN
+        ? { teamId: user.teamId }
+        : {}),
       ...(status ? { status } : {}),
       ...(mine === 'true' ? { requesterId: user.id } : {}),
       ...(search
@@ -277,9 +317,14 @@ export class RequisitionsService {
     }
 
     if (dto.items) {
+      const teamRateios = await this.loadTeamRateios(
+        user.teamId,
+        company.id,
+      );
       const { itemsData, totalAmount } = await this.buildItems(
         company.code,
         dto.items,
+        teamRateios,
       );
       data.totalAmount = totalAmount;
       await this.prisma.$transaction([

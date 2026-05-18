@@ -107,6 +107,7 @@ export class AuthService {
       name: user.name,
       profile: user.profile,
       status: user.status,
+      teamId: user.teamId,
       companyIds: user.companies.map((c) => c.companyId),
     };
 

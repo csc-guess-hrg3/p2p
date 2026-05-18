@@ -9,6 +9,7 @@ import { NumberingModule } from './numbering/numbering.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { CompaniesModule } from './companies/companies.module';
+import { TeamsModule } from './teams/teams.module';
 import { BudgetModule } from './budget/budget.module';
 import { ApprovalsModule } from './approvals/approvals.module';
 import { RequisitionsModule } from './requisitions/requisitions.module';
@@ -28,6 +29,7 @@ import { IntegrationModule } from './integration/integration.module';
     AuthModule,
     UsersModule,
     CompaniesModule,
+    TeamsModule,
     BudgetModule,
     ApprovalsModule,
     RequisitionsModule,
