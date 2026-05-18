@@ -1,20 +1,32 @@
 // ============================================================
 // P2P_DB — Schema Prisma (SQL Server)
 //
-// NOTAS SQL Server:
-// - Enums não suportados: status/tipo usam String com validação na app
-// - onDelete/onUpdate = NoAction em relações com múltiplos caminhos
-// - Numeração: usar SQL Server SEQUENCE (ver DocumentSequence)
-// - Cross-DB: usar $queryRaw no IntegrationService
+// ARQUITETURA DE DADOS:
+// - Dados de REFERÊNCIA do ERP (filiais, CCs, fornecedores, itens, contas,
+//   rateios) NÃO são copiados para o P2P. São lidos ao vivo das views
+//   v_p2p_* (cross-database, mesmo servidor).
+// - Dados TRANSACIONAIS nascem e vivem no P2P_DB. Guardam o CÓDIGO do ERP
+//   (string) + um SNAPSHOT do nome/descrição no momento da criação, para
+//   o histórico não quebrar se o ERP mudar depois.
+// - Integração: o P2P GRAVA suas OCs/SVs aprovadas no ERP (COMPRAS,
+//   COMPRAS_CONSUMIVEL, CTB_SOLICITACAO_VERBA). Fluxo de dados P2P -> ERP.
 //
-// Valores válidos de status (TypeScript constants em src/common/enums.ts):
+// NOTAS SQL Server:
+// - Enums não suportados pelo Prisma: status/tipo são String validados na app.
+// - onDelete/onUpdate = NoAction em todas as relações (múltiplos cascade paths).
+// - Numeração: SQL Server SEQUENCE (ver DocumentSequence).
+//
+// Valores válidos (constantes em src/common/enums.ts):
 //   UserProfile:          ADMIN | MANAGER | OPERATOR | REVIEWER
 //   UserStatus:           ACTIVE | INACTIVE | PENDING_SETUP
+//   RequisitionNfType:    SEM_NF | NF_FUTURA | NF_EXISTENTE
 //   RequisitionStatus:    DRAFT | SUBMITTED | IN_APPROVAL | APPROVED | REJECTED | CONVERTED | CANCELLED
 //   PurchaseOrderStatus:  DRAFT | IN_APPROVAL | APPROVED | SENT_TO_SUPPLIER |
 //                         PARTIALLY_RECEIVED | FULLY_RECEIVED | PENDING_ERP | INTEGRATED | CANCELLED
+//   FundRequestStatus:    DRAFT | IN_APPROVAL | APPROVED | REJECTED | PENDING_ERP | INTEGRATED | CANCELLED
 //   ApprovalStepStatus:   PENDING | APPROVED | REJECTED
 //   ReceivingStatus:      DRAFT | CONFIRMED | DIVERGENT | CANCELLED
+//   ApprovalEntityType:   REQUISITION | PURCHASE_ORDER | FUND_REQUEST
 //   NotificationType:     APPROVAL_REQUIRED | APPROVED | REJECTED | OVERDUE | BUDGET_ALERT | GENERAL
 //   IntegrationLogStatus: SUCCESS | PARTIAL | FAILED
 // ============================================================
@@ -28,28 +40,25 @@ datasource db {
 }
 
 // ============================================================
-// EMPRESAS
+// EMPRESAS (dado próprio do P2P — 2 registros: Guess e Hering)
 // ============================================================
 
 model Company {
   id        String    @id @default(uuid()) @db.UniqueIdentifier
-  code      String    @unique @db.NVarChar(20)
+  code      String    @unique @db.NVarChar(20)  // GUESS | HERING (casa com coluna empresa das views)
   name      String    @db.NVarChar(255)
   cnpj      String    @unique @db.NVarChar(18)
-  erpDbName String    @db.NVarChar(100)
+  erpDbName String    @db.NVarChar(100)         // GUESS_PRODUCAO | DB_HRG3
   active    Boolean   @default(true)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
   users           UserCompany[]
-  branches        Branch[]
-  costCenters     CostCenter[]
-  suppliers       Supplier[]
-  items           Item[]
   approvalTiers   ApprovalTier[]
   requisitions    Requisition[]
   purchaseOrders  PurchaseOrder[]
+  fundRequests    FundRequest[]
   budgetEntries   BudgetEntry[]
   integrationLogs IntegrationLog[]
 
@@ -57,58 +66,7 @@ model Company {
 }
 
 // ============================================================
-// FILIAIS (cache do ERP)
-// ============================================================
-
-model Branch {
-  id         String    @id @default(uuid()) @db.UniqueIdentifier
-  companyId  String    @db.UniqueIdentifier
-  erpCode    String    @db.NVarChar(50)
-  name       String    @db.NVarChar(255)
-  cnpj       String    @db.NVarChar(18)
-  active     Boolean   @default(true)
-  lastSyncAt DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-
-  company Company @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-
-  requisitions       Requisition[]
-  requisitionItems   RequisitionItem[]
-  purchaseOrders     PurchaseOrder[]
-  purchaseOrderItems PurchaseOrderItem[]
-  budgetEntries      BudgetEntry[]
-
-  @@unique([companyId, erpCode])
-  @@map("branches")
-}
-
-// ============================================================
-// CENTROS DE CUSTO (cache do ERP)
-// ============================================================
-
-model CostCenter {
-  id         String    @id @default(uuid()) @db.UniqueIdentifier
-  companyId  String    @db.UniqueIdentifier
-  erpCode    String    @db.NVarChar(50)
-  name       String    @db.NVarChar(255)
-  active     Boolean   @default(true)
-  lastSyncAt DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-
-  company Company @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-
-  requisitionItems   RequisitionItem[]
-  purchaseOrderItems PurchaseOrderItem[]
-  budgetEntries      BudgetEntry[]
-
-  @@unique([companyId, erpCode])
-  @@map("cost_centers")
-}
-
-// ============================================================
-// USUÁRIOS (criados via JIT no primeiro login LDAP)
+// USUÁRIOS (dado próprio do P2P — criados via JIT no login LDAP)
 // ============================================================
 
 model User {
@@ -116,7 +74,7 @@ model User {
   email         String    @unique @db.NVarChar(255)
   name          String    @db.NVarChar(255)
   adUsername    String?   @unique @db.NVarChar(255)
-  profile       String    @db.NVarChar(20)  // ADMIN | MANAGER | OPERATOR | REVIEWER
+  profile       String    @db.NVarChar(20)
   status        String    @default("PENDING_SETUP") @db.NVarChar(20)
   approvalLimit Decimal?  @db.Decimal(15, 2)
   lastLoginAt   DateTime?
@@ -130,6 +88,7 @@ model User {
   delegationsReceived Delegation[]    @relation("delegate")
   requisitions        Requisition[]
   purchaseOrders      PurchaseOrder[]
+  fundRequests        FundRequest[]
   approvalSteps       ApprovalStep[]
   receivings          Receiving[]
   notifications       Notification[]
@@ -137,7 +96,6 @@ model User {
   @@map("users")
 }
 
-// M:N User <-> Company
 model UserCompany {
   id        String   @id @default(uuid()) @db.UniqueIdentifier
   userId    String   @db.UniqueIdentifier
@@ -207,102 +165,52 @@ model Delegation {
 }
 
 // ============================================================
-// FORNECEDORES (cache do ERP)
-// ============================================================
-
-model Supplier {
-  id         String    @id @default(uuid()) @db.UniqueIdentifier
-  companyId  String    @db.UniqueIdentifier
-  erpCode    String    @db.NVarChar(50)
-  name       String    @db.NVarChar(255)
-  tradeName  String?   @db.NVarChar(255)
-  cnpjCpf    String    @db.NVarChar(18)
-  personType String    @db.NVarChar(2)  // PJ | PF
-  email      String?   @db.NVarChar(255)
-  phone      String?   @db.NVarChar(30)
-  active     Boolean   @default(true)
-  lastSyncAt DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  deletedAt  DateTime?
-
-  company        Company         @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  items          Item[]
-  requisitions   Requisition[]
-  purchaseOrders PurchaseOrder[]
-
-  @@unique([companyId, erpCode])
-  @@map("suppliers")
-}
-
-// ============================================================
-// ITENS (cache do ERP — vinculados ao fornecedor)
-// ============================================================
-
-model Item {
-  id             String    @id @default(uuid()) @db.UniqueIdentifier
-  companyId      String    @db.UniqueIdentifier
-  supplierId     String    @db.UniqueIdentifier
-  erpCode        String    @db.NVarChar(50)
-  description    String    @db.NVarChar(500)
-  unit           String    @db.NVarChar(20)
-  itemType       String    @db.NVarChar(10)   // PRODUCT | SERVICE
-  accountingCode String?   @db.NVarChar(50)
-  active         Boolean   @default(true)
-  lastSyncAt     DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-
-  company            Company              @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  supplier           Supplier             @relation(fields: [supplierId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  requisitionItems   RequisitionItem[]
-  purchaseOrderItems PurchaseOrderItem[]
-
-  @@unique([companyId, erpCode])
-  @@index([companyId, supplierId, active])
-  @@map("items")
-}
-
-// ============================================================
 // ORÇAMENTO (MVP: empresa + filial + CC + ano + mês)
+// branchErpCode / costCenterErpCode = códigos do ERP (lidos das views)
 // ============================================================
 
 model BudgetEntry {
-  id              String   @id @default(uuid()) @db.UniqueIdentifier
-  companyId       String   @db.UniqueIdentifier
-  branchId        String   @db.UniqueIdentifier
-  costCenterId    String   @db.UniqueIdentifier
-  year            Int
-  month           Int
-  amountBudgeted  Decimal  @db.Decimal(15, 2)
-  amountCommitted Decimal  @default(0) @db.Decimal(15, 2)
-  amountConsumed  Decimal  @default(0) @db.Decimal(15, 2)
-  importedById    String?  @db.UniqueIdentifier
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id               String   @id @default(uuid()) @db.UniqueIdentifier
+  companyId        String   @db.UniqueIdentifier
+  branchErpCode    String   @db.NVarChar(50)
+  costCenterErpCode String  @db.NVarChar(50)
+  year             Int
+  month            Int
+  amountBudgeted   Decimal  @db.Decimal(15, 2)
+  amountCommitted  Decimal  @default(0) @db.Decimal(15, 2)
+  amountConsumed   Decimal  @default(0) @db.Decimal(15, 2)
+  importedById     String?  @db.UniqueIdentifier
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  company    Company    @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  branch     Branch     @relation(fields: [branchId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  costCenter CostCenter @relation(fields: [costCenterId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  company Company @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
-  @@unique([companyId, branchId, costCenterId, year, month])
-  @@index([companyId, branchId, costCenterId, year])
+  @@unique([companyId, branchErpCode, costCenterErpCode, year, month])
+  @@index([companyId, year])
   @@map("budget_entries")
 }
 
 // ============================================================
-// REQUISIÇÕES (1 REQ = 1 Fornecedor = 1 OC)
+// REQUISIÇÕES — porta de entrada do P2P
+// tipoNotaFiscal decide o que a requisição gera ao ser aprovada:
+//   SEM_NF       -> Solicitacao de Verba
+//   NF_FUTURA    -> Pedido de Compra + Solicitacao de Verba (adiantamento)
+//   NF_EXISTENTE -> Pedido de Compra
+// Códigos do ERP guardados como string + snapshot do nome.
 // ============================================================
 
 model Requisition {
   id               String    @id @default(uuid()) @db.UniqueIdentifier
   number           String    @unique @db.NVarChar(20)
   companyId        String    @db.UniqueIdentifier
-  branchId         String    @db.UniqueIdentifier
-  supplierId       String    @db.UniqueIdentifier
+  branchErpCode    String    @db.NVarChar(50)   // filial principal (cabeçalho)
+  branchName       String    @db.NVarChar(255)  // snapshot
+  supplierErpCode  String    @db.NVarChar(50)
+  supplierName     String    @db.NVarChar(255)  // snapshot
   requesterId      String    @db.UniqueIdentifier
   title            String    @db.NVarChar(500)
   justification    String?   @db.NVarChar(Max)
+  tipoNotaFiscal   String    @db.NVarChar(15)   // SEM_NF | NF_FUTURA | NF_EXISTENTE
   status           String    @default("DRAFT") @db.NVarChar(20)
   totalAmount      Decimal   @default(0) @db.Decimal(15, 2)
   neededBy         DateTime?
@@ -316,45 +224,46 @@ model Requisition {
   deletedAt        DateTime?
 
   company       Company           @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  branch        Branch            @relation(fields: [branchId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  supplier      Supplier          @relation(fields: [supplierId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   requester     User              @relation(fields: [requesterId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   items         RequisitionItem[]
   approvalSteps ApprovalStep[]
   purchaseOrder PurchaseOrder?
+  fundRequest   FundRequest?
   attachments   Attachment[]
 
   @@index([companyId, status])
   @@index([requesterId, status])
-  @@index([companyId, createdAt])
   @@map("requisitions")
 }
 
 model RequisitionItem {
-  id             String   @id @default(uuid()) @db.UniqueIdentifier
-  requisitionId  String   @db.UniqueIdentifier
-  itemId         String?  @db.UniqueIdentifier
-  description    String   @db.NVarChar(500)
-  quantity       Decimal  @db.Decimal(15, 4)
-  unit           String   @db.NVarChar(20)
-  estimatedPrice Decimal  @db.Decimal(15, 2)
-  totalPrice     Decimal  @db.Decimal(15, 2)
-  branchId       String   @db.UniqueIdentifier
-  costCenterId   String   @db.UniqueIdentifier
-  notes          String?  @db.NVarChar(Max)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                   String   @id @default(uuid()) @db.UniqueIdentifier
+  requisitionId        String   @db.UniqueIdentifier
+  itemErpCode          String?  @db.NVarChar(50)   // null = item livre
+  itemDescription      String   @db.NVarChar(500)  // snapshot ou texto livre
+  quantity             Decimal  @db.Decimal(15, 4)
+  unit                 String   @db.NVarChar(20)
+  estimatedPrice       Decimal  @db.Decimal(15, 2)
+  totalPrice           Decimal  @db.Decimal(15, 2)
+  accountingAccount    String   @db.NVarChar(20)   // CONTA_CONTABIL
+  accountName          String?  @db.NVarChar(255)  // snapshot
+  branchRateioCode     String   @db.NVarChar(20)   // template RATEIO_FILIAL
+  branchRateioDesc     String?  @db.NVarChar(100)  // snapshot
+  costCenterRateioCode String   @db.NVarChar(20)   // template RATEIO_CENTRO_CUSTO
+  costCenterRateioDesc String?  @db.NVarChar(100)  // snapshot
+  notes                String?  @db.NVarChar(Max)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   requisition Requisition @relation(fields: [requisitionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  item        Item?       @relation(fields: [itemId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  branch      Branch      @relation(fields: [branchId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  costCenter  CostCenter  @relation(fields: [costCenterId], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
+  @@index([requisitionId])
   @@map("requisition_items")
 }
 
 // ============================================================
-// PEDIDOS DE COMPRA (1:1 com Requisição)
+// PEDIDOS DE COMPRA (PC) — 1:1 com Requisição
+// Espelha COMPRAS + COMPRAS_CONSUMIVEL do ERP
 // ============================================================
 
 model PurchaseOrder {
@@ -362,8 +271,10 @@ model PurchaseOrder {
   number           String    @unique @db.NVarChar(20)
   requisitionId    String    @unique @db.UniqueIdentifier
   companyId        String    @db.UniqueIdentifier
-  branchId         String    @db.UniqueIdentifier
-  supplierId       String    @db.UniqueIdentifier
+  branchErpCode    String    @db.NVarChar(50)
+  branchName       String    @db.NVarChar(255)
+  supplierErpCode  String    @db.NVarChar(50)
+  supplierName     String    @db.NVarChar(255)
   buyerId          String    @db.UniqueIdentifier
   status           String    @default("DRAFT") @db.NVarChar(25)
   paymentCondition String?   @db.NVarChar(255)
@@ -372,8 +283,8 @@ model PurchaseOrder {
   totalAmount      Decimal   @default(0) @db.Decimal(15, 2)
   notes            String?   @db.NVarChar(Max)
   currentTierLevel Int?
-  erpOcNumber      String?   @db.NVarChar(50)
-  erpStagingId     String?   @unique @db.NVarChar(50)
+  erpPedido        String?   @db.NVarChar(50)        // COMPRAS.PEDIDO gerado no ERP
+  erpStagingId     String?   @unique @db.NVarChar(50) // idempotência no envio ao ERP
   pendingErpSince  DateTime?
   integratedAt     DateTime?
   submittedAt      DateTime?
@@ -387,57 +298,126 @@ model PurchaseOrder {
 
   requisition   Requisition         @relation(fields: [requisitionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   company       Company             @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  branch        Branch              @relation(fields: [branchId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  supplier      Supplier            @relation(fields: [supplierId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   buyer         User                @relation(fields: [buyerId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   items         PurchaseOrderItem[]
   approvalSteps ApprovalStep[]
   receivings    Receiving[]
+  fundRequest   FundRequest?
   attachments   Attachment[]
 
   @@index([companyId, status])
-  @@index([supplierId, status])
   @@index([expectedDelivery, status])
-  @@index([companyId, createdAt])
   @@map("purchase_orders")
 }
 
 model PurchaseOrderItem {
-  id                String   @id @default(uuid()) @db.UniqueIdentifier
-  purchaseOrderId   String   @db.UniqueIdentifier
-  requisitionItemId String?  @db.UniqueIdentifier
-  itemId            String?  @db.UniqueIdentifier
-  description       String   @db.NVarChar(500)
-  quantity          Decimal  @db.Decimal(15, 4)
-  unit              String   @db.NVarChar(20)
-  unitPrice         Decimal  @db.Decimal(15, 2)
-  totalPrice        Decimal  @db.Decimal(15, 2)
-  branchId          String   @db.UniqueIdentifier
-  costCenterId      String   @db.UniqueIdentifier
-  receivedQty       Decimal  @default(0) @db.Decimal(15, 4)
-  notes             String?  @db.NVarChar(Max)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                   String   @id @default(uuid()) @db.UniqueIdentifier
+  purchaseOrderId      String   @db.UniqueIdentifier
+  requisitionItemId    String?  @db.UniqueIdentifier
+  itemErpCode          String?  @db.NVarChar(50)
+  itemDescription      String   @db.NVarChar(500)
+  quantity             Decimal  @db.Decimal(15, 4)
+  unit                 String   @db.NVarChar(20)
+  unitPrice            Decimal  @db.Decimal(15, 2)
+  totalPrice           Decimal  @db.Decimal(15, 2)
+  accountingAccount    String   @db.NVarChar(20)
+  accountName          String?  @db.NVarChar(255)
+  branchRateioCode     String   @db.NVarChar(20)
+  branchRateioDesc     String?  @db.NVarChar(100)
+  costCenterRateioCode String   @db.NVarChar(20)
+  costCenterRateioDesc String?  @db.NVarChar(100)
+  receivedQty          Decimal  @default(0) @db.Decimal(15, 4)
+  notes                String?  @db.NVarChar(Max)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   purchaseOrder  PurchaseOrder   @relation(fields: [purchaseOrderId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  item           Item?           @relation(fields: [itemId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  branch         Branch          @relation(fields: [branchId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  costCenter     CostCenter      @relation(fields: [costCenterId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   receivingItems ReceivingItem[]
 
+  @@index([purchaseOrderId])
   @@map("purchase_order_items")
 }
 
 // ============================================================
+// SOLICITAÇÃO DE VERBA (SV) — espelha CTB_SOLICITACAO_VERBA
+// requisitionId / purchaseOrderId opcionais:
+//   SV avulsa (sem NF) ou adiantamento vinculado a um PC
+// ============================================================
+
+model FundRequest {
+  id              String    @id @default(uuid()) @db.UniqueIdentifier
+  number          String    @unique @db.NVarChar(20)  // SV-2026-000001
+  companyId       String    @db.UniqueIdentifier
+  requisitionId   String?   @unique @db.UniqueIdentifier
+  purchaseOrderId String?   @unique @db.UniqueIdentifier
+  requesterId     String    @db.UniqueIdentifier
+  title           String    @db.NVarChar(255)
+  status          String    @default("DRAFT") @db.NVarChar(20)
+  totalAmount     Decimal   @default(0) @db.Decimal(15, 2)
+  currentTierLevel Int?
+  erpSolicitacao  String?   @db.NVarChar(50)
+  erpStagingId    String?   @unique @db.NVarChar(50)
+  pendingErpSince DateTime?
+  integratedAt    DateTime?
+  submittedAt     DateTime?
+  approvedAt      DateTime?
+  rejectedAt      DateTime?
+  rejectionReason String?   @db.NVarChar(Max)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  company       Company           @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  requisition   Requisition?      @relation(fields: [requisitionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  purchaseOrder PurchaseOrder?    @relation(fields: [purchaseOrderId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  requester     User              @relation(fields: [requesterId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  items         FundRequestItem[]
+  approvalSteps ApprovalStep[]
+  attachments   Attachment[]
+
+  @@index([companyId, status])
+  @@map("fund_requests")
+}
+
+model FundRequestItem {
+  id                   String   @id @default(uuid()) @db.UniqueIdentifier
+  fundRequestId        String   @db.UniqueIdentifier
+  itemErpCode          String?  @db.NVarChar(50)
+  description          String   @db.NVarChar(500)
+  beneficiaryName      String   @db.NVarChar(255)
+  beneficiaryBank      String?  @db.NVarChar(10)
+  beneficiaryAgency    String?  @db.NVarChar(10)
+  beneficiaryAccount   String?  @db.NVarChar(30)
+  accountingAccount    String   @db.NVarChar(20)
+  accountName          String?  @db.NVarChar(255)
+  branchRateioCode     String   @db.NVarChar(20)
+  branchRateioDesc     String?  @db.NVarChar(100)
+  costCenterRateioCode String   @db.NVarChar(20)
+  costCenterRateioDesc String?  @db.NVarChar(100)
+  amount               Decimal  @db.Decimal(15, 2)
+  dueDate              DateTime
+  notes                String?  @db.NVarChar(Max)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  fundRequest FundRequest @relation(fields: [fundRequestId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@index([fundRequestId])
+  @@map("fund_request_items")
+}
+
+// ============================================================
 // FLUXO DE APROVAÇÃO SEQUENCIAL
-// Um step por nível de alçada. Se REJECTED → processo encerrado.
+// Serve para Requisition, PurchaseOrder e FundRequest
 // ============================================================
 
 model ApprovalStep {
   id              String    @id @default(uuid()) @db.UniqueIdentifier
   companyId       String    @db.UniqueIdentifier
+  entityType      String    @db.NVarChar(20)  // REQUISITION | PURCHASE_ORDER | FUND_REQUEST
   requisitionId   String?   @db.UniqueIdentifier
   purchaseOrderId String?   @db.UniqueIdentifier
+  fundRequestId   String?   @db.UniqueIdentifier
   tierId          String    @db.UniqueIdentifier
   level           Int
   approverId      String    @db.UniqueIdentifier
@@ -449,11 +429,13 @@ model ApprovalStep {
 
   requisition   Requisition?   @relation(fields: [requisitionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  fundRequest   FundRequest?   @relation(fields: [fundRequestId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   tier          ApprovalTier   @relation(fields: [tierId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   approver      User           @relation(fields: [approverId], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
   @@index([requisitionId, level])
   @@index([purchaseOrderId, level])
+  @@index([fundRequestId, level])
   @@index([approverId, status])
   @@map("approval_steps")
 }
@@ -548,12 +530,11 @@ model Notification {
   user User @relation(fields: [userId], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
   @@index([userId, readAt])
-  @@index([companyId, createdAt])
   @@map("notifications")
 }
 
 // ============================================================
-// ANEXOS (MVP: path no servidor Windows; Fase 2: MinIO/S3)
+// ANEXOS (MVP: pasta no servidor; Fase 2: MinIO/S3)
 // ============================================================
 
 model Attachment {
@@ -561,6 +542,7 @@ model Attachment {
   companyId       String    @db.UniqueIdentifier
   requisitionId   String?   @db.UniqueIdentifier
   purchaseOrderId String?   @db.UniqueIdentifier
+  fundRequestId   String?   @db.UniqueIdentifier
   receivingId     String?   @db.UniqueIdentifier
   filename        String    @db.NVarChar(255)
   storageKey      String    @db.NVarChar(500)
@@ -571,24 +553,26 @@ model Attachment {
 
   requisition   Requisition?   @relation(fields: [requisitionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  fundRequest   FundRequest?   @relation(fields: [fundRequestId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   receiving     Receiving?     @relation(fields: [receivingId], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
   @@index([requisitionId])
   @@index([purchaseOrderId])
+  @@index([fundRequestId])
   @@index([receivingId])
   @@map("attachments")
 }
 
 // ============================================================
-// LOGS DE INTEGRAÇÃO ERP
+// LOGS DE INTEGRAÇÃO ERP (envio de OC/SV ao ERP)
 // ============================================================
 
 model IntegrationLog {
   id               String    @id @default(uuid()) @db.UniqueIdentifier
   companyId        String    @db.UniqueIdentifier
-  source           String    @db.NVarChar(50)
-  jobType          String    @db.NVarChar(100)
-  status           String    @db.NVarChar(10)
+  source           String    @db.NVarChar(50)   // ERP_GUESS | ERP_HERING
+  jobType          String    @db.NVarChar(100)  // SEND_PO | SEND_SV | ...
+  status           String    @db.NVarChar(10)   // SUCCESS | PARTIAL | FAILED
   recordsProcessed Int       @default(0)
   errorDetails     String?   @db.NVarChar(Max)
   durationMs       Int?
@@ -602,20 +586,15 @@ model IntegrationLog {
 }
 
 // ============================================================
-// SEQUÊNCIAS DE DOCUMENTOS (referência de configuração)
-// A geração usa SQL Server SEQUENCE nativa — executar após migrate:
-//
-//   CREATE SEQUENCE dbo.seq_REQ_EMP1_2026 START WITH 1 INCREMENT BY 1;
-//   CREATE SEQUENCE dbo.seq_OC_EMP1_2026  START WITH 1 INCREMENT BY 1;
-//   CREATE SEQUENCE dbo.seq_REC_EMP1_2026 START WITH 1 INCREMENT BY 1;
-//
-//   SELECT NEXT VALUE FOR dbo.seq_REQ_EMP1_2026  -- atômico, sem race condition
+// SEQUÊNCIAS DE DOCUMENTOS (referência; geração usa SQL Server SEQUENCE)
+//   CREATE SEQUENCE dbo.seq_REQ_GUESS_2026 START WITH 1 INCREMENT BY 1;
+//   SELECT NEXT VALUE FOR dbo.seq_REQ_GUESS_2026
 // ============================================================
 
 model DocumentSequence {
   id           String   @id @default(uuid()) @db.UniqueIdentifier
   companyId    String   @db.UniqueIdentifier
-  docType      String   @db.NVarChar(10)
+  docType      String   @db.NVarChar(10)   // REQ | PC | SV | REC
   year         Int
   sequenceName String   @db.NVarChar(100)
   createdAt    DateTime @default(now())

@@ -19,35 +19,6 @@ CREATE TABLE [dbo].[companies] (
 );
 
 -- CreateTable
-CREATE TABLE [dbo].[branches] (
-    [id] UNIQUEIDENTIFIER NOT NULL,
-    [companyId] UNIQUEIDENTIFIER NOT NULL,
-    [erpCode] NVARCHAR(50) NOT NULL,
-    [name] NVARCHAR(255) NOT NULL,
-    [cnpj] NVARCHAR(18) NOT NULL,
-    [active] BIT NOT NULL CONSTRAINT [branches_active_df] DEFAULT 1,
-    [lastSyncAt] DATETIME2,
-    [createdAt] DATETIME2 NOT NULL CONSTRAINT [branches_createdAt_df] DEFAULT CURRENT_TIMESTAMP,
-    [updatedAt] DATETIME2 NOT NULL,
-    CONSTRAINT [branches_pkey] PRIMARY KEY CLUSTERED ([id]),
-    CONSTRAINT [branches_companyId_erpCode_key] UNIQUE NONCLUSTERED ([companyId],[erpCode])
-);
-
--- CreateTable
-CREATE TABLE [dbo].[cost_centers] (
-    [id] UNIQUEIDENTIFIER NOT NULL,
-    [companyId] UNIQUEIDENTIFIER NOT NULL,
-    [erpCode] NVARCHAR(50) NOT NULL,
-    [name] NVARCHAR(255) NOT NULL,
-    [active] BIT NOT NULL CONSTRAINT [cost_centers_active_df] DEFAULT 1,
-    [lastSyncAt] DATETIME2,
-    [createdAt] DATETIME2 NOT NULL CONSTRAINT [cost_centers_createdAt_df] DEFAULT CURRENT_TIMESTAMP,
-    [updatedAt] DATETIME2 NOT NULL,
-    CONSTRAINT [cost_centers_pkey] PRIMARY KEY CLUSTERED ([id]),
-    CONSTRAINT [cost_centers_companyId_erpCode_key] UNIQUE NONCLUSTERED ([companyId],[erpCode])
-);
-
--- CreateTable
 CREATE TABLE [dbo].[users] (
     [id] UNIQUEIDENTIFIER NOT NULL,
     [email] NVARCHAR(255) NOT NULL,
@@ -117,49 +88,11 @@ CREATE TABLE [dbo].[delegations] (
 );
 
 -- CreateTable
-CREATE TABLE [dbo].[suppliers] (
-    [id] UNIQUEIDENTIFIER NOT NULL,
-    [companyId] UNIQUEIDENTIFIER NOT NULL,
-    [erpCode] NVARCHAR(50) NOT NULL,
-    [name] NVARCHAR(255) NOT NULL,
-    [tradeName] NVARCHAR(255),
-    [cnpjCpf] NVARCHAR(18) NOT NULL,
-    [personType] NVARCHAR(2) NOT NULL,
-    [email] NVARCHAR(255),
-    [phone] NVARCHAR(30),
-    [active] BIT NOT NULL CONSTRAINT [suppliers_active_df] DEFAULT 1,
-    [lastSyncAt] DATETIME2,
-    [createdAt] DATETIME2 NOT NULL CONSTRAINT [suppliers_createdAt_df] DEFAULT CURRENT_TIMESTAMP,
-    [updatedAt] DATETIME2 NOT NULL,
-    [deletedAt] DATETIME2,
-    CONSTRAINT [suppliers_pkey] PRIMARY KEY CLUSTERED ([id]),
-    CONSTRAINT [suppliers_companyId_erpCode_key] UNIQUE NONCLUSTERED ([companyId],[erpCode])
-);
-
--- CreateTable
-CREATE TABLE [dbo].[items] (
-    [id] UNIQUEIDENTIFIER NOT NULL,
-    [companyId] UNIQUEIDENTIFIER NOT NULL,
-    [supplierId] UNIQUEIDENTIFIER NOT NULL,
-    [erpCode] NVARCHAR(50) NOT NULL,
-    [description] NVARCHAR(500) NOT NULL,
-    [unit] NVARCHAR(20) NOT NULL,
-    [itemType] NVARCHAR(10) NOT NULL,
-    [accountingCode] NVARCHAR(50),
-    [active] BIT NOT NULL CONSTRAINT [items_active_df] DEFAULT 1,
-    [lastSyncAt] DATETIME2,
-    [createdAt] DATETIME2 NOT NULL CONSTRAINT [items_createdAt_df] DEFAULT CURRENT_TIMESTAMP,
-    [updatedAt] DATETIME2 NOT NULL,
-    CONSTRAINT [items_pkey] PRIMARY KEY CLUSTERED ([id]),
-    CONSTRAINT [items_companyId_erpCode_key] UNIQUE NONCLUSTERED ([companyId],[erpCode])
-);
-
--- CreateTable
 CREATE TABLE [dbo].[budget_entries] (
     [id] UNIQUEIDENTIFIER NOT NULL,
     [companyId] UNIQUEIDENTIFIER NOT NULL,
-    [branchId] UNIQUEIDENTIFIER NOT NULL,
-    [costCenterId] UNIQUEIDENTIFIER NOT NULL,
+    [branchErpCode] NVARCHAR(50) NOT NULL,
+    [costCenterErpCode] NVARCHAR(50) NOT NULL,
     [year] INT NOT NULL,
     [month] INT NOT NULL,
     [amountBudgeted] DECIMAL(15,2) NOT NULL,
@@ -169,7 +102,7 @@ CREATE TABLE [dbo].[budget_entries] (
     [createdAt] DATETIME2 NOT NULL CONSTRAINT [budget_entries_createdAt_df] DEFAULT CURRENT_TIMESTAMP,
     [updatedAt] DATETIME2 NOT NULL,
     CONSTRAINT [budget_entries_pkey] PRIMARY KEY CLUSTERED ([id]),
-    CONSTRAINT [budget_entries_companyId_branchId_costCenterId_year_month_key] UNIQUE NONCLUSTERED ([companyId],[branchId],[costCenterId],[year],[month])
+    CONSTRAINT [budget_entries_companyId_branchErpCode_costCenterErpCode_year_month_key] UNIQUE NONCLUSTERED ([companyId],[branchErpCode],[costCenterErpCode],[year],[month])
 );
 
 -- CreateTable
@@ -177,11 +110,14 @@ CREATE TABLE [dbo].[requisitions] (
     [id] UNIQUEIDENTIFIER NOT NULL,
     [number] NVARCHAR(20) NOT NULL,
     [companyId] UNIQUEIDENTIFIER NOT NULL,
-    [branchId] UNIQUEIDENTIFIER NOT NULL,
-    [supplierId] UNIQUEIDENTIFIER NOT NULL,
+    [branchErpCode] NVARCHAR(50) NOT NULL,
+    [branchName] NVARCHAR(255) NOT NULL,
+    [supplierErpCode] NVARCHAR(50) NOT NULL,
+    [supplierName] NVARCHAR(255) NOT NULL,
     [requesterId] UNIQUEIDENTIFIER NOT NULL,
     [title] NVARCHAR(500) NOT NULL,
     [justification] NVARCHAR(max),
+    [tipoNotaFiscal] NVARCHAR(15) NOT NULL,
     [status] NVARCHAR(20) NOT NULL CONSTRAINT [requisitions_status_df] DEFAULT 'DRAFT',
     [totalAmount] DECIMAL(15,2) NOT NULL CONSTRAINT [requisitions_totalAmount_df] DEFAULT 0,
     [neededBy] DATETIME2,
@@ -201,14 +137,18 @@ CREATE TABLE [dbo].[requisitions] (
 CREATE TABLE [dbo].[requisition_items] (
     [id] UNIQUEIDENTIFIER NOT NULL,
     [requisitionId] UNIQUEIDENTIFIER NOT NULL,
-    [itemId] UNIQUEIDENTIFIER,
-    [description] NVARCHAR(500) NOT NULL,
+    [itemErpCode] NVARCHAR(50),
+    [itemDescription] NVARCHAR(500) NOT NULL,
     [quantity] DECIMAL(15,4) NOT NULL,
     [unit] NVARCHAR(20) NOT NULL,
     [estimatedPrice] DECIMAL(15,2) NOT NULL,
     [totalPrice] DECIMAL(15,2) NOT NULL,
-    [branchId] UNIQUEIDENTIFIER NOT NULL,
-    [costCenterId] UNIQUEIDENTIFIER NOT NULL,
+    [accountingAccount] NVARCHAR(20) NOT NULL,
+    [accountName] NVARCHAR(255),
+    [branchRateioCode] NVARCHAR(20) NOT NULL,
+    [branchRateioDesc] NVARCHAR(100),
+    [costCenterRateioCode] NVARCHAR(20) NOT NULL,
+    [costCenterRateioDesc] NVARCHAR(100),
     [notes] NVARCHAR(max),
     [createdAt] DATETIME2 NOT NULL CONSTRAINT [requisition_items_createdAt_df] DEFAULT CURRENT_TIMESTAMP,
     [updatedAt] DATETIME2 NOT NULL,
@@ -221,8 +161,10 @@ CREATE TABLE [dbo].[purchase_orders] (
     [number] NVARCHAR(20) NOT NULL,
     [requisitionId] UNIQUEIDENTIFIER NOT NULL,
     [companyId] UNIQUEIDENTIFIER NOT NULL,
-    [branchId] UNIQUEIDENTIFIER NOT NULL,
-    [supplierId] UNIQUEIDENTIFIER NOT NULL,
+    [branchErpCode] NVARCHAR(50) NOT NULL,
+    [branchName] NVARCHAR(255) NOT NULL,
+    [supplierErpCode] NVARCHAR(50) NOT NULL,
+    [supplierName] NVARCHAR(255) NOT NULL,
     [buyerId] UNIQUEIDENTIFIER NOT NULL,
     [status] NVARCHAR(25) NOT NULL CONSTRAINT [purchase_orders_status_df] DEFAULT 'DRAFT',
     [paymentCondition] NVARCHAR(255),
@@ -231,7 +173,7 @@ CREATE TABLE [dbo].[purchase_orders] (
     [totalAmount] DECIMAL(15,2) NOT NULL CONSTRAINT [purchase_orders_totalAmount_df] DEFAULT 0,
     [notes] NVARCHAR(max),
     [currentTierLevel] INT,
-    [erpOcNumber] NVARCHAR(50),
+    [erpPedido] NVARCHAR(50),
     [erpStagingId] NVARCHAR(50),
     [pendingErpSince] DATETIME2,
     [integratedAt] DATETIME2,
@@ -254,14 +196,18 @@ CREATE TABLE [dbo].[purchase_order_items] (
     [id] UNIQUEIDENTIFIER NOT NULL,
     [purchaseOrderId] UNIQUEIDENTIFIER NOT NULL,
     [requisitionItemId] UNIQUEIDENTIFIER,
-    [itemId] UNIQUEIDENTIFIER,
-    [description] NVARCHAR(500) NOT NULL,
+    [itemErpCode] NVARCHAR(50),
+    [itemDescription] NVARCHAR(500) NOT NULL,
     [quantity] DECIMAL(15,4) NOT NULL,
     [unit] NVARCHAR(20) NOT NULL,
     [unitPrice] DECIMAL(15,2) NOT NULL,
     [totalPrice] DECIMAL(15,2) NOT NULL,
-    [branchId] UNIQUEIDENTIFIER NOT NULL,
-    [costCenterId] UNIQUEIDENTIFIER NOT NULL,
+    [accountingAccount] NVARCHAR(20) NOT NULL,
+    [accountName] NVARCHAR(255),
+    [branchRateioCode] NVARCHAR(20) NOT NULL,
+    [branchRateioDesc] NVARCHAR(100),
+    [costCenterRateioCode] NVARCHAR(20) NOT NULL,
+    [costCenterRateioDesc] NVARCHAR(100),
     [receivedQty] DECIMAL(15,4) NOT NULL CONSTRAINT [purchase_order_items_receivedQty_df] DEFAULT 0,
     [notes] NVARCHAR(max),
     [createdAt] DATETIME2 NOT NULL CONSTRAINT [purchase_order_items_createdAt_df] DEFAULT CURRENT_TIMESTAMP,
@@ -270,11 +216,67 @@ CREATE TABLE [dbo].[purchase_order_items] (
 );
 
 -- CreateTable
-CREATE TABLE [dbo].[approval_steps] (
+CREATE TABLE [dbo].[fund_requests] (
     [id] UNIQUEIDENTIFIER NOT NULL,
+    [number] NVARCHAR(20) NOT NULL,
     [companyId] UNIQUEIDENTIFIER NOT NULL,
     [requisitionId] UNIQUEIDENTIFIER,
     [purchaseOrderId] UNIQUEIDENTIFIER,
+    [requesterId] UNIQUEIDENTIFIER NOT NULL,
+    [title] NVARCHAR(255) NOT NULL,
+    [status] NVARCHAR(20) NOT NULL CONSTRAINT [fund_requests_status_df] DEFAULT 'DRAFT',
+    [totalAmount] DECIMAL(15,2) NOT NULL CONSTRAINT [fund_requests_totalAmount_df] DEFAULT 0,
+    [currentTierLevel] INT,
+    [erpSolicitacao] NVARCHAR(50),
+    [erpStagingId] NVARCHAR(50),
+    [pendingErpSince] DATETIME2,
+    [integratedAt] DATETIME2,
+    [submittedAt] DATETIME2,
+    [approvedAt] DATETIME2,
+    [rejectedAt] DATETIME2,
+    [rejectionReason] NVARCHAR(max),
+    [createdAt] DATETIME2 NOT NULL CONSTRAINT [fund_requests_createdAt_df] DEFAULT CURRENT_TIMESTAMP,
+    [updatedAt] DATETIME2 NOT NULL,
+    [deletedAt] DATETIME2,
+    CONSTRAINT [fund_requests_pkey] PRIMARY KEY CLUSTERED ([id]),
+    CONSTRAINT [fund_requests_number_key] UNIQUE NONCLUSTERED ([number]),
+    CONSTRAINT [fund_requests_requisitionId_key] UNIQUE NONCLUSTERED ([requisitionId]),
+    CONSTRAINT [fund_requests_purchaseOrderId_key] UNIQUE NONCLUSTERED ([purchaseOrderId]),
+    CONSTRAINT [fund_requests_erpStagingId_key] UNIQUE NONCLUSTERED ([erpStagingId])
+);
+
+-- CreateTable
+CREATE TABLE [dbo].[fund_request_items] (
+    [id] UNIQUEIDENTIFIER NOT NULL,
+    [fundRequestId] UNIQUEIDENTIFIER NOT NULL,
+    [itemErpCode] NVARCHAR(50),
+    [description] NVARCHAR(500) NOT NULL,
+    [beneficiaryName] NVARCHAR(255) NOT NULL,
+    [beneficiaryBank] NVARCHAR(10),
+    [beneficiaryAgency] NVARCHAR(10),
+    [beneficiaryAccount] NVARCHAR(30),
+    [accountingAccount] NVARCHAR(20) NOT NULL,
+    [accountName] NVARCHAR(255),
+    [branchRateioCode] NVARCHAR(20) NOT NULL,
+    [branchRateioDesc] NVARCHAR(100),
+    [costCenterRateioCode] NVARCHAR(20) NOT NULL,
+    [costCenterRateioDesc] NVARCHAR(100),
+    [amount] DECIMAL(15,2) NOT NULL,
+    [dueDate] DATETIME2 NOT NULL,
+    [notes] NVARCHAR(max),
+    [createdAt] DATETIME2 NOT NULL CONSTRAINT [fund_request_items_createdAt_df] DEFAULT CURRENT_TIMESTAMP,
+    [updatedAt] DATETIME2 NOT NULL,
+    CONSTRAINT [fund_request_items_pkey] PRIMARY KEY CLUSTERED ([id])
+);
+
+-- CreateTable
+CREATE TABLE [dbo].[approval_steps] (
+    [id] UNIQUEIDENTIFIER NOT NULL,
+    [companyId] UNIQUEIDENTIFIER NOT NULL,
+    [entityType] NVARCHAR(20) NOT NULL,
+    [requisitionId] UNIQUEIDENTIFIER,
+    [purchaseOrderId] UNIQUEIDENTIFIER,
+    [fundRequestId] UNIQUEIDENTIFIER,
     [tierId] UNIQUEIDENTIFIER NOT NULL,
     [level] INT NOT NULL,
     [approverId] UNIQUEIDENTIFIER NOT NULL,
@@ -359,6 +361,7 @@ CREATE TABLE [dbo].[attachments] (
     [companyId] UNIQUEIDENTIFIER NOT NULL,
     [requisitionId] UNIQUEIDENTIFIER,
     [purchaseOrderId] UNIQUEIDENTIFIER,
+    [fundRequestId] UNIQUEIDENTIFIER,
     [receivingId] UNIQUEIDENTIFIER,
     [filename] NVARCHAR(255) NOT NULL,
     [storageKey] NVARCHAR(500) NOT NULL,
@@ -396,10 +399,7 @@ CREATE TABLE [dbo].[document_sequences] (
 );
 
 -- CreateIndex
-CREATE NONCLUSTERED INDEX [items_companyId_supplierId_active_idx] ON [dbo].[items]([companyId], [supplierId], [active]);
-
--- CreateIndex
-CREATE NONCLUSTERED INDEX [budget_entries_companyId_branchId_costCenterId_year_idx] ON [dbo].[budget_entries]([companyId], [branchId], [costCenterId], [year]);
+CREATE NONCLUSTERED INDEX [budget_entries_companyId_year_idx] ON [dbo].[budget_entries]([companyId], [year]);
 
 -- CreateIndex
 CREATE NONCLUSTERED INDEX [requisitions_companyId_status_idx] ON [dbo].[requisitions]([companyId], [status]);
@@ -408,25 +408,31 @@ CREATE NONCLUSTERED INDEX [requisitions_companyId_status_idx] ON [dbo].[requisit
 CREATE NONCLUSTERED INDEX [requisitions_requesterId_status_idx] ON [dbo].[requisitions]([requesterId], [status]);
 
 -- CreateIndex
-CREATE NONCLUSTERED INDEX [requisitions_companyId_createdAt_idx] ON [dbo].[requisitions]([companyId], [createdAt]);
+CREATE NONCLUSTERED INDEX [requisition_items_requisitionId_idx] ON [dbo].[requisition_items]([requisitionId]);
 
 -- CreateIndex
 CREATE NONCLUSTERED INDEX [purchase_orders_companyId_status_idx] ON [dbo].[purchase_orders]([companyId], [status]);
 
 -- CreateIndex
-CREATE NONCLUSTERED INDEX [purchase_orders_supplierId_status_idx] ON [dbo].[purchase_orders]([supplierId], [status]);
-
--- CreateIndex
 CREATE NONCLUSTERED INDEX [purchase_orders_expectedDelivery_status_idx] ON [dbo].[purchase_orders]([expectedDelivery], [status]);
 
 -- CreateIndex
-CREATE NONCLUSTERED INDEX [purchase_orders_companyId_createdAt_idx] ON [dbo].[purchase_orders]([companyId], [createdAt]);
+CREATE NONCLUSTERED INDEX [purchase_order_items_purchaseOrderId_idx] ON [dbo].[purchase_order_items]([purchaseOrderId]);
+
+-- CreateIndex
+CREATE NONCLUSTERED INDEX [fund_requests_companyId_status_idx] ON [dbo].[fund_requests]([companyId], [status]);
+
+-- CreateIndex
+CREATE NONCLUSTERED INDEX [fund_request_items_fundRequestId_idx] ON [dbo].[fund_request_items]([fundRequestId]);
 
 -- CreateIndex
 CREATE NONCLUSTERED INDEX [approval_steps_requisitionId_level_idx] ON [dbo].[approval_steps]([requisitionId], [level]);
 
 -- CreateIndex
 CREATE NONCLUSTERED INDEX [approval_steps_purchaseOrderId_level_idx] ON [dbo].[approval_steps]([purchaseOrderId], [level]);
+
+-- CreateIndex
+CREATE NONCLUSTERED INDEX [approval_steps_fundRequestId_level_idx] ON [dbo].[approval_steps]([fundRequestId], [level]);
 
 -- CreateIndex
 CREATE NONCLUSTERED INDEX [approval_steps_approverId_status_idx] ON [dbo].[approval_steps]([approverId], [status]);
@@ -447,13 +453,13 @@ CREATE NONCLUSTERED INDEX [audit_logs_companyId_createdAt_idx] ON [dbo].[audit_l
 CREATE NONCLUSTERED INDEX [notifications_userId_readAt_idx] ON [dbo].[notifications]([userId], [readAt]);
 
 -- CreateIndex
-CREATE NONCLUSTERED INDEX [notifications_companyId_createdAt_idx] ON [dbo].[notifications]([companyId], [createdAt]);
-
--- CreateIndex
 CREATE NONCLUSTERED INDEX [attachments_requisitionId_idx] ON [dbo].[attachments]([requisitionId]);
 
 -- CreateIndex
 CREATE NONCLUSTERED INDEX [attachments_purchaseOrderId_idx] ON [dbo].[attachments]([purchaseOrderId]);
+
+-- CreateIndex
+CREATE NONCLUSTERED INDEX [attachments_fundRequestId_idx] ON [dbo].[attachments]([fundRequestId]);
 
 -- CreateIndex
 CREATE NONCLUSTERED INDEX [attachments_receivingId_idx] ON [dbo].[attachments]([receivingId]);
@@ -463,12 +469,6 @@ CREATE NONCLUSTERED INDEX [integration_logs_companyId_source_executedAt_idx] ON 
 
 -- CreateIndex
 CREATE NONCLUSTERED INDEX [integration_logs_source_status_executedAt_idx] ON [dbo].[integration_logs]([source], [status], [executedAt]);
-
--- AddForeignKey
-ALTER TABLE [dbo].[branches] ADD CONSTRAINT [branches_companyId_fkey] FOREIGN KEY ([companyId]) REFERENCES [dbo].[companies]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
-
--- AddForeignKey
-ALTER TABLE [dbo].[cost_centers] ADD CONSTRAINT [cost_centers_companyId_fkey] FOREIGN KEY ([companyId]) REFERENCES [dbo].[companies]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
 ALTER TABLE [dbo].[user_companies] ADD CONSTRAINT [user_companies_userId_fkey] FOREIGN KEY ([userId]) REFERENCES [dbo].[users]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
@@ -492,31 +492,10 @@ ALTER TABLE [dbo].[delegations] ADD CONSTRAINT [delegations_delegatorId_fkey] FO
 ALTER TABLE [dbo].[delegations] ADD CONSTRAINT [delegations_delegateId_fkey] FOREIGN KEY ([delegateId]) REFERENCES [dbo].[users]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
-ALTER TABLE [dbo].[suppliers] ADD CONSTRAINT [suppliers_companyId_fkey] FOREIGN KEY ([companyId]) REFERENCES [dbo].[companies]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
-
--- AddForeignKey
-ALTER TABLE [dbo].[items] ADD CONSTRAINT [items_companyId_fkey] FOREIGN KEY ([companyId]) REFERENCES [dbo].[companies]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
-
--- AddForeignKey
-ALTER TABLE [dbo].[items] ADD CONSTRAINT [items_supplierId_fkey] FOREIGN KEY ([supplierId]) REFERENCES [dbo].[suppliers]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
-
--- AddForeignKey
 ALTER TABLE [dbo].[budget_entries] ADD CONSTRAINT [budget_entries_companyId_fkey] FOREIGN KEY ([companyId]) REFERENCES [dbo].[companies]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
-ALTER TABLE [dbo].[budget_entries] ADD CONSTRAINT [budget_entries_branchId_fkey] FOREIGN KEY ([branchId]) REFERENCES [dbo].[branches]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
-
--- AddForeignKey
-ALTER TABLE [dbo].[budget_entries] ADD CONSTRAINT [budget_entries_costCenterId_fkey] FOREIGN KEY ([costCenterId]) REFERENCES [dbo].[cost_centers]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
-
--- AddForeignKey
 ALTER TABLE [dbo].[requisitions] ADD CONSTRAINT [requisitions_companyId_fkey] FOREIGN KEY ([companyId]) REFERENCES [dbo].[companies]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
-
--- AddForeignKey
-ALTER TABLE [dbo].[requisitions] ADD CONSTRAINT [requisitions_branchId_fkey] FOREIGN KEY ([branchId]) REFERENCES [dbo].[branches]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
-
--- AddForeignKey
-ALTER TABLE [dbo].[requisitions] ADD CONSTRAINT [requisitions_supplierId_fkey] FOREIGN KEY ([supplierId]) REFERENCES [dbo].[suppliers]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
 ALTER TABLE [dbo].[requisitions] ADD CONSTRAINT [requisitions_requesterId_fkey] FOREIGN KEY ([requesterId]) REFERENCES [dbo].[users]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
@@ -525,25 +504,10 @@ ALTER TABLE [dbo].[requisitions] ADD CONSTRAINT [requisitions_requesterId_fkey] 
 ALTER TABLE [dbo].[requisition_items] ADD CONSTRAINT [requisition_items_requisitionId_fkey] FOREIGN KEY ([requisitionId]) REFERENCES [dbo].[requisitions]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
-ALTER TABLE [dbo].[requisition_items] ADD CONSTRAINT [requisition_items_itemId_fkey] FOREIGN KEY ([itemId]) REFERENCES [dbo].[items]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
-
--- AddForeignKey
-ALTER TABLE [dbo].[requisition_items] ADD CONSTRAINT [requisition_items_branchId_fkey] FOREIGN KEY ([branchId]) REFERENCES [dbo].[branches]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
-
--- AddForeignKey
-ALTER TABLE [dbo].[requisition_items] ADD CONSTRAINT [requisition_items_costCenterId_fkey] FOREIGN KEY ([costCenterId]) REFERENCES [dbo].[cost_centers]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
-
--- AddForeignKey
 ALTER TABLE [dbo].[purchase_orders] ADD CONSTRAINT [purchase_orders_requisitionId_fkey] FOREIGN KEY ([requisitionId]) REFERENCES [dbo].[requisitions]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
 ALTER TABLE [dbo].[purchase_orders] ADD CONSTRAINT [purchase_orders_companyId_fkey] FOREIGN KEY ([companyId]) REFERENCES [dbo].[companies]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
-
--- AddForeignKey
-ALTER TABLE [dbo].[purchase_orders] ADD CONSTRAINT [purchase_orders_branchId_fkey] FOREIGN KEY ([branchId]) REFERENCES [dbo].[branches]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
-
--- AddForeignKey
-ALTER TABLE [dbo].[purchase_orders] ADD CONSTRAINT [purchase_orders_supplierId_fkey] FOREIGN KEY ([supplierId]) REFERENCES [dbo].[suppliers]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
 ALTER TABLE [dbo].[purchase_orders] ADD CONSTRAINT [purchase_orders_buyerId_fkey] FOREIGN KEY ([buyerId]) REFERENCES [dbo].[users]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
@@ -552,19 +516,28 @@ ALTER TABLE [dbo].[purchase_orders] ADD CONSTRAINT [purchase_orders_buyerId_fkey
 ALTER TABLE [dbo].[purchase_order_items] ADD CONSTRAINT [purchase_order_items_purchaseOrderId_fkey] FOREIGN KEY ([purchaseOrderId]) REFERENCES [dbo].[purchase_orders]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
-ALTER TABLE [dbo].[purchase_order_items] ADD CONSTRAINT [purchase_order_items_itemId_fkey] FOREIGN KEY ([itemId]) REFERENCES [dbo].[items]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
+ALTER TABLE [dbo].[fund_requests] ADD CONSTRAINT [fund_requests_companyId_fkey] FOREIGN KEY ([companyId]) REFERENCES [dbo].[companies]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
-ALTER TABLE [dbo].[purchase_order_items] ADD CONSTRAINT [purchase_order_items_branchId_fkey] FOREIGN KEY ([branchId]) REFERENCES [dbo].[branches]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
+ALTER TABLE [dbo].[fund_requests] ADD CONSTRAINT [fund_requests_requisitionId_fkey] FOREIGN KEY ([requisitionId]) REFERENCES [dbo].[requisitions]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
-ALTER TABLE [dbo].[purchase_order_items] ADD CONSTRAINT [purchase_order_items_costCenterId_fkey] FOREIGN KEY ([costCenterId]) REFERENCES [dbo].[cost_centers]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
+ALTER TABLE [dbo].[fund_requests] ADD CONSTRAINT [fund_requests_purchaseOrderId_fkey] FOREIGN KEY ([purchaseOrderId]) REFERENCES [dbo].[purchase_orders]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
+
+-- AddForeignKey
+ALTER TABLE [dbo].[fund_requests] ADD CONSTRAINT [fund_requests_requesterId_fkey] FOREIGN KEY ([requesterId]) REFERENCES [dbo].[users]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
+
+-- AddForeignKey
+ALTER TABLE [dbo].[fund_request_items] ADD CONSTRAINT [fund_request_items_fundRequestId_fkey] FOREIGN KEY ([fundRequestId]) REFERENCES [dbo].[fund_requests]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
 ALTER TABLE [dbo].[approval_steps] ADD CONSTRAINT [approval_steps_requisitionId_fkey] FOREIGN KEY ([requisitionId]) REFERENCES [dbo].[requisitions]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
 ALTER TABLE [dbo].[approval_steps] ADD CONSTRAINT [approval_steps_purchaseOrderId_fkey] FOREIGN KEY ([purchaseOrderId]) REFERENCES [dbo].[purchase_orders]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
+
+-- AddForeignKey
+ALTER TABLE [dbo].[approval_steps] ADD CONSTRAINT [approval_steps_fundRequestId_fkey] FOREIGN KEY ([fundRequestId]) REFERENCES [dbo].[fund_requests]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
 ALTER TABLE [dbo].[approval_steps] ADD CONSTRAINT [approval_steps_tierId_fkey] FOREIGN KEY ([tierId]) REFERENCES [dbo].[approval_tiers]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
@@ -592,6 +565,9 @@ ALTER TABLE [dbo].[attachments] ADD CONSTRAINT [attachments_requisitionId_fkey] 
 
 -- AddForeignKey
 ALTER TABLE [dbo].[attachments] ADD CONSTRAINT [attachments_purchaseOrderId_fkey] FOREIGN KEY ([purchaseOrderId]) REFERENCES [dbo].[purchase_orders]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
+
+-- AddForeignKey
+ALTER TABLE [dbo].[attachments] ADD CONSTRAINT [attachments_fundRequestId_fkey] FOREIGN KEY ([fundRequestId]) REFERENCES [dbo].[fund_requests]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
 ALTER TABLE [dbo].[attachments] ADD CONSTRAINT [attachments_receivingId_fkey] FOREIGN KEY ([receivingId]) REFERENCES [dbo].[receivings]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
