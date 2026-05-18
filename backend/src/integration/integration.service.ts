@@ -1,4 +1,205 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+import {
+  CompanyCode,
+  ErpAccount,
+  ErpBranch,
+  ErpCostCenter,
+  ErpItem,
+  ErpRateio,
+  ErpSupplier,
+} from './integration.types';
 
+/**
+ * Camada de integração com o ERP (Linx).
+ * Lê os dados de referência das views v_p2p_* (cross-database, mesmo servidor).
+ * O ERP é fonte de verdade desses dados — o P2P apenas consulta.
+ *
+ * As escritas (envio de OC/SV ao ERP) serão adicionadas aqui posteriormente.
+ */
 @Injectable()
-export class IntegrationService {}
+export class IntegrationService {
+  private readonly logger = new Logger(IntegrationService.name);
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  /** Valida e normaliza o código da empresa. */
+  private assertCompany(company: string): CompanyCode {
+    const c = company?.toUpperCase();
+    if (c !== 'GUESS' && c !== 'HERING') {
+      throw new BadRequestException(
+        `Empresa inválida: "${company}". Use GUESS ou HERING.`,
+      );
+    }
+    return c;
+  }
+
+  private activeFilter(onlyActive: boolean): Prisma.Sql {
+    return onlyActive ? Prisma.sql`AND inativo = 0` : Prisma.empty;
+  }
+
+  /** Filiais da empresa. */
+  async getBranches(company: string): Promise<ErpBranch[]> {
+    const c = this.assertCompany(company);
+    return this.prisma.$queryRaw<ErpBranch[]>`
+      SELECT codigo, nome, cnpj, tipo
+      FROM dbo.v_p2p_branches
+      WHERE empresa = ${c}
+      ORDER BY nome`;
+  }
+
+  /** Centros de custo da empresa. */
+  async getCostCenters(
+    company: string,
+    onlyActive = true,
+  ): Promise<ErpCostCenter[]> {
+    const c = this.assertCompany(company);
+    return this.prisma.$queryRaw<ErpCostCenter[]>`
+      SELECT codigo, nome, inativo
+      FROM dbo.v_p2p_cost_centers
+      WHERE empresa = ${c} ${this.activeFilter(onlyActive)}
+      ORDER BY nome`;
+  }
+
+  /** Fornecedores da empresa. Aceita busca por nome/razão social. */
+  async getSuppliers(
+    company: string,
+    options: { onlyActive?: boolean; search?: string } = {},
+  ): Promise<ErpSupplier[]> {
+    const c = this.assertCompany(company);
+    const { onlyActive = true, search } = options;
+    const searchFilter = search
+      ? Prisma.sql`AND (nome LIKE ${'%' + search + '%'} OR razao_social LIKE ${'%' + search + '%'})`
+      : Prisma.empty;
+    return this.prisma.$queryRaw<ErpSupplier[]>`
+      SELECT codigo, nome, razao_social AS razaoSocial, cnpj_cpf AS cnpjCpf,
+             tipo_pessoa AS tipoPessoa, email, telefone, tipo,
+             condicao_pgto AS condicaoPgto, banco, agencia, conta,
+             chave_pix AS chavePix, inativo
+      FROM dbo.v_p2p_suppliers
+      WHERE empresa = ${c} ${this.activeFilter(onlyActive)} ${searchFilter}
+      ORDER BY nome`;
+  }
+
+  /** Plano de contas da empresa. */
+  async getAccounts(
+    company: string,
+    onlyActive = true,
+  ): Promise<ErpAccount[]> {
+    const c = this.assertCompany(company);
+    return this.prisma.$queryRaw<ErpAccount[]>`
+      SELECT codigo, nome, tipo_conta AS tipoConta,
+             controla_orcamento AS controlaOrcamento, inativo
+      FROM dbo.v_p2p_accounts
+      WHERE empresa = ${c} ${this.activeFilter(onlyActive)}
+      ORDER BY codigo`;
+  }
+
+  /** Catálogo de itens da empresa. Aceita busca por descrição. */
+  async getItems(
+    company: string,
+    options: { onlyActive?: boolean; search?: string } = {},
+  ): Promise<ErpItem[]> {
+    const c = this.assertCompany(company);
+    const { onlyActive = true, search } = options;
+    const searchFilter = search
+      ? Prisma.sql`AND descricao LIKE ${'%' + search + '%'}`
+      : Prisma.empty;
+    return this.prisma.$queryRaw<ErpItem[]>`
+      SELECT codigo, descricao, unidade,
+             conta_contabil_padrao AS contaContabilPadrao,
+             rateio_filial_padrao AS rateioFilialPadrao,
+             rateio_cc_padrao AS rateioCcPadrao,
+             grupo, inativo
+      FROM dbo.v_p2p_items
+      WHERE empresa = ${c} ${this.activeFilter(onlyActive)} ${searchFilter}
+      ORDER BY descricao`;
+  }
+
+  /** Templates de rateio de filial, com as linhas agrupadas. */
+  async getBranchRateios(
+    company: string,
+    onlyActive = true,
+  ): Promise<ErpRateio[]> {
+    const c = this.assertCompany(company);
+    const rows = await this.prisma.$queryRaw<
+      {
+        codigo: string;
+        descricao: string;
+        inativo: boolean;
+        filialCodigo: string;
+        porcentagem: number;
+      }[]
+    >`
+      SELECT rateio_codigo AS codigo, rateio_descricao AS descricao,
+             rateio_inativo AS inativo, filial_codigo AS filialCodigo,
+             porcentagem
+      FROM dbo.v_p2p_branch_rateios
+      WHERE empresa = ${c}
+        ${onlyActive ? Prisma.sql`AND rateio_inativo = 0` : Prisma.empty}
+      ORDER BY rateio_descricao`;
+    return this.groupRateios(rows, false);
+  }
+
+  /** Templates de rateio de centro de custo, com as linhas agrupadas. */
+  async getCostCenterRateios(
+    company: string,
+    onlyActive = true,
+  ): Promise<ErpRateio[]> {
+    const c = this.assertCompany(company);
+    const rows = await this.prisma.$queryRaw<
+      {
+        codigo: string;
+        descricao: string;
+        inativo: boolean;
+        centroCustoCodigo: string;
+        filialCodigo: string;
+        porcentagem: number;
+      }[]
+    >`
+      SELECT rateio_codigo AS codigo, rateio_descricao AS descricao,
+             rateio_inativo AS inativo, centro_custo_codigo AS centroCustoCodigo,
+             filial_codigo AS filialCodigo, porcentagem
+      FROM dbo.v_p2p_cc_rateios
+      WHERE empresa = ${c}
+        ${onlyActive ? Prisma.sql`AND rateio_inativo = 0` : Prisma.empty}
+      ORDER BY rateio_descricao`;
+    return this.groupRateios(rows, true);
+  }
+
+  /** Agrupa linhas de rateio (uma linha por destino) em templates. */
+  private groupRateios(
+    rows: Array<{
+      codigo: string;
+      descricao: string;
+      inativo: boolean;
+      filialCodigo: string;
+      centroCustoCodigo?: string;
+      porcentagem: number;
+    }>,
+    includeCostCenter: boolean,
+  ): ErpRateio[] {
+    const map = new Map<string, ErpRateio>();
+    for (const r of rows) {
+      let rateio = map.get(r.codigo);
+      if (!rateio) {
+        rateio = {
+          codigo: r.codigo,
+          descricao: r.descricao,
+          inativo: r.inativo,
+          linhas: [],
+        };
+        map.set(r.codigo, rateio);
+      }
+      rateio.linhas.push({
+        filialCodigo: r.filialCodigo,
+        ...(includeCostCenter
+          ? { centroCustoCodigo: r.centroCustoCodigo }
+          : {}),
+        porcentagem: Number(r.porcentagem),
+      });
+    }
+    return [...map.values()];
+  }
+}
