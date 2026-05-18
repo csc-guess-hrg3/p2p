@@ -420,7 +420,8 @@ model ApprovalStep {
   fundRequestId   String?   @db.UniqueIdentifier
   tierId          String    @db.UniqueIdentifier
   level           Int
-  approverId      String    @db.UniqueIdentifier
+  // qualquer membro da alçada (tier) pode aprovar; approverId registra quem decidiu
+  approverId      String?   @db.UniqueIdentifier
   status          String    @default("PENDING") @db.NVarChar(10)
   decidedAt       DateTime?
   comments        String?   @db.NVarChar(Max)
@@ -431,7 +432,7 @@ model ApprovalStep {
   purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   fundRequest   FundRequest?   @relation(fields: [fundRequestId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   tier          ApprovalTier   @relation(fields: [tierId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  approver      User           @relation(fields: [approverId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  approver      User?          @relation(fields: [approverId], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
   @@index([requisitionId, level])
   @@index([purchaseOrderId, level])

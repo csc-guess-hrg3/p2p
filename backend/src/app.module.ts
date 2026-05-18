@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { CompaniesModule } from './companies/companies.module';
 import { BudgetModule } from './budget/budget.module';
+import { ApprovalsModule } from './approvals/approvals.module';
 import { RequisitionsModule } from './requisitions/requisitions.module';
 import { PurchaseOrdersModule } from './purchase-orders/purchase-orders.module';
 import { ReceivingModule } from './receiving/receiving.module';
@@ -26,6 +27,7 @@ import { IntegrationModule } from './integration/integration.module';
     UsersModule,
     CompaniesModule,
     BudgetModule,
+    ApprovalsModule,
     RequisitionsModule,
     PurchaseOrdersModule,
     ReceivingModule,

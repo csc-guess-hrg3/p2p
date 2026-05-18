@@ -8,7 +8,12 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { IntegrationService } from '../integration/integration.service';
 import { NumberingService } from '../numbering/numbering.service';
-import { RequisitionStatus, UserProfile } from '../common/enums';
+import { ApprovalsService } from '../approvals/approvals.service';
+import {
+  ApprovalEntityType,
+  RequisitionStatus,
+  UserProfile,
+} from '../common/enums';
 import { AuthenticatedUser } from '../auth/auth.types';
 import {
   CreateRequisitionDto,
@@ -23,6 +28,7 @@ export class RequisitionsService {
     private readonly prisma: PrismaService,
     private readonly integration: IntegrationService,
     private readonly numbering: NumberingService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   /** Garante que o usuário tem acesso à empresa e devolve o código do ERP. */
@@ -284,6 +290,41 @@ export class RequisitionsService {
     }
 
     await this.prisma.requisition.update({ where: { id }, data });
+    return this.findOne(user, id);
+  }
+
+  /** Submete a requisição: gera o fluxo de aprovação por alçada. */
+  async submit(user: AuthenticatedUser, id: string) {
+    const req = await this.findOne(user, id);
+
+    if (req.status !== RequisitionStatus.DRAFT) {
+      throw new BadRequestException(
+        'Apenas requisições em rascunho podem ser submetidas.',
+      );
+    }
+    if (req.requesterId !== user.id && user.profile !== UserProfile.ADMIN) {
+      throw new ForbiddenException('Só o solicitante pode submeter.');
+    }
+    if (req.items.length === 0) {
+      throw new BadRequestException('A requisição não tem itens.');
+    }
+
+    const firstLevel = await this.approvals.startApproval({
+      companyId: req.companyId,
+      entityType: ApprovalEntityType.REQUISITION,
+      requisitionId: req.id,
+      amount: Number(req.totalAmount),
+      documentNumber: req.number,
+    });
+
+    await this.prisma.requisition.update({
+      where: { id },
+      data: {
+        status: RequisitionStatus.IN_APPROVAL,
+        submittedAt: new Date(),
+        currentTierLevel: firstLevel,
+      },
+    });
     return this.findOne(user, id);
   }
 

@@ -49,6 +49,12 @@ export class RequisitionsController {
     return this.requisitions.findOne(user, id);
   }
 
+  @Post(':id/submit')
+  @ApiOperation({ summary: 'Submete a requisição para aprovação' })
+  submit(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.requisitions.submit(user, id);
+  }
+
   @Patch(':id')
   @ApiOperation({ summary: 'Edita uma requisição em rascunho' })
   update(
