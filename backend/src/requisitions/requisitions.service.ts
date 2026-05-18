@@ -347,6 +347,7 @@ export class RequisitionsService {
       });
       const firstLevel = await this.approvals.startApproval({
         companyId: updated.companyId,
+        teamId: updated.teamId,
         entityType: ApprovalEntityType.REQUISITION,
         requisitionId: id,
         amount: Number(updated.totalAmount),
@@ -354,7 +355,10 @@ export class RequisitionsService {
       });
       await this.prisma.requisition.update({
         where: { id },
-        data: { currentTierLevel: firstLevel },
+        data:
+          firstLevel === null
+            ? { status: RequisitionStatus.APPROVED, approvedAt: new Date() }
+            : { currentTierLevel: firstLevel },
       });
     }
     return this.findOne(user, id);
@@ -378,19 +382,28 @@ export class RequisitionsService {
 
     const firstLevel = await this.approvals.startApproval({
       companyId: req.companyId,
+      teamId: req.teamId,
       entityType: ApprovalEntityType.REQUISITION,
       requisitionId: req.id,
       amount: Number(req.totalAmount),
       documentNumber: req.number,
     });
 
+    // Cadeia vazia → auto-aprovado já na submissão.
     await this.prisma.requisition.update({
       where: { id },
-      data: {
-        status: RequisitionStatus.IN_APPROVAL,
-        submittedAt: new Date(),
-        currentTierLevel: firstLevel,
-      },
+      data:
+        firstLevel === null
+          ? {
+              status: RequisitionStatus.APPROVED,
+              submittedAt: new Date(),
+              approvedAt: new Date(),
+            }
+          : {
+              status: RequisitionStatus.IN_APPROVAL,
+              submittedAt: new Date(),
+              currentTierLevel: firstLevel,
+            },
     });
     return this.findOne(user, id);
   }

@@ -55,7 +55,6 @@ model Company {
   deletedAt DateTime?
 
   users                 UserCompany[]
-  approvalTiers         ApprovalTier[]
   requisitions          Requisition[]
   purchaseOrders        PurchaseOrder[]
   fundRequests          FundRequest[]
@@ -76,17 +75,45 @@ model Company {
 model Team {
   id        String    @id @default(uuid()) @db.UniqueIdentifier
   name      String    @db.NVarChar(150)
+  managerId String?   @db.UniqueIdentifier  // gestor — visibilidade + dono do orçamento
   active    Boolean   @default(true)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  members           User[]
+  manager           User?  @relation("teamManager", fields: [managerId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  members           User[] @relation("teamMembers")
   branchRateios     TeamBranchRateio[]
   costCenterRateios TeamCostCenterRateio[]
+  approvalLevels    TeamApprovalLevel[]
   requisitions      Requisition[]
 
   @@map("teams")
+}
+
+// ============================================================
+// CADEIA DE APROVAÇÃO POR EQUIPE
+// Cada equipe define sua própria cadeia sequencial de níveis
+// (ex.: Coordenador -> Gestor -> Diretor). Cada nível tem um
+// aprovador e uma alçada (maxAmount). Cadeia vazia = auto-aprovado.
+// ============================================================
+
+model TeamApprovalLevel {
+  id         String   @id @default(uuid()) @db.UniqueIdentifier
+  teamId     String   @db.UniqueIdentifier
+  level      Int                            // 1 = primeiro a aprovar
+  name       String   @db.NVarChar(50)      // Coordenador | Gestor | Diretor...
+  approverId String   @db.UniqueIdentifier
+  maxAmount  Decimal? @db.Decimal(15, 2)    // alçada do nível (null = sem limite)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  team          Team           @relation(fields: [teamId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  approver      User           @relation("levelApprover", fields: [approverId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  approvalSteps ApprovalStep[]
+
+  @@unique([teamId, level])
+  @@map("team_approval_levels")
 }
 
 // Rateios de filial que a equipe pode usar, por empresa
@@ -128,22 +155,23 @@ model User {
   name          String    @db.NVarChar(255)
   profile       String    @db.NVarChar(20)
   status        String    @default("PENDING_SETUP") @db.NVarChar(20)
-  approvalLimit Decimal?  @db.Decimal(15, 2)
   teamId        String?   @db.UniqueIdentifier  // equipe — escopo de operação
   lastLoginAt   DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   deletedAt     DateTime?
 
-  team                Team?           @relation(fields: [teamId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  team                Team?           @relation("teamMembers", fields: [teamId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  managedTeams        Team[]          @relation("teamManager")
+  approvalLevels      TeamApprovalLevel[] @relation("levelApprover")
   companies           UserCompany[]
-  approvalTiers       UserApprovalTier[]
   delegationsGiven    Delegation[]    @relation("delegator")
   delegationsReceived Delegation[]    @relation("delegate")
   requisitions        Requisition[]
   purchaseOrders      PurchaseOrder[]
   fundRequests        FundRequest[]
-  approvalSteps       ApprovalStep[]
+  assignedSteps       ApprovalStep[]  @relation("stepApprover")
+  decidedSteps        ApprovalStep[]  @relation("stepDecider")
   receivings          Receiving[]
   notifications       Notification[]
 
@@ -161,43 +189,6 @@ model UserCompany {
 
   @@unique([userId, companyId])
   @@map("user_companies")
-}
-
-// ============================================================
-// ALÇADAS DE APROVAÇÃO (sequencial por level)
-// ============================================================
-
-model ApprovalTier {
-  id        String    @id @default(uuid()) @db.UniqueIdentifier
-  companyId String    @db.UniqueIdentifier
-  name      String    @db.NVarChar(100)
-  level     Int
-  maxAmount Decimal?  @db.Decimal(15, 2)
-  active    Boolean   @default(true)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-
-  company       Company            @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  approvers     UserApprovalTier[]
-  approvalSteps ApprovalStep[]
-
-  @@unique([companyId, level])
-  @@map("approval_tiers")
-}
-
-model UserApprovalTier {
-  id         String    @id @default(uuid()) @db.UniqueIdentifier
-  userId     String    @db.UniqueIdentifier
-  tierId     String    @db.UniqueIdentifier
-  validFrom  DateTime  @default(now())
-  validUntil DateTime?
-  createdAt  DateTime  @default(now())
-
-  user User         @relation(fields: [userId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  tier ApprovalTier @relation(fields: [tierId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-
-  @@unique([userId, tierId])
-  @@map("user_approval_tiers")
 }
 
 model Delegation {
@@ -469,32 +460,34 @@ model FundRequestItem {
 // ============================================================
 
 model ApprovalStep {
-  id              String    @id @default(uuid()) @db.UniqueIdentifier
-  companyId       String    @db.UniqueIdentifier
-  entityType      String    @db.NVarChar(20)  // REQUISITION | PURCHASE_ORDER | FUND_REQUEST
-  requisitionId   String?   @db.UniqueIdentifier
-  purchaseOrderId String?   @db.UniqueIdentifier
-  fundRequestId   String?   @db.UniqueIdentifier
-  tierId          String    @db.UniqueIdentifier
-  level           Int
-  // qualquer membro da alçada (tier) pode aprovar; approverId registra quem decidiu
-  approverId      String?   @db.UniqueIdentifier
-  status          String    @default("PENDING") @db.NVarChar(10)
-  decidedAt       DateTime?
-  comments        String?   @db.NVarChar(Max)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id                  String    @id @default(uuid()) @db.UniqueIdentifier
+  companyId           String    @db.UniqueIdentifier
+  entityType          String    @db.NVarChar(20)  // REQUISITION | PURCHASE_ORDER | FUND_REQUEST
+  requisitionId       String?   @db.UniqueIdentifier
+  purchaseOrderId     String?   @db.UniqueIdentifier
+  fundRequestId       String?   @db.UniqueIdentifier
+  teamApprovalLevelId String?   @db.UniqueIdentifier  // nível de origem (rastreio)
+  level               Int
+  levelName           String    @db.NVarChar(50)      // snapshot do nome do nível
+  assignedApproverId  String    @db.UniqueIdentifier  // quem deve aprovar
+  decidedById         String?   @db.UniqueIdentifier  // quem de fato decidiu (aprovador ou delegado)
+  status              String    @default("PENDING") @db.NVarChar(10)
+  decidedAt           DateTime?
+  comments            String?   @db.NVarChar(Max)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  requisition   Requisition?   @relation(fields: [requisitionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  fundRequest   FundRequest?   @relation(fields: [fundRequestId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  tier          ApprovalTier   @relation(fields: [tierId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  approver      User?          @relation(fields: [approverId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  requisition       Requisition?       @relation(fields: [requisitionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  purchaseOrder     PurchaseOrder?     @relation(fields: [purchaseOrderId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  fundRequest       FundRequest?       @relation(fields: [fundRequestId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  teamApprovalLevel TeamApprovalLevel? @relation(fields: [teamApprovalLevelId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  assignedApprover  User               @relation("stepApprover", fields: [assignedApproverId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  decidedBy         User?              @relation("stepDecider", fields: [decidedById], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
   @@index([requisitionId, level])
   @@index([purchaseOrderId, level])
   @@index([fundRequestId, level])
-  @@index([approverId, status])
+  @@index([assignedApproverId, status])
   @@map("approval_steps")
 }
 

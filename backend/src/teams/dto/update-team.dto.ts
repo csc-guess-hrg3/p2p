@@ -7,6 +7,11 @@ export class UpdateTeamDto {
   @IsString()
   name?: string;
 
+  @ApiPropertyOptional({ description: 'ID do gestor da equipe (null remove)' })
+  @IsOptional()
+  @IsString()
+  managerId?: string | null;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()

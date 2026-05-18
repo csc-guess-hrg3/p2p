@@ -51,7 +51,7 @@ export class UsersService {
       where: { id },
       include: {
         companies: { include: { company: true } },
-        approvalTiers: { include: { tier: true } },
+        team: { select: { id: true, name: true } },
       },
     });
     if (!user || user.deletedAt) {
@@ -60,7 +60,7 @@ export class UsersService {
     return user;
   }
 
-  /** Atualiza perfil, status, nome, limite de aprovação e equipe. */
+  /** Atualiza perfil, status, nome e equipe. */
   async update(id: string, dto: UpdateUserDto) {
     await this.findOne(id);
 
@@ -79,9 +79,6 @@ export class UsersService {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
         ...(dto.profile !== undefined ? { profile: dto.profile } : {}),
         ...(dto.status !== undefined ? { status: dto.status } : {}),
-        ...(dto.approvalLimit !== undefined
-          ? { approvalLimit: dto.approvalLimit }
-          : {}),
         ...(dto.teamId !== undefined ? { teamId: dto.teamId } : {}),
       },
     });
@@ -104,28 +101,6 @@ export class UsersService {
       this.prisma.userCompany.deleteMany({ where: { userId: id } }),
       this.prisma.userCompany.createMany({
         data: companyIds.map((companyId) => ({ userId: id, companyId })),
-      }),
-    ]);
-    return this.findOne(id);
-  }
-
-  /** Define as alçadas em que o usuário é aprovador (substitui o conjunto). */
-  async setApprovalTiers(id: string, tierIds: string[]) {
-    await this.findOne(id);
-
-    if (tierIds.length > 0) {
-      const found = await this.prisma.approvalTier.count({
-        where: { id: { in: tierIds } },
-      });
-      if (found !== tierIds.length) {
-        throw new BadRequestException('Uma ou mais alçadas são inválidas.');
-      }
-    }
-
-    await this.prisma.$transaction([
-      this.prisma.userApprovalTier.deleteMany({ where: { userId: id } }),
-      this.prisma.userApprovalTier.createMany({
-        data: tierIds.map((tierId) => ({ userId: id, tierId })),
       }),
     ]);
     return this.findOne(id);

@@ -1,11 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsIn,
-  IsNumber,
-  IsOptional,
-  IsString,
-  Min,
-} from 'class-validator';
+import { IsIn, IsOptional, IsString } from 'class-validator';
 import { UserProfile, UserStatus } from '../../common/enums';
 
 export class UpdateUserDto {
@@ -23,14 +17,6 @@ export class UpdateUserDto {
   @IsOptional()
   @IsIn(Object.values(UserStatus))
   status?: string;
-
-  @ApiPropertyOptional({
-    description: 'Valor máximo que o usuário pode aprovar (null = sem limite)',
-  })
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  approvalLimit?: number | null;
 
   @ApiPropertyOptional({
     description: 'ID da equipe do usuário (null remove da equipe)',

@@ -29,13 +29,6 @@ const INITIAL_ADMINS = [
   },
 ];
 
-// --- Alçadas genéricas (ajustáveis depois pela tela de admin) ---
-const TIERS = [
-  { level: 1, name: 'Gerência', maxAmount: 5000 },
-  { level: 2, name: 'Diretoria', maxAmount: 50000 },
-  { level: 3, name: 'Presidência', maxAmount: null },
-];
-
 /**
  * Reaplica as views de integração com o ERP.
  * As views não fazem parte das migrations Prisma — um `migrate reset`
@@ -71,22 +64,8 @@ async function main() {
   const companies = [guess, hering];
   console.log(`Empresas: ${companies.map((c) => c.code).join(', ')}`);
 
-  // Alçadas de aprovação por empresa
-  for (const company of companies) {
-    for (const t of TIERS) {
-      await prisma.approvalTier.upsert({
-        where: { companyId_level: { companyId: company.id, level: t.level } },
-        update: { name: t.name, maxAmount: t.maxAmount },
-        create: {
-          companyId: company.id,
-          level: t.level,
-          name: t.name,
-          maxAmount: t.maxAmount,
-        },
-      });
-    }
-  }
-  console.log(`Alçadas: ${TIERS.length} níveis x ${companies.length} empresas`);
+  // As cadeias de aprovação são por equipe (TeamApprovalLevel),
+  // configuradas pelo admin na tela de equipes.
 
   // Administrador(es) inicial(is) — acesso às duas empresas
   for (const a of INITIAL_ADMINS) {

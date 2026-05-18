@@ -14,6 +14,7 @@ import { TeamsService } from './teams.service';
 import { CreateTeamDto } from './dto/create-team.dto';
 import { UpdateTeamDto } from './dto/update-team.dto';
 import { SetTeamRateiosDto } from './dto/set-team-rateios.dto';
+import { SetApprovalLevelsDto } from './dto/set-approval-levels.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -66,6 +67,15 @@ export class TeamsController {
   @ApiOperation({ summary: 'Define os rateios de centro de custo da equipe' })
   setCcRateios(@Param('id') id: string, @Body() dto: SetTeamRateiosDto) {
     return this.teams.setCostCenterRateios(id, dto.rateios);
+  }
+
+  @Put(':id/approval-levels')
+  @ApiOperation({ summary: 'Define a cadeia de aprovação da equipe' })
+  setApprovalLevels(
+    @Param('id') id: string,
+    @Body() dto: SetApprovalLevelsDto,
+  ) {
+    return this.teams.setApprovalLevels(id, dto.levels);
   }
 
   @Delete(':id')

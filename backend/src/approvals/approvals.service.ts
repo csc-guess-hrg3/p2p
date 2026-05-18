@@ -18,6 +18,7 @@ import { AuthenticatedUser } from '../auth/auth.types';
 
 interface StartApprovalParams {
   companyId: string;
+  teamId: string | null;
   entityType: string;
   amount: number;
   requisitionId?: string;
@@ -27,13 +28,15 @@ interface StartApprovalParams {
 }
 
 /**
- * Motor de aprovação sequencial — compartilhado por Requisição, PC e SV.
+ * Motor de aprovação sequencial — por cadeia de equipe.
  *
- * Regras:
- * - As alçadas (ApprovalTier) são níveis sequenciais com teto de valor.
- * - Um documento gera steps do nível 1 até o primeiro nível cujo teto
- *   cobre o valor (maxAmount nulo = sem limite).
- * - Qualquer membro da alçada pode decidir o step daquele nível.
+ * Cada equipe tem sua própria cadeia (TeamApprovalLevel): níveis
+ * ordenados, cada um com um aprovador e uma alçada (maxAmount).
+ *
+ * - Um documento gera steps do nível 1 até o primeiro nível cuja
+ *   alçada cobre o valor (maxAmount nulo = sem limite).
+ * - Cadeia vazia (ou sem equipe) = documento auto-aprovado.
+ * - Cada nível tem um aprovador; a ausência é coberta por delegação.
  * - Rejeição em qualquer nível encerra o processo.
  */
 @Injectable()
@@ -52,104 +55,13 @@ export class ApprovalsService {
     return { fundRequestId: step.fundRequestId };
   }
 
-  /** Cria as notificações de "aprovação pendente" para os membros da alçada. */
-  private async notifyTier(
-    tierId: string,
-    companyId: string,
-    entityType: string,
-    entityId: string,
-    documentNumber: string,
-  ): Promise<void> {
-    const members = await this.prisma.userApprovalTier.findMany({
-      where: { tierId },
-      select: { userId: true },
-    });
-    if (members.length === 0) return;
-    await this.prisma.notification.createMany({
-      data: members.map((m) => ({
-        companyId,
-        userId: m.userId,
-        type: NotificationType.APPROVAL_REQUIRED,
-        title: 'Aprovação pendente',
-        body: `O documento ${documentNumber} aguarda sua aprovação.`,
-        entityType,
-        entityId,
-      })),
-    });
-  }
-
   /**
-   * Inicia o fluxo de aprovação de um documento: gera os steps das
-   * alçadas necessárias e notifica o primeiro nível.
-   * Retorna o nível inicial em aprovação.
-   */
-  async startApproval(params: StartApprovalParams): Promise<number> {
-    const tiers = await this.prisma.approvalTier.findMany({
-      where: { companyId: params.companyId, active: true },
-      orderBy: { level: 'asc' },
-      include: { _count: { select: { approvers: true } } },
-    });
-    if (tiers.length === 0) {
-      throw new BadRequestException(
-        'Nenhuma alçada de aprovação configurada para a empresa.',
-      );
-    }
-
-    // Alçadas necessárias: nível 1 até o primeiro que cobre o valor.
-    const needed: typeof tiers = [];
-    for (const tier of tiers) {
-      needed.push(tier);
-      const max = tier.maxAmount === null ? null : Number(tier.maxAmount);
-      if (max === null || max >= params.amount) break;
-    }
-
-    // Toda alçada do caminho precisa ter aprovadores, senão trava.
-    const semAprovador = needed.find((t) => t._count.approvers === 0);
-    if (semAprovador) {
-      throw new BadRequestException(
-        `A alçada "${semAprovador.name}" não tem aprovadores configurados.`,
-      );
-    }
-
-    const entityId =
-      params.requisitionId ??
-      params.purchaseOrderId ??
-      (params.fundRequestId as string);
-
-    await this.prisma.approvalStep.createMany({
-      data: needed.map((tier) => ({
-        companyId: params.companyId,
-        entityType: params.entityType,
-        requisitionId: params.requisitionId ?? null,
-        purchaseOrderId: params.purchaseOrderId ?? null,
-        fundRequestId: params.fundRequestId ?? null,
-        tierId: tier.id,
-        level: tier.level,
-        status: ApprovalStepStatus.PENDING,
-      })),
-    });
-
-    await this.notifyTier(
-      needed[0].id,
-      params.companyId,
-      params.entityType,
-      entityId,
-      params.documentNumber,
-    );
-    return needed[0].level;
-  }
-
-  /**
-   * Alçadas em que o usuário pode atuar: as próprias + as dos delegantes
+   * IDs sob os quais o usuário pode aprovar: ele mesmo + os delegantes
    * que estão com delegação ativa para ele neste momento.
    */
-  private async getActingTierIds(userId: string): Promise<string[]> {
+  private async getActingApproverIds(userId: string): Promise<string[]> {
     const now = new Date();
-    const direct = await this.prisma.userApprovalTier.findMany({
-      where: { userId },
-      select: { tierId: true },
-    });
-    const activeDelegations = await this.prisma.delegation.findMany({
+    const delegations = await this.prisma.delegation.findMany({
       where: {
         delegateId: userId,
         active: true,
@@ -158,31 +70,97 @@ export class ApprovalsService {
       },
       select: { delegatorId: true },
     });
-    const delegatorIds = activeDelegations.map((d) => d.delegatorId);
-    const delegated = delegatorIds.length
-      ? await this.prisma.userApprovalTier.findMany({
-          where: { userId: { in: delegatorIds } },
-          select: { tierId: true },
-        })
-      : [];
-    return [
-      ...new Set([...direct, ...delegated].map((t) => t.tierId)),
-    ];
+    return [userId, ...delegations.map((d) => d.delegatorId)];
+  }
+
+  /** Notifica o aprovador de um nível que há documento aguardando-o. */
+  private async notifyApprover(
+    approverId: string,
+    companyId: string,
+    entityType: string,
+    entityId: string,
+    documentNumber: string,
+  ): Promise<void> {
+    await this.prisma.notification.create({
+      data: {
+        companyId,
+        userId: approverId,
+        type: NotificationType.APPROVAL_REQUIRED,
+        title: 'Aprovação pendente',
+        body: `O documento ${documentNumber} aguarda sua aprovação.`,
+        entityType,
+        entityId,
+      },
+    });
+  }
+
+  /**
+   * Inicia o fluxo de aprovação. Gera os steps da cadeia da equipe.
+   * Retorna o nível inicial, ou null se a cadeia for vazia (auto-aprovado).
+   */
+  async startApproval(params: StartApprovalParams): Promise<number | null> {
+    if (!params.teamId) return null; // sem equipe = sem cadeia = auto-aprovado
+
+    const levels = await this.prisma.teamApprovalLevel.findMany({
+      where: { teamId: params.teamId },
+      orderBy: { level: 'asc' },
+    });
+    if (levels.length === 0) return null; // cadeia vazia = auto-aprovado
+
+    // Níveis necessários: do 1 até o primeiro que cobre o valor.
+    const needed: typeof levels = [];
+    for (const lvl of levels) {
+      needed.push(lvl);
+      const max = lvl.maxAmount === null ? null : Number(lvl.maxAmount);
+      if (max === null || max >= params.amount) break;
+    }
+
+    const entityId =
+      params.requisitionId ??
+      params.purchaseOrderId ??
+      (params.fundRequestId as string);
+
+    await this.prisma.approvalStep.createMany({
+      data: needed.map((lvl) => ({
+        companyId: params.companyId,
+        entityType: params.entityType,
+        requisitionId: params.requisitionId ?? null,
+        purchaseOrderId: params.purchaseOrderId ?? null,
+        fundRequestId: params.fundRequestId ?? null,
+        teamApprovalLevelId: lvl.id,
+        level: lvl.level,
+        levelName: lvl.name,
+        assignedApproverId: lvl.approverId,
+        status: ApprovalStepStatus.PENDING,
+      })),
+    });
+
+    await this.notifyApprover(
+      needed[0].approverId,
+      params.companyId,
+      params.entityType,
+      entityId,
+      params.documentNumber,
+    );
+    return needed[0].level;
+  }
+
+  /** Remove o fluxo de aprovação de uma requisição (reinício após edição). */
+  async resetForRequisition(requisitionId: string): Promise<void> {
+    await this.prisma.approvalStep.deleteMany({ where: { requisitionId } });
   }
 
   /** Lista os steps pendentes que o usuário pode decidir agora. */
   async pendingForUser(user: AuthenticatedUser) {
-    const tierIds = await this.getActingTierIds(user.id);
-    if (tierIds.length === 0) return [];
+    const approverIds = await this.getActingApproverIds(user.id);
 
     const steps = await this.prisma.approvalStep.findMany({
       where: {
         status: ApprovalStepStatus.PENDING,
-        tierId: { in: tierIds },
+        assignedApproverId: { in: approverIds },
         companyId: { in: user.companyIds },
       },
       include: {
-        tier: { select: { name: true, level: true } },
         requisition: {
           select: {
             id: true,
@@ -226,13 +204,13 @@ export class ApprovalsService {
       throw new BadRequestException('Esta etapa já foi decidida.');
     }
 
-    // O usuário precisa pertencer à alçada — direto ou por delegação ativa.
-    const actingTiers = await this.getActingTierIds(user.id);
-    if (!actingTiers.includes(step.tierId)) {
-      throw new ForbiddenException('Você não faz parte desta alçada.');
+    // O usuário precisa ser o aprovador do nível — direto ou por delegação.
+    const approverIds = await this.getActingApproverIds(user.id);
+    if (!approverIds.includes(step.assignedApproverId)) {
+      throw new ForbiddenException('Você não é o aprovador desta etapa.');
     }
 
-    // RN-ALC-03: o solicitante nunca pode aprovar o próprio documento.
+    // RN-ALC-03: o solicitante nunca aprova o próprio documento.
     const requesterId = await this.documentRequester(step);
     if (requesterId && requesterId === user.id) {
       throw new ForbiddenException(
@@ -260,7 +238,7 @@ export class ApprovalsService {
         status: approved
           ? ApprovalStepStatus.APPROVED
           : ApprovalStepStatus.REJECTED,
-        approverId: user.id,
+        decidedById: user.id,
         decidedAt: new Date(),
         comments: comments ?? null,
       },
@@ -281,8 +259,8 @@ export class ApprovalsService {
     });
 
     if (next) {
-      await this.notifyTier(
-        next.tierId,
+      await this.notifyApprover(
+        next.assignedApproverId,
         step.companyId,
         step.entityType,
         next.requisitionId ??
@@ -323,11 +301,6 @@ export class ApprovalsService {
       select: { requesterId: true },
     });
     return f?.requesterId ?? null;
-  }
-
-  /** Remove o fluxo de aprovação de uma requisição (para reinício após edição). */
-  async resetForRequisition(requisitionId: string): Promise<void> {
-    await this.prisma.approvalStep.deleteMany({ where: { requisitionId } });
   }
 
   /** Número do documento (para mensagens de notificação). */

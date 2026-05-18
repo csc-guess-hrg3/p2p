@@ -14,7 +14,6 @@ import { UsersService } from './users.service';
 import { QueryUsersDto } from './dto/query-users.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { SetCompaniesDto } from './dto/set-companies.dto';
-import { SetApprovalTiersDto } from './dto/set-approval-tiers.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -55,12 +54,6 @@ export class UsersController {
   @ApiOperation({ summary: 'Define as empresas do usuário' })
   setCompanies(@Param('id') id: string, @Body() dto: SetCompaniesDto) {
     return this.usersService.setCompanies(id, dto.companyIds);
-  }
-
-  @Put(':id/approval-tiers')
-  @ApiOperation({ summary: 'Define as alçadas em que o usuário aprova' })
-  setApprovalTiers(@Param('id') id: string, @Body() dto: SetApprovalTiersDto) {
-    return this.usersService.setApprovalTiers(id, dto.tierIds);
   }
 
   @Delete(':id')

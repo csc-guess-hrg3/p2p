@@ -5,9 +5,11 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { IntegrationService } from '../integration/integration.service';
+import { UserStatus } from '../common/enums';
 import { CreateTeamDto } from './dto/create-team.dto';
 import { UpdateTeamDto } from './dto/update-team.dto';
 import { TeamRateioEntryDto } from './dto/set-team-rateios.dto';
+import { ApprovalLevelEntryDto } from './dto/set-approval-levels.dto';
 
 @Injectable()
 export class TeamsService {
@@ -34,6 +36,11 @@ export class TeamsService {
       include: {
         branchRateios: true,
         costCenterRateios: true,
+        approvalLevels: {
+          orderBy: { level: 'asc' },
+          include: { approver: { select: { id: true, name: true } } },
+        },
+        manager: { select: { id: true, name: true } },
         members: { select: { id: true, name: true, adUsername: true } },
       },
     });
@@ -43,15 +50,54 @@ export class TeamsService {
     return team;
   }
 
+  /** Valida que o usuário existe e está ativo. */
+  private async assertActiveUser(userId: string, ctx: string): Promise<void> {
+    const u = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!u || u.deletedAt || u.status !== UserStatus.ACTIVE) {
+      throw new BadRequestException(`Usuário inválido ou inativo (${ctx}).`);
+    }
+  }
+
   async update(id: string, dto: UpdateTeamDto) {
     await this.findOne(id);
+    if (dto.managerId) {
+      await this.assertActiveUser(dto.managerId, 'gestor');
+    }
     return this.prisma.team.update({
       where: { id },
       data: {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
+        ...(dto.managerId !== undefined ? { managerId: dto.managerId } : {}),
         ...(dto.active !== undefined ? { active: dto.active } : {}),
       },
     });
+  }
+
+  /** Define a cadeia de aprovação da equipe (substitui o conjunto). */
+  async setApprovalLevels(id: string, levels: ApprovalLevelEntryDto[]) {
+    await this.findOne(id);
+
+    const nums = levels.map((l) => l.level);
+    if (new Set(nums).size !== nums.length) {
+      throw new BadRequestException('Há níveis duplicados na cadeia.');
+    }
+    for (const l of levels) {
+      await this.assertActiveUser(l.approverId, `nível ${l.level}`);
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.teamApprovalLevel.deleteMany({ where: { teamId: id } }),
+      this.prisma.teamApprovalLevel.createMany({
+        data: levels.map((l) => ({
+          teamId: id,
+          level: l.level,
+          name: l.name,
+          approverId: l.approverId,
+          maxAmount: l.maxAmount ?? null,
+        })),
+      }),
+    ]);
+    return this.findOne(id);
   }
 
   /** Valida cada entrada de rateio contra o ERP e devolve o código da empresa. */
