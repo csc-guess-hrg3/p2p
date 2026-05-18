@@ -10,6 +10,7 @@ import {
   IsOptional,
   IsString,
   Min,
+  MinLength,
   ValidateNested,
 } from 'class-validator';
 import { RequisitionNfType } from '../../common/enums';
@@ -82,10 +83,12 @@ export class CreateRequisitionDto {
   @IsNotEmpty()
   title!: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
+  @ApiProperty({ description: 'Justificativa (mínimo 50 caracteres)' })
   @IsString()
-  justification?: string;
+  @MinLength(50, {
+    message: 'A justificativa deve ter no mínimo 50 caracteres.',
+  })
+  justification!: string;
 
   @ApiProperty({ enum: Object.values(RequisitionNfType) })
   @IsIn(Object.values(RequisitionNfType))

@@ -40,7 +40,7 @@ export class AuthService {
       ldapAttr(ldapUser, 'sAMAccountName') ??
       ldapAttr(ldapUser, 'userPrincipalName')
     )?.toLowerCase();
-    const email = ldapAttr(ldapUser, 'mail') ?? null;
+    const email = ldapAttr(ldapUser, 'mail');
     const name =
       ldapAttr(ldapUser, 'displayName') ??
       ldapAttr(ldapUser, 'cn') ??
@@ -49,6 +49,11 @@ export class AuthService {
     if (!adUsername) {
       throw new UnauthorizedException(
         'Usuário do AD sem identificador de login — contate o TI.',
+      );
+    }
+    if (!email) {
+      throw new UnauthorizedException(
+        'Usuário do AD sem e-mail corporativo cadastrado — contate o TI.',
       );
     }
 

@@ -72,7 +72,7 @@ model Company {
 model User {
   id            String    @id @default(uuid()) @db.UniqueIdentifier
   adUsername    String    @unique @db.NVarChar(255)  // login do AD (sAMAccountName) — chave do usuário
-  email         String?   @db.NVarChar(255)          // sincronizado do AD; usado para notificações
+  email         String    @unique @db.NVarChar(255)  // corporativo, obrigatório (RN-USR-01); sincronizado do AD
   name          String    @db.NVarChar(255)
   profile       String    @db.NVarChar(20)
   status        String    @default("PENDING_SETUP") @db.NVarChar(20)
@@ -225,11 +225,11 @@ model Requisition {
 
   company       Company           @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   requester     User              @relation(fields: [requesterId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  items         RequisitionItem[]
-  approvalSteps ApprovalStep[]
-  purchaseOrder PurchaseOrder?
-  fundRequest   FundRequest?
-  attachments   Attachment[]
+  items          RequisitionItem[]
+  approvalSteps  ApprovalStep[]
+  purchaseOrders PurchaseOrder[]
+  fundRequest    FundRequest?
+  attachments    Attachment[]
 
   @@index([companyId, status])
   @@index([requesterId, status])
@@ -269,7 +269,7 @@ model RequisitionItem {
 model PurchaseOrder {
   id               String    @id @default(uuid()) @db.UniqueIdentifier
   number           String    @unique @db.NVarChar(20)
-  requisitionId    String    @unique @db.UniqueIdentifier
+  requisitionId    String    @db.UniqueIdentifier  // 1 requisição pode gerar N pedidos
   companyId        String    @db.UniqueIdentifier
   branchErpCode    String    @db.NVarChar(50)
   branchName       String    @db.NVarChar(255)
@@ -595,7 +595,7 @@ model IntegrationLog {
 model DocumentSequence {
   id           String   @id @default(uuid()) @db.UniqueIdentifier
   companyId    String   @db.UniqueIdentifier
-  docType      String   @db.NVarChar(10)   // REQ | PC | SV | REC
+  docType      String   @db.NVarChar(10)   // REQ | OC | SV | REC
   year         Int
   sequenceName String   @db.NVarChar(100)
   createdAt    DateTime @default(now())

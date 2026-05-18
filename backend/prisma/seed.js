@@ -20,7 +20,14 @@ const adapter = new PrismaMssql({
 const prisma = new PrismaClient({ adapter });
 
 // --- Admin(s) inicial(is): login do AD ---
-const INITIAL_ADMINS = [{ adUsername: 'tifany.porto', name: 'Tifany Porto' }];
+// O e-mail é provisório — sincronizado do AD no primeiro login.
+const INITIAL_ADMINS = [
+  {
+    adUsername: 'tifany.porto',
+    name: 'Tifany Porto',
+    email: 'tifany.porto@hrg3.com.br',
+  },
+];
 
 // --- Alçadas genéricas (ajustáveis depois pela tela de admin) ---
 const TIERS = [
@@ -85,10 +92,11 @@ async function main() {
   for (const a of INITIAL_ADMINS) {
     const admin = await prisma.user.upsert({
       where: { adUsername: a.adUsername },
-      update: { profile: 'ADMIN', status: 'ACTIVE' },
+      update: { profile: 'ADMIN', status: 'ACTIVE', email: a.email },
       create: {
         adUsername: a.adUsername,
         name: a.name,
+        email: a.email,
         profile: 'ADMIN',
         status: 'ACTIVE',
       },

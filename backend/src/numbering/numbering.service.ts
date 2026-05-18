@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
-export type DocType = 'REQ' | 'PC' | 'SV' | 'REC';
+export type DocType = 'REQ' | 'OC' | 'SV' | 'REC';
 
 /**
  * Numeração de documentos via SQL Server SEQUENCE nativa.
@@ -25,7 +25,7 @@ export class NumberingService {
     if (!/^[A-Z]+$/.test(company)) {
       throw new BadRequestException('Código de empresa inválido.');
     }
-    if (!['REQ', 'PC', 'SV', 'REC'].includes(docType)) {
+    if (!['REQ', 'OC', 'SV', 'REC'].includes(docType)) {
       throw new BadRequestException('Tipo de documento inválido.');
     }
 

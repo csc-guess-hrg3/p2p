@@ -153,7 +153,7 @@ export class RequisitionsService {
         supplierName: supplier.nome,
         requesterId: user.id,
         title: dto.title,
-        justification: dto.justification ?? null,
+        justification: dto.justification,
         tipoNotaFiscal: dto.tipoNotaFiscal,
         status: RequisitionStatus.DRAFT,
         totalAmount,
@@ -227,9 +227,12 @@ export class RequisitionsService {
   ) {
     const req = await this.findOne(user, id);
 
-    if (req.status !== RequisitionStatus.DRAFT) {
+    if (
+      req.status !== RequisitionStatus.DRAFT &&
+      req.status !== RequisitionStatus.IN_APPROVAL
+    ) {
       throw new BadRequestException(
-        'Apenas requisições em rascunho podem ser editadas.',
+        'Só requisições em rascunho ou em aprovação podem ser editadas.',
       );
     }
     if (req.requesterId !== user.id && user.profile !== UserProfile.ADMIN) {
@@ -290,6 +293,25 @@ export class RequisitionsService {
     }
 
     await this.prisma.requisition.update({ where: { id }, data });
+
+    // RN-REQ-05: edição após o envio reinicia o fluxo de aprovação.
+    if (req.status === RequisitionStatus.IN_APPROVAL) {
+      await this.approvals.resetForRequisition(id);
+      const updated = await this.prisma.requisition.findUniqueOrThrow({
+        where: { id },
+      });
+      const firstLevel = await this.approvals.startApproval({
+        companyId: updated.companyId,
+        entityType: ApprovalEntityType.REQUISITION,
+        requisitionId: id,
+        amount: Number(updated.totalAmount),
+        documentNumber: updated.number,
+      });
+      await this.prisma.requisition.update({
+        where: { id },
+        data: { currentTierLevel: firstLevel },
+      });
+    }
     return this.findOne(user, id);
   }
 

@@ -6,6 +6,7 @@ import {
   IsISO8601,
   IsOptional,
   IsString,
+  MinLength,
   ValidateNested,
 } from 'class-validator';
 import { CreateRequisitionItemDto } from './create-requisition.dto';
@@ -30,9 +31,12 @@ export class UpdateRequisitionDto {
   @IsString()
   title?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'Mínimo 50 caracteres' })
   @IsOptional()
   @IsString()
+  @MinLength(50, {
+    message: 'A justificativa deve ter no mínimo 50 caracteres.',
+  })
   justification?: string;
 
   @ApiPropertyOptional()

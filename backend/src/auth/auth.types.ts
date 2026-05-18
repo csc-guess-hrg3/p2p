@@ -2,7 +2,7 @@
 export interface JwtPayload {
   sub: string; // userId
   adUsername: string;
-  email: string | null;
+  email: string;
   name: string;
   profile: string;
   status: string;
@@ -13,7 +13,7 @@ export interface JwtPayload {
 export interface AuthenticatedUser {
   id: string;
   adUsername: string;
-  email: string | null;
+  email: string;
   name: string;
   profile: string;
   status: string;

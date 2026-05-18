@@ -203,6 +203,14 @@ export class ApprovalsService {
       throw new ForbiddenException('Você não faz parte desta alçada.');
     }
 
+    // RN-ALC-03: o solicitante nunca pode aprovar o próprio documento.
+    const requesterId = await this.documentRequester(step);
+    if (requesterId && requesterId === user.id) {
+      throw new ForbiddenException(
+        'Você não pode aprovar um documento que você mesmo solicitou.',
+      );
+    }
+
     const filter = this.entityFilter(step);
     const lowerPending = await this.prisma.approvalStep.count({
       where: {
@@ -259,6 +267,38 @@ export class ApprovalsService {
 
     await this.updateEntityStatus(step, true);
     return { result: 'APPROVED' as const };
+  }
+
+  /** Solicitante/comprador do documento (para RN-ALC-03). */
+  private async documentRequester(step: {
+    requisitionId: string | null;
+    purchaseOrderId: string | null;
+    fundRequestId: string | null;
+  }): Promise<string | null> {
+    if (step.requisitionId) {
+      const r = await this.prisma.requisition.findUnique({
+        where: { id: step.requisitionId },
+        select: { requesterId: true },
+      });
+      return r?.requesterId ?? null;
+    }
+    if (step.purchaseOrderId) {
+      const p = await this.prisma.purchaseOrder.findUnique({
+        where: { id: step.purchaseOrderId },
+        select: { buyerId: true },
+      });
+      return p?.buyerId ?? null;
+    }
+    const f = await this.prisma.fundRequest.findUnique({
+      where: { id: step.fundRequestId as string },
+      select: { requesterId: true },
+    });
+    return f?.requesterId ?? null;
+  }
+
+  /** Remove o fluxo de aprovação de uma requisição (para reinício após edição). */
+  async resetForRequisition(requisitionId: string): Promise<void> {
+    await this.prisma.approvalStep.deleteMany({ where: { requisitionId } });
   }
 
   /** Número do documento (para mensagens de notificação). */
