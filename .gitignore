@@ -35,3 +35,8 @@ Thumbs.db
 # Temporários
 *.tmp
 *.bak
+
+# Documentos de trabalho (não versionados)
+/P2P_Especificacao_Tecnica.pdf
+/P2P_Especificacao_Tecnica.docx
+/PRD_Procure_to_Pay.docx
