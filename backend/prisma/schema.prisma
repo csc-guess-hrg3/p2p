@@ -1,431 +1,625 @@
+// ============================================================
+// P2P_DB — Schema Prisma (SQL Server)
+//
+// NOTAS SQL Server:
+// - Enums não suportados: status/tipo usam String com validação na app
+// - onDelete/onUpdate = NoAction em relações com múltiplos caminhos
+// - Numeração: usar SQL Server SEQUENCE (ver DocumentSequence)
+// - Cross-DB: usar $queryRaw no IntegrationService
+//
+// Valores válidos de status (TypeScript constants em src/common/enums.ts):
+//   UserProfile:          ADMIN | MANAGER | OPERATOR | REVIEWER
+//   UserStatus:           ACTIVE | INACTIVE | PENDING_SETUP
+//   RequisitionStatus:    DRAFT | SUBMITTED | IN_APPROVAL | APPROVED | REJECTED | CONVERTED | CANCELLED
+//   PurchaseOrderStatus:  DRAFT | IN_APPROVAL | APPROVED | SENT_TO_SUPPLIER |
+//                         PARTIALLY_RECEIVED | FULLY_RECEIVED | PENDING_ERP | INTEGRATED | CANCELLED
+//   ApprovalStepStatus:   PENDING | APPROVED | REJECTED
+//   ReceivingStatus:      DRAFT | CONFIRMED | DIVERGENT | CANCELLED
+//   NotificationType:     APPROVAL_REQUIRED | APPROVED | REJECTED | OVERDUE | BUDGET_ALERT | GENERAL
+//   IntegrationLogStatus: SUCCESS | PARTIAL | FAILED
+// ============================================================
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "sqlserver"
-  url      = env("DATABASE_URL")
 }
 
 // ============================================================
-// ENUMS
-// ============================================================
-
-enum UserProfile {
-  ADMIN
-  MANAGER
-  OPERATOR
-  REVIEWER
-}
-
-enum UserStatus {
-  ACTIVE
-  INACTIVE
-  PENDING_SETUP
-}
-
-enum ApprovalStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  CANCELLED
-}
-
-enum RequisitionStatus {
-  DRAFT
-  SUBMITTED
-  IN_APPROVAL
-  APPROVED
-  REJECTED
-  CONVERTED
-  CANCELLED
-}
-
-enum PurchaseOrderStatus {
-  DRAFT
-  SUBMITTED
-  IN_APPROVAL
-  APPROVED
-  SENT_TO_SUPPLIER
-  PARTIALLY_RECEIVED
-  FULLY_RECEIVED
-  CANCELLED
-  INTEGRATED
-}
-
-enum ReceivingStatus {
-  DRAFT
-  CONFIRMED
-  DIVERGENT
-  CANCELLED
-}
-
-enum ItemType {
-  PRODUCT
-  SERVICE
-}
-
-// ============================================================
-// USUÁRIOS
-// ============================================================
-
-model User {
-  id          String     @id @default(uuid()) @db.UniqueIdentifier
-  email       String     @unique @db.NVarChar(255)
-  name        String     @db.NVarChar(255)
-  adUsername  String?    @db.NVarChar(255)
-  profile     UserProfile
-  status      UserStatus @default(PENDING_SETUP)
-  companyIds  String     @db.NVarChar(Max) // JSON array: ["comp1","comp2"]
-  branchIds   String     @db.NVarChar(Max) // JSON array
-  costCenterIds String   @db.NVarChar(Max) // JSON array
-  approvalLimit Decimal? @db.Decimal(15, 2)
-  delegateTo  String?    @db.UniqueIdentifier
-  delegateFrom String?   @db.UniqueIdentifier
-  delegateUntil DateTime?
-  lastLoginAt DateTime?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  deletedAt   DateTime?
-
-  approvalRules ApprovalRule[]
-  requisitions  Requisition[]
-  purchaseOrders PurchaseOrder[]
-
-  @@map("users")
-}
-
-// ============================================================
-// EMPRESAS E FILIAIS
+// EMPRESAS
 // ============================================================
 
 model Company {
-  id        String   @id @default(uuid()) @db.UniqueIdentifier
-  code      String   @unique @db.NVarChar(20)
-  name      String   @db.NVarChar(255)
-  cnpj      String   @unique @db.NVarChar(20)
-  erpDbName String   @db.NVarChar(100) // ex: ERP_EMPRESA1_DB
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id        String    @id @default(uuid()) @db.UniqueIdentifier
+  code      String    @unique @db.NVarChar(20)
+  name      String    @db.NVarChar(255)
+  cnpj      String    @unique @db.NVarChar(18)
+  erpDbName String    @db.NVarChar(100)
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  branches    Branch[]
-  costCenters CostCenter[]
+  users           UserCompany[]
+  branches        Branch[]
+  costCenters     CostCenter[]
+  suppliers       Supplier[]
+  items           Item[]
+  approvalTiers   ApprovalTier[]
+  requisitions    Requisition[]
+  purchaseOrders  PurchaseOrder[]
+  budgetEntries   BudgetEntry[]
+  integrationLogs IntegrationLog[]
 
   @@map("companies")
 }
 
+// ============================================================
+// FILIAIS (cache do ERP)
+// ============================================================
+
 model Branch {
-  id        String   @id @default(uuid()) @db.UniqueIdentifier
-  companyId String   @db.UniqueIdentifier
-  code      String   @db.NVarChar(20)
-  name      String   @db.NVarChar(255)
-  cnpj      String   @db.NVarChar(20)
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime?
+  id         String    @id @default(uuid()) @db.UniqueIdentifier
+  companyId  String    @db.UniqueIdentifier
+  erpCode    String    @db.NVarChar(50)
+  name       String    @db.NVarChar(255)
+  cnpj       String    @db.NVarChar(18)
+  active     Boolean   @default(true)
+  lastSyncAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
-  company Company @relation(fields: [companyId], references: [id])
+  company Company @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
-  @@unique([companyId, code])
+  requisitions       Requisition[]
+  requisitionItems   RequisitionItem[]
+  purchaseOrders     PurchaseOrder[]
+  purchaseOrderItems PurchaseOrderItem[]
+  budgetEntries      BudgetEntry[]
+
+  @@unique([companyId, erpCode])
   @@map("branches")
 }
 
+// ============================================================
+// CENTROS DE CUSTO (cache do ERP)
+// ============================================================
+
 model CostCenter {
-  id          String   @id @default(uuid()) @db.UniqueIdentifier
-  companyId   String   @db.UniqueIdentifier
-  code        String   @db.NVarChar(20)
-  name        String   @db.NVarChar(255)
-  managerId   String?  @db.UniqueIdentifier
-  budgetYear  Int?
-  budgetTotal Decimal? @db.Decimal(15, 2)
-  active      Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  deletedAt   DateTime?
+  id         String    @id @default(uuid()) @db.UniqueIdentifier
+  companyId  String    @db.UniqueIdentifier
+  erpCode    String    @db.NVarChar(50)
+  name       String    @db.NVarChar(255)
+  active     Boolean   @default(true)
+  lastSyncAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
-  company Company @relation(fields: [companyId], references: [id])
+  company Company @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
-  @@unique([companyId, code])
+  requisitionItems   RequisitionItem[]
+  purchaseOrderItems PurchaseOrderItem[]
+  budgetEntries      BudgetEntry[]
+
+  @@unique([companyId, erpCode])
   @@map("cost_centers")
 }
 
 // ============================================================
-// FORNECEDORES
+// USUÁRIOS (criados via JIT no primeiro login LDAP)
+// ============================================================
+
+model User {
+  id            String    @id @default(uuid()) @db.UniqueIdentifier
+  email         String    @unique @db.NVarChar(255)
+  name          String    @db.NVarChar(255)
+  adUsername    String?   @unique @db.NVarChar(255)
+  profile       String    @db.NVarChar(20)  // ADMIN | MANAGER | OPERATOR | REVIEWER
+  status        String    @default("PENDING_SETUP") @db.NVarChar(20)
+  approvalLimit Decimal?  @db.Decimal(15, 2)
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  companies           UserCompany[]
+  approvalTiers       UserApprovalTier[]
+  delegationsGiven    Delegation[]    @relation("delegator")
+  delegationsReceived Delegation[]    @relation("delegate")
+  requisitions        Requisition[]
+  purchaseOrders      PurchaseOrder[]
+  approvalSteps       ApprovalStep[]
+  receivings          Receiving[]
+  notifications       Notification[]
+
+  @@map("users")
+}
+
+// M:N User <-> Company
+model UserCompany {
+  id        String   @id @default(uuid()) @db.UniqueIdentifier
+  userId    String   @db.UniqueIdentifier
+  companyId String   @db.UniqueIdentifier
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  company Company @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@unique([userId, companyId])
+  @@map("user_companies")
+}
+
+// ============================================================
+// ALÇADAS DE APROVAÇÃO (sequencial por level)
+// ============================================================
+
+model ApprovalTier {
+  id        String    @id @default(uuid()) @db.UniqueIdentifier
+  companyId String    @db.UniqueIdentifier
+  name      String    @db.NVarChar(100)
+  level     Int
+  maxAmount Decimal?  @db.Decimal(15, 2)
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  company       Company            @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  approvers     UserApprovalTier[]
+  approvalSteps ApprovalStep[]
+
+  @@unique([companyId, level])
+  @@map("approval_tiers")
+}
+
+model UserApprovalTier {
+  id         String    @id @default(uuid()) @db.UniqueIdentifier
+  userId     String    @db.UniqueIdentifier
+  tierId     String    @db.UniqueIdentifier
+  validFrom  DateTime  @default(now())
+  validUntil DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User         @relation(fields: [userId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  tier ApprovalTier @relation(fields: [tierId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@unique([userId, tierId])
+  @@map("user_approval_tiers")
+}
+
+model Delegation {
+  id          String    @id @default(uuid()) @db.UniqueIdentifier
+  delegatorId String    @db.UniqueIdentifier
+  delegateId  String    @db.UniqueIdentifier
+  startsAt    DateTime
+  endsAt      DateTime
+  reason      String?   @db.NVarChar(500)
+  createdById String    @db.UniqueIdentifier
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  delegator User @relation("delegator", fields: [delegatorId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  delegate  User @relation("delegate", fields: [delegateId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@map("delegations")
+}
+
+// ============================================================
+// FORNECEDORES (cache do ERP)
 // ============================================================
 
 model Supplier {
-  id             String   @id @default(uuid()) @db.UniqueIdentifier
-  companyId      String   @db.UniqueIdentifier
-  code           String   @db.NVarChar(20)
-  name           String   @db.NVarChar(255)
-  tradeName      String?  @db.NVarChar(255)
-  cnpjCpf        String   @db.NVarChar(20)
-  email          String?  @db.NVarChar(255)
-  phone          String?  @db.NVarChar(20)
-  erpSupplierId  String?  @db.NVarChar(50)
-  active         Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  deletedAt      DateTime?
+  id         String    @id @default(uuid()) @db.UniqueIdentifier
+  companyId  String    @db.UniqueIdentifier
+  erpCode    String    @db.NVarChar(50)
+  name       String    @db.NVarChar(255)
+  tradeName  String?   @db.NVarChar(255)
+  cnpjCpf    String    @db.NVarChar(18)
+  personType String    @db.NVarChar(2)  // PJ | PF
+  email      String?   @db.NVarChar(255)
+  phone      String?   @db.NVarChar(30)
+  active     Boolean   @default(true)
+  lastSyncAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
 
+  company        Company         @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  items          Item[]
+  requisitions   Requisition[]
   purchaseOrders PurchaseOrder[]
 
-  @@unique([companyId, code])
+  @@unique([companyId, erpCode])
   @@map("suppliers")
 }
 
 // ============================================================
-// ITENS / CATÁLOGO
+// ITENS (cache do ERP — vinculados ao fornecedor)
 // ============================================================
 
 model Item {
-  id               String   @id @default(uuid()) @db.UniqueIdentifier
-  companyId        String   @db.UniqueIdentifier
-  code             String   @db.NVarChar(50)
-  description      String   @db.NVarChar(500)
-  type             ItemType @default(PRODUCT)
-  unit             String   @db.NVarChar(20)
-  accountingCode   String?  @db.NVarChar(50)
-  erpItemId        String?  @db.NVarChar(50)
-  active           Boolean  @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  deletedAt        DateTime?
+  id             String    @id @default(uuid()) @db.UniqueIdentifier
+  companyId      String    @db.UniqueIdentifier
+  supplierId     String    @db.UniqueIdentifier
+  erpCode        String    @db.NVarChar(50)
+  description    String    @db.NVarChar(500)
+  unit           String    @db.NVarChar(20)
+  itemType       String    @db.NVarChar(10)   // PRODUCT | SERVICE
+  accountingCode String?   @db.NVarChar(50)
+  active         Boolean   @default(true)
+  lastSyncAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  @@unique([companyId, code])
+  company            Company              @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  supplier           Supplier             @relation(fields: [supplierId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  requisitionItems   RequisitionItem[]
+  purchaseOrderItems PurchaseOrderItem[]
+
+  @@unique([companyId, erpCode])
+  @@index([companyId, supplierId, active])
   @@map("items")
 }
 
 // ============================================================
-// REGRAS DE APROVAÇÃO
+// ORÇAMENTO (MVP: empresa + filial + CC + ano + mês)
 // ============================================================
 
-model ApprovalRule {
-  id            String   @id @default(uuid()) @db.UniqueIdentifier
-  companyId     String   @db.UniqueIdentifier
-  name          String   @db.NVarChar(255)
-  approverId    String   @db.UniqueIdentifier
-  minAmount     Decimal? @db.Decimal(15, 2)
-  maxAmount     Decimal? @db.Decimal(15, 2)
-  costCenterIds String?  @db.NVarChar(Max) // JSON array
-  order         Int      @default(1)
-  active        Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+model BudgetEntry {
+  id              String   @id @default(uuid()) @db.UniqueIdentifier
+  companyId       String   @db.UniqueIdentifier
+  branchId        String   @db.UniqueIdentifier
+  costCenterId    String   @db.UniqueIdentifier
+  year            Int
+  month           Int
+  amountBudgeted  Decimal  @db.Decimal(15, 2)
+  amountCommitted Decimal  @default(0) @db.Decimal(15, 2)
+  amountConsumed  Decimal  @default(0) @db.Decimal(15, 2)
+  importedById    String?  @db.UniqueIdentifier
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  approver User @relation(fields: [approverId], references: [id])
+  company    Company    @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  branch     Branch     @relation(fields: [branchId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  costCenter CostCenter @relation(fields: [costCenterId], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
-  @@map("approval_rules")
+  @@unique([companyId, branchId, costCenterId, year, month])
+  @@index([companyId, branchId, costCenterId, year])
+  @@map("budget_entries")
 }
 
 // ============================================================
-// REQUISIÇÕES
+// REQUISIÇÕES (1 REQ = 1 Fornecedor = 1 OC)
 // ============================================================
 
 model Requisition {
-  id           String            @id @default(uuid()) @db.UniqueIdentifier
-  number       String            @unique @db.NVarChar(20) // REQ-2026-000001
-  companyId    String            @db.UniqueIdentifier
-  branchId     String            @db.UniqueIdentifier
-  costCenterId String            @db.UniqueIdentifier
-  requesterId  String            @db.UniqueIdentifier
-  title        String            @db.NVarChar(500)
-  justification String?          @db.NVarChar(Max)
-  status       RequisitionStatus @default(DRAFT)
-  totalAmount  Decimal           @db.Decimal(15, 2) @default(0)
-  neededBy     DateTime?
-  submittedAt  DateTime?
-  approvedAt   DateTime?
-  rejectedAt   DateTime?
-  rejectionReason String?        @db.NVarChar(Max)
-  convertedToOcId String?        @db.UniqueIdentifier
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
-  deletedAt    DateTime?
+  id               String    @id @default(uuid()) @db.UniqueIdentifier
+  number           String    @unique @db.NVarChar(20)
+  companyId        String    @db.UniqueIdentifier
+  branchId         String    @db.UniqueIdentifier
+  supplierId       String    @db.UniqueIdentifier
+  requesterId      String    @db.UniqueIdentifier
+  title            String    @db.NVarChar(500)
+  justification    String?   @db.NVarChar(Max)
+  status           String    @default("DRAFT") @db.NVarChar(20)
+  totalAmount      Decimal   @default(0) @db.Decimal(15, 2)
+  neededBy         DateTime?
+  currentTierLevel Int?
+  submittedAt      DateTime?
+  approvedAt       DateTime?
+  rejectedAt       DateTime?
+  rejectionReason  String?   @db.NVarChar(Max)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
 
-  requester   User              @relation(fields: [requesterId], references: [id])
-  items       RequisitionItem[]
-  approvals   ApprovalFlow[]
+  company       Company           @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  branch        Branch            @relation(fields: [branchId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  supplier      Supplier          @relation(fields: [supplierId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  requester     User              @relation(fields: [requesterId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  items         RequisitionItem[]
+  approvalSteps ApprovalStep[]
+  purchaseOrder PurchaseOrder?
+  attachments   Attachment[]
 
+  @@index([companyId, status])
+  @@index([requesterId, status])
+  @@index([companyId, createdAt])
   @@map("requisitions")
 }
 
 model RequisitionItem {
-  id            String   @id @default(uuid()) @db.UniqueIdentifier
-  requisitionId String   @db.UniqueIdentifier
-  itemId        String?  @db.UniqueIdentifier
-  description   String   @db.NVarChar(500)
-  quantity      Decimal  @db.Decimal(15, 4)
-  unit          String   @db.NVarChar(20)
-  estimatedPrice Decimal @db.Decimal(15, 2)
-  totalPrice    Decimal  @db.Decimal(15, 2)
-  accountingCode String? @db.NVarChar(50)
-  notes         String?  @db.NVarChar(Max)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id             String   @id @default(uuid()) @db.UniqueIdentifier
+  requisitionId  String   @db.UniqueIdentifier
+  itemId         String?  @db.UniqueIdentifier
+  description    String   @db.NVarChar(500)
+  quantity       Decimal  @db.Decimal(15, 4)
+  unit           String   @db.NVarChar(20)
+  estimatedPrice Decimal  @db.Decimal(15, 2)
+  totalPrice     Decimal  @db.Decimal(15, 2)
+  branchId       String   @db.UniqueIdentifier
+  costCenterId   String   @db.UniqueIdentifier
+  notes          String?  @db.NVarChar(Max)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  requisition Requisition @relation(fields: [requisitionId], references: [id])
+  requisition Requisition @relation(fields: [requisitionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  item        Item?       @relation(fields: [itemId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  branch      Branch      @relation(fields: [branchId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  costCenter  CostCenter  @relation(fields: [costCenterId], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
   @@map("requisition_items")
 }
 
 // ============================================================
-// PEDIDOS DE COMPRA (OC)
+// PEDIDOS DE COMPRA (1:1 com Requisição)
 // ============================================================
 
 model PurchaseOrder {
-  id              String              @id @default(uuid()) @db.UniqueIdentifier
-  number          String              @unique @db.NVarChar(20) // OC-2026-000001
-  companyId       String              @db.UniqueIdentifier
-  branchId        String              @db.UniqueIdentifier
-  costCenterId    String              @db.UniqueIdentifier
-  buyerId         String              @db.UniqueIdentifier
-  supplierId      String              @db.UniqueIdentifier
-  requisitionId   String?             @db.UniqueIdentifier
-  status          PurchaseOrderStatus @default(DRAFT)
-  paymentTerms    String?             @db.NVarChar(255)
-  deliveryAddress String?             @db.NVarChar(500)
+  id               String    @id @default(uuid()) @db.UniqueIdentifier
+  number           String    @unique @db.NVarChar(20)
+  requisitionId    String    @unique @db.UniqueIdentifier
+  companyId        String    @db.UniqueIdentifier
+  branchId         String    @db.UniqueIdentifier
+  supplierId       String    @db.UniqueIdentifier
+  buyerId          String    @db.UniqueIdentifier
+  status           String    @default("DRAFT") @db.NVarChar(25)
+  paymentCondition String?   @db.NVarChar(255)
+  deliveryAddress  String?   @db.NVarChar(500)
   expectedDelivery DateTime?
-  totalAmount     Decimal             @db.Decimal(15, 2) @default(0)
-  notes           String?             @db.NVarChar(Max)
-  erpOcId         String?             @db.NVarChar(50) // ID no ERP após integração
-  integratedAt    DateTime?
-  submittedAt     DateTime?
-  approvedAt      DateTime?
+  totalAmount      Decimal   @default(0) @db.Decimal(15, 2)
+  notes            String?   @db.NVarChar(Max)
+  currentTierLevel Int?
+  erpOcNumber      String?   @db.NVarChar(50)
+  erpStagingId     String?   @unique @db.NVarChar(50)
+  pendingErpSince  DateTime?
+  integratedAt     DateTime?
+  submittedAt      DateTime?
+  approvedAt       DateTime?
   sentToSupplierAt DateTime?
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
-  deletedAt       DateTime?
+  cancelledAt      DateTime?
+  cancellationReason String? @db.NVarChar(Max)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
 
-  buyer    User            @relation(fields: [buyerId], references: [id])
-  supplier Supplier        @relation(fields: [supplierId], references: [id])
-  items    PurchaseOrderItem[]
-  approvals ApprovalFlow[]
-  receivings Receiving[]
+  requisition   Requisition         @relation(fields: [requisitionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  company       Company             @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  branch        Branch              @relation(fields: [branchId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  supplier      Supplier            @relation(fields: [supplierId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  buyer         User                @relation(fields: [buyerId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  items         PurchaseOrderItem[]
+  approvalSteps ApprovalStep[]
+  receivings    Receiving[]
+  attachments   Attachment[]
 
+  @@index([companyId, status])
+  @@index([supplierId, status])
+  @@index([expectedDelivery, status])
+  @@index([companyId, createdAt])
   @@map("purchase_orders")
 }
 
 model PurchaseOrderItem {
-  id              String   @id @default(uuid()) @db.UniqueIdentifier
-  purchaseOrderId String   @db.UniqueIdentifier
-  itemId          String?  @db.UniqueIdentifier
-  description     String   @db.NVarChar(500)
-  quantity        Decimal  @db.Decimal(15, 4)
-  unit            String   @db.NVarChar(20)
-  unitPrice       Decimal  @db.Decimal(15, 2)
-  totalPrice      Decimal  @db.Decimal(15, 2)
-  accountingCode  String?  @db.NVarChar(50)
-  receivedQty     Decimal  @db.Decimal(15, 4) @default(0)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                String   @id @default(uuid()) @db.UniqueIdentifier
+  purchaseOrderId   String   @db.UniqueIdentifier
+  requisitionItemId String?  @db.UniqueIdentifier
+  itemId            String?  @db.UniqueIdentifier
+  description       String   @db.NVarChar(500)
+  quantity          Decimal  @db.Decimal(15, 4)
+  unit              String   @db.NVarChar(20)
+  unitPrice         Decimal  @db.Decimal(15, 2)
+  totalPrice        Decimal  @db.Decimal(15, 2)
+  branchId          String   @db.UniqueIdentifier
+  costCenterId      String   @db.UniqueIdentifier
+  receivedQty       Decimal  @default(0) @db.Decimal(15, 4)
+  notes             String?  @db.NVarChar(Max)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  purchaseOrder  PurchaseOrder   @relation(fields: [purchaseOrderId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  item           Item?           @relation(fields: [itemId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  branch         Branch          @relation(fields: [branchId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  costCenter     CostCenter      @relation(fields: [costCenterId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  receivingItems ReceivingItem[]
 
   @@map("purchase_order_items")
 }
 
 // ============================================================
-// FLUXO DE APROVAÇÃO
+// FLUXO DE APROVAÇÃO SEQUENCIAL
+// Um step por nível de alçada. Se REJECTED → processo encerrado.
 // ============================================================
 
-model ApprovalFlow {
-  id              String         @id @default(uuid()) @db.UniqueIdentifier
-  entityType      String         @db.NVarChar(50) // REQUISITION | PURCHASE_ORDER
-  entityId        String         @db.UniqueIdentifier
-  approverId      String         @db.UniqueIdentifier
-  order           Int
-  status          ApprovalStatus @default(PENDING)
+model ApprovalStep {
+  id              String    @id @default(uuid()) @db.UniqueIdentifier
+  companyId       String    @db.UniqueIdentifier
+  requisitionId   String?   @db.UniqueIdentifier
+  purchaseOrderId String?   @db.UniqueIdentifier
+  tierId          String    @db.UniqueIdentifier
+  level           Int
+  approverId      String    @db.UniqueIdentifier
+  status          String    @default("PENDING") @db.NVarChar(10)
   decidedAt       DateTime?
-  comments        String?        @db.NVarChar(Max)
-  companyId       String         @db.UniqueIdentifier
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  comments        String?   @db.NVarChar(Max)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  requisition   Requisition?   @relation(fields: [entityId], references: [id], map: "approval_flow_req_fk")
-  purchaseOrder PurchaseOrder? @relation(fields: [entityId], references: [id], map: "approval_flow_oc_fk")
+  requisition   Requisition?   @relation(fields: [requisitionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  tier          ApprovalTier   @relation(fields: [tierId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  approver      User           @relation(fields: [approverId], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
-  @@map("approval_flows")
+  @@index([requisitionId, level])
+  @@index([purchaseOrderId, level])
+  @@index([approverId, status])
+  @@map("approval_steps")
 }
 
 // ============================================================
-// RECEBIMENTO
+// RECEBIMENTO / MEDIÇÃO
 // ============================================================
 
 model Receiving {
-  id              String          @id @default(uuid()) @db.UniqueIdentifier
-  number          String          @unique @db.NVarChar(20) // REC-2026-000001
-  purchaseOrderId String          @db.UniqueIdentifier
-  companyId       String          @db.UniqueIdentifier
-  receivedById    String          @db.UniqueIdentifier
-  status          ReceivingStatus @default(DRAFT)
-  receivedAt      DateTime
-  notes           String?         @db.NVarChar(Max)
-  divergenceNotes String?         @db.NVarChar(Max)
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  deletedAt       DateTime?
+  id               String    @id @default(uuid()) @db.UniqueIdentifier
+  number           String    @unique @db.NVarChar(20)
+  purchaseOrderId  String    @db.UniqueIdentifier
+  companyId        String    @db.UniqueIdentifier
+  receivedById     String    @db.UniqueIdentifier
+  status           String    @default("DRAFT") @db.NVarChar(15)
+  receivedAt       DateTime
+  measurementStart DateTime?
+  measurementEnd   DateTime?
+  completionPct    Decimal?  @db.Decimal(5, 2)
+  notes            String?   @db.NVarChar(Max)
+  divergenceNotes  String?   @db.NVarChar(Max)
+  confirmedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
 
-  purchaseOrder PurchaseOrder   @relation(fields: [purchaseOrderId], references: [id])
+  purchaseOrder PurchaseOrder   @relation(fields: [purchaseOrderId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  receivedBy    User            @relation(fields: [receivedById], references: [id], onUpdate: NoAction, onDelete: NoAction)
   items         ReceivingItem[]
+  attachments   Attachment[]
 
+  @@index([purchaseOrderId])
   @@map("receivings")
 }
 
 model ReceivingItem {
-  id              String   @id @default(uuid()) @db.UniqueIdentifier
-  receivingId     String   @db.UniqueIdentifier
-  purchaseOrderItemId String @db.UniqueIdentifier
-  receivedQty     Decimal  @db.Decimal(15, 4)
-  acceptedQty     Decimal  @db.Decimal(15, 4)
-  rejectedQty     Decimal  @db.Decimal(15, 4) @default(0)
-  rejectionReason String?  @db.NVarChar(Max)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                  String   @id @default(uuid()) @db.UniqueIdentifier
+  receivingId         String   @db.UniqueIdentifier
+  purchaseOrderItemId String   @db.UniqueIdentifier
+  receivedQty         Decimal  @db.Decimal(15, 4)
+  acceptedQty         Decimal  @db.Decimal(15, 4)
+  rejectedQty         Decimal  @default(0) @db.Decimal(15, 4)
+  rejectionReason     String?  @db.NVarChar(Max)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
-  receiving Receiving @relation(fields: [receivingId], references: [id])
+  receiving         Receiving         @relation(fields: [receivingId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  purchaseOrderItem PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
   @@map("receiving_items")
 }
 
 // ============================================================
-// AUDITORIA
+// AUDITORIA (mascarar CPF/CNPJ/dados bancários — LGPD)
 // ============================================================
 
 model AuditLog {
   id         String   @id @default(uuid()) @db.UniqueIdentifier
   companyId  String   @db.UniqueIdentifier
   userId     String   @db.UniqueIdentifier
-  action     String   @db.NVarChar(100) // CREATE | UPDATE | DELETE | APPROVE | REJECT
+  action     String   @db.NVarChar(50)
   entityType String   @db.NVarChar(100)
   entityId   String   @db.UniqueIdentifier
-  before     String?  @db.NVarChar(Max) // JSON snapshot
-  after      String?  @db.NVarChar(Max) // JSON snapshot
+  before     String?  @db.NVarChar(Max)
+  after      String?  @db.NVarChar(Max)
   ipAddress  String?  @db.NVarChar(50)
   userAgent  String?  @db.NVarChar(500)
   createdAt  DateTime @default(now())
 
   @@index([entityType, entityId])
-  @@index([userId])
-  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([companyId, createdAt])
   @@map("audit_logs")
 }
 
 // ============================================================
-// NUMERAÇÃO DE DOCUMENTOS
+// NOTIFICAÇÕES
+// ============================================================
+
+model Notification {
+  id         String    @id @default(uuid()) @db.UniqueIdentifier
+  companyId  String    @db.UniqueIdentifier
+  userId     String    @db.UniqueIdentifier
+  type       String    @db.NVarChar(30)
+  title      String    @db.NVarChar(255)
+  body       String    @db.NVarChar(Max)
+  entityType String?   @db.NVarChar(100)
+  entityId   String?   @db.UniqueIdentifier
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@index([userId, readAt])
+  @@index([companyId, createdAt])
+  @@map("notifications")
+}
+
+// ============================================================
+// ANEXOS (MVP: path no servidor Windows; Fase 2: MinIO/S3)
+// ============================================================
+
+model Attachment {
+  id              String    @id @default(uuid()) @db.UniqueIdentifier
+  companyId       String    @db.UniqueIdentifier
+  requisitionId   String?   @db.UniqueIdentifier
+  purchaseOrderId String?   @db.UniqueIdentifier
+  receivingId     String?   @db.UniqueIdentifier
+  filename        String    @db.NVarChar(255)
+  storageKey      String    @db.NVarChar(500)
+  sizeBytes       Int
+  mimeType        String    @db.NVarChar(100)
+  uploadedById    String    @db.UniqueIdentifier
+  createdAt       DateTime  @default(now())
+
+  requisition   Requisition?   @relation(fields: [requisitionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  receiving     Receiving?     @relation(fields: [receivingId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@index([requisitionId])
+  @@index([purchaseOrderId])
+  @@index([receivingId])
+  @@map("attachments")
+}
+
+// ============================================================
+// LOGS DE INTEGRAÇÃO ERP
+// ============================================================
+
+model IntegrationLog {
+  id               String    @id @default(uuid()) @db.UniqueIdentifier
+  companyId        String    @db.UniqueIdentifier
+  source           String    @db.NVarChar(50)
+  jobType          String    @db.NVarChar(100)
+  status           String    @db.NVarChar(10)
+  recordsProcessed Int       @default(0)
+  errorDetails     String?   @db.NVarChar(Max)
+  durationMs       Int?
+  executedAt       DateTime  @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@index([companyId, source, executedAt])
+  @@index([source, status, executedAt])
+  @@map("integration_logs")
+}
+
+// ============================================================
+// SEQUÊNCIAS DE DOCUMENTOS (referência de configuração)
+// A geração usa SQL Server SEQUENCE nativa — executar após migrate:
+//
+//   CREATE SEQUENCE dbo.seq_REQ_EMP1_2026 START WITH 1 INCREMENT BY 1;
+//   CREATE SEQUENCE dbo.seq_OC_EMP1_2026  START WITH 1 INCREMENT BY 1;
+//   CREATE SEQUENCE dbo.seq_REC_EMP1_2026 START WITH 1 INCREMENT BY 1;
+//
+//   SELECT NEXT VALUE FOR dbo.seq_REQ_EMP1_2026  -- atômico, sem race condition
 // ============================================================
 
 model DocumentSequence {
-  id        String   @id @default(uuid()) @db.UniqueIdentifier
-  companyId String   @db.UniqueIdentifier
-  type      String   @db.NVarChar(20) // REQ | OC | REC | DOC
-  year      Int
-  lastSeq   Int      @default(0)
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(uuid()) @db.UniqueIdentifier
+  companyId    String   @db.UniqueIdentifier
+  docType      String   @db.NVarChar(10)
+  year         Int
+  sequenceName String   @db.NVarChar(100)
+  createdAt    DateTime @default(now())
 
-  @@unique([companyId, type, year])
+  @@unique([companyId, docType, year])
   @@map("document_sequences")
 }
