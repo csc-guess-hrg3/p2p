@@ -9,6 +9,7 @@ import { RequisitionsListPage } from '@/pages/requisitions/RequisitionsListPage'
 import { RequisitionFormPage } from '@/pages/requisitions/RequisitionFormPage';
 import { RequisitionDetailPage } from '@/pages/requisitions/RequisitionDetailPage';
 import { FiscalQueuePage } from '@/pages/fiscal/FiscalQueuePage';
+import { ApprovalsPage } from '@/pages/approvals/ApprovalsPage';
 
 function App() {
   return (
@@ -36,12 +37,7 @@ function App() {
                   path="requisicoes/:id/editar"
                   element={<RequisitionFormPage />}
                 />
-                <Route
-                  path="aprovacoes"
-                  element={
-                    <Placeholder title="Aprovações" etapa="Etapa F4" />
-                  }
-                />
+                <Route path="aprovacoes" element={<ApprovalsPage />} />
                 <Route
                   path="pedidos"
                   element={
