@@ -6,7 +6,7 @@ import {
   useDeleteRequisition,
 } from '@/lib/requisitions';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
-import { StatusBadge, nfTypeLabel } from '@/components/StatusBadge';
+import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -110,7 +110,10 @@ export function RequisitionDetailPage() {
         <CardContent className="grid grid-cols-3 gap-4">
           <Field label="Filial" value={req.branchName} />
           <Field label="Fornecedor" value={req.supplierName} />
-          <Field label="Tipo de NF" value={nfTypeLabel(req.tipoNotaFiscal)} />
+          <Field
+            label="Com adiantamento"
+            value={req.tipoNotaFiscal === 'NF_FUTURA' ? 'Sim' : 'Não'}
+          />
           <Field label="Solicitante" value={req.requester?.name ?? '—'} />
           <Field label="Criada em" value={formatDate(req.createdAt)} />
           <Field

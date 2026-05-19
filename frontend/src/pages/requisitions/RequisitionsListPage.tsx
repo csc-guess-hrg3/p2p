@@ -4,7 +4,7 @@ import { Plus, Search } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { useRequisitions } from '@/lib/requisitions';
 import { formatCurrency, formatDate } from '@/lib/format';
-import { StatusBadge, nfTypeLabel } from '@/components/StatusBadge';
+import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -93,7 +93,7 @@ export function RequisitionsListPage() {
               <TableHead>Número</TableHead>
               <TableHead>Título</TableHead>
               <TableHead>Fornecedor</TableHead>
-              <TableHead>Tipo NF</TableHead>
+              <TableHead>Adiantamento</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Valor</TableHead>
               <TableHead>Criada em</TableHead>
@@ -126,7 +126,7 @@ export function RequisitionsListPage() {
                   {r.supplierName}
                 </TableCell>
                 <TableCell className="text-muted-foreground">
-                  {nfTypeLabel(r.tipoNotaFiscal)}
+                  {r.tipoNotaFiscal === 'NF_FUTURA' ? 'Sim' : '—'}
                 </TableCell>
                 <TableCell>
                   <StatusBadge status={r.status} />

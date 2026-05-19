@@ -4,7 +4,7 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { isAxiosError } from 'axios';
-import { Copy, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Copy, Info, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { useBranches, usePaymentConditions } from '@/lib/integration';
 import {
@@ -38,6 +38,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { ItemDialog } from './ItemDialog';
 import { SupplierCombobox } from './SupplierCombobox';
 
@@ -46,7 +51,7 @@ const schema = z
     branchErpCode: z.string().min(1, 'Selecione a filial'),
     supplierErpCode: z.string().min(1, 'Selecione o fornecedor'),
     title: z.string().min(1, 'Informe o título'),
-    tipoNotaFiscal: z.enum(['NF_EXISTENTE', 'NF_FUTURA', 'SEM_NF']),
+    comAdiantamento: z.boolean(),
     paymentConditionCode: z
       .string()
       .min(1, 'Selecione a condição de pagamento'),
@@ -107,7 +112,7 @@ export function RequisitionFormPage() {
       branchErpCode: '',
       supplierErpCode: '',
       title: '',
-      tipoNotaFiscal: 'NF_EXISTENTE',
+      comAdiantamento: false,
       paymentConditionCode: '',
       recurring: false,
       recurrenceMonths: '',
@@ -127,7 +132,7 @@ export function RequisitionFormPage() {
       branchErpCode: r.branchErpCode,
       supplierErpCode: r.supplierErpCode,
       title: r.title,
-      tipoNotaFiscal: r.tipoNotaFiscal,
+      comAdiantamento: r.tipoNotaFiscal === 'NF_FUTURA',
       paymentConditionCode: r.paymentConditionCode ?? '',
       recurring: r.recurring,
       recurrenceMonths: r.recurrenceMonths
@@ -192,7 +197,7 @@ export function RequisitionFormPage() {
       supplierErpCode: values.supplierErpCode,
       title: values.title,
       justification: values.justification,
-      tipoNotaFiscal: values.tipoNotaFiscal,
+      tipoNotaFiscal: values.comAdiantamento ? 'NF_FUTURA' : 'NF_EXISTENTE',
       paymentConditionCode: values.paymentConditionCode,
       recurring: values.recurring,
       recurrenceMonths: values.recurring
@@ -347,25 +352,40 @@ export function RequisitionFormPage() {
           </div>
 
           <div className="space-y-1.5">
-            <Label>Tipo de nota fiscal</Label>
-            <Controller
-              control={control}
-              name="tipoNotaFiscal"
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="NF_EXISTENTE">NF já existe</SelectItem>
-                    <SelectItem value="NF_FUTURA">
-                      NF futura (adiantamento)
-                    </SelectItem>
-                    <SelectItem value="SEM_NF">Sem NF</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
-            />
+            <div className="flex items-center gap-1.5">
+              <Label>Com adiantamento</Label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="text-muted-foreground"
+                    tabIndex={-1}
+                  >
+                    <Info className="size-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Marque quando a Nota Fiscal ainda não foi emitida. O
+                  pagamento é antecipado e o sistema gera uma Solicitação de
+                  Verba junto do Pedido de Compra.
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <div className="flex h-9 items-center gap-3">
+              <Controller
+                control={control}
+                name="comAdiantamento"
+                render={({ field }) => (
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                )}
+              />
+              <span className="text-sm text-muted-foreground">
+                Nota Fiscal ainda não emitida (pagamento antecipado)
+              </span>
+            </div>
           </div>
 
           <div className="space-y-1.5">
