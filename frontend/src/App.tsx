@@ -5,6 +5,9 @@ import { RequireAuth } from '@/components/auth/RequireAuth';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { LoginPage } from '@/pages/LoginPage';
 import { Placeholder } from '@/pages/Placeholder';
+import { RequisitionsListPage } from '@/pages/requisitions/RequisitionsListPage';
+import { RequisitionFormPage } from '@/pages/requisitions/RequisitionFormPage';
+import { RequisitionDetailPage } from '@/pages/requisitions/RequisitionDetailPage';
 
 function App() {
   return (
@@ -19,11 +22,18 @@ function App() {
                   index
                   element={<Placeholder title="Dashboard" etapa="Etapa F7" />}
                 />
+                <Route path="requisicoes" element={<RequisitionsListPage />} />
                 <Route
-                  path="requisicoes"
-                  element={
-                    <Placeholder title="Requisições" etapa="Etapa F3" />
-                  }
+                  path="requisicoes/nova"
+                  element={<RequisitionFormPage />}
+                />
+                <Route
+                  path="requisicoes/:id"
+                  element={<RequisitionDetailPage />}
+                />
+                <Route
+                  path="requisicoes/:id/editar"
+                  element={<RequisitionFormPage />}
                 />
                 <Route
                   path="aprovacoes"
