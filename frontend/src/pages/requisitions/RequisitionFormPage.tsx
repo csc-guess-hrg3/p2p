@@ -55,7 +55,7 @@ const schema = z
     contractRef: z.string().optional(),
     justification: z
       .string()
-      .min(50, 'A justificativa deve ter ao menos 50 caracteres'),
+      .min(15, 'A justificativa deve ter ao menos 15 caracteres'),
   })
   .refine(
     (d) => !d.recurring || Number(d.recurrenceMonths) >= 1,
@@ -440,7 +440,7 @@ export function RequisitionFormPage() {
             <Label htmlFor="justification">
               Justificativa{' '}
               <span className="text-muted-foreground">
-                (mín. 50 caracteres)
+                (mín. 15 caracteres)
               </span>
             </Label>
             <Textarea

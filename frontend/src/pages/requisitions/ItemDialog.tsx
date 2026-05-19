@@ -11,6 +11,7 @@ import type { RequisitionItemForm } from '@/lib/requisitions';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { CurrencyInput } from '@/components/ui/currency-input';
 import { Label } from '@/components/ui/label';
 import {
   Dialog,
@@ -63,7 +64,7 @@ export function ItemDialog({
   const [itemDescription, setItemDescription] = useState('');
   const [unit, setUnit] = useState('');
   const [quantity, setQuantity] = useState('');
-  const [estimatedPrice, setEstimatedPrice] = useState('');
+  const [estimatedPrice, setEstimatedPrice] = useState(0);
   const [accountingAccount, setAccountingAccount] = useState('');
   const [branchRateioCode, setBranchRateioCode] = useState('');
   const [costCenterRateioCode, setCostCenterRateioCode] = useState('');
@@ -79,7 +80,7 @@ export function ItemDialog({
       setItemDescription(initial.itemDescription);
       setUnit(initial.unit);
       setQuantity(String(initial.quantity));
-      setEstimatedPrice(String(initial.estimatedPrice));
+      setEstimatedPrice(initial.estimatedPrice);
       setAccountingAccount(initial.accountingAccount);
       setBranchRateioCode(initial.branchRateioCode);
       setCostCenterRateioCode(initial.costCenterRateioCode);
@@ -89,7 +90,7 @@ export function ItemDialog({
       setItemDescription('');
       setUnit('');
       setQuantity('');
-      setEstimatedPrice('');
+      setEstimatedPrice(0);
       setAccountingAccount('');
       setBranchRateioCode('');
       setCostCenterRateioCode('');
@@ -114,7 +115,7 @@ export function ItemDialog({
 
   function handleConfirm() {
     const qty = Number(quantity);
-    const price = Number(estimatedPrice);
+    const price = estimatedPrice;
     if (!itemErpCode) {
       return setError('Selecione o item.');
     }
@@ -254,11 +255,9 @@ export function ItemDialog({
             </div>
             <div className="space-y-1.5">
               <Label>Preço estimado</Label>
-              <Input
-                type="number"
-                step="any"
+              <CurrencyInput
                 value={estimatedPrice}
-                onChange={(e) => setEstimatedPrice(e.target.value)}
+                onChange={setEstimatedPrice}
               />
             </div>
           </div>

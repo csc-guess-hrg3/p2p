@@ -33,11 +33,11 @@ export class UpdateRequisitionDto {
   @IsString()
   title?: string;
 
-  @ApiPropertyOptional({ description: 'Mínimo 50 caracteres' })
+  @ApiPropertyOptional({ description: 'Mínimo 15 caracteres' })
   @IsOptional()
   @IsString()
-  @MinLength(50, {
-    message: 'A justificativa deve ter no mínimo 50 caracteres.',
+  @MinLength(15, {
+    message: 'A justificativa deve ter no mínimo 15 caracteres.',
   })
   justification?: string;
 

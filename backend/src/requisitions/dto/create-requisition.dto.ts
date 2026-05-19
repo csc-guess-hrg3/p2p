@@ -84,10 +84,10 @@ export class CreateRequisitionDto {
   @IsNotEmpty()
   title!: string;
 
-  @ApiProperty({ description: 'Justificativa (mínimo 50 caracteres)' })
+  @ApiProperty({ description: 'Justificativa (mínimo 15 caracteres)' })
   @IsString()
-  @MinLength(50, {
-    message: 'A justificativa deve ter no mínimo 50 caracteres.',
+  @MinLength(15, {
+    message: 'A justificativa deve ter no mínimo 15 caracteres.',
   })
   justification!: string;
 
