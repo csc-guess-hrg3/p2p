@@ -2,12 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import type { Paginated } from './requisitions';
 
-export type FiscalRequestType = 'LINK' | 'NEW';
-
 export interface FiscalItemRequest {
   id: string;
   companyId: string;
-  type: FiscalRequestType;
+  type: 'LINK';
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
   supplierErpCode: string;
   supplierName: string;
@@ -22,11 +20,11 @@ export interface FiscalItemRequest {
   resolvedBy?: { id: string; name: string };
 }
 
+/** Abertura de pendência fiscal — vínculo de item ao fornecedor. */
 export interface FiscalItemRequestInput {
   companyId: string;
-  type: FiscalRequestType;
   supplierErpCode: string;
-  itemErpCode?: string;
+  itemErpCode: string;
   itemDescription: string;
   unit?: string;
   notes?: string;
@@ -58,23 +56,9 @@ export function useCreateFiscalItemRequest() {
 export function useApproveFiscalItemRequest() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({
-      id,
-      dto,
-    }: {
-      id: string;
-      dto: {
-        itemErpCode?: string;
-        unit?: string;
-        accountingAccount?: string;
-        branchRateioCode?: string;
-        costCenterRateioCode?: string;
-      };
-    }) =>
-      (await api.post<FiscalItemRequest>(
-        `/fiscal-item-requests/${id}/approve`,
-        dto,
-      )).data,
+    mutationFn: async (id: string) =>
+      (await api.post<FiscalItemRequest>(`/fiscal-item-requests/${id}/approve`))
+        .data,
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ['fiscal-item-requests'] }),
   });

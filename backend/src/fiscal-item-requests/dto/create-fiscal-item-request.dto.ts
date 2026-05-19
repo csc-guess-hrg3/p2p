@@ -1,11 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 /**
- * Abertura de uma pendência fiscal de item.
- *  LINK — o item existe no catálogo do Linx, falta vincular ao fornecedor;
- *         itemErpCode é obrigatório.
- *  NEW  — o item não existe; o usuário descreve e a equipe Fiscal cadastra.
+ * Abertura de uma pendência fiscal de VÍNCULO item-fornecedor.
+ * O item já existe no catálogo do Linx; falta vinculá-lo ao fornecedor.
+ * O cadastro de itens novos é feito diretamente no Linx.
  */
 export class CreateFiscalItemRequestDto {
   @ApiProperty()
@@ -13,19 +12,15 @@ export class CreateFiscalItemRequestDto {
   @IsNotEmpty()
   companyId!: string;
 
-  @ApiProperty({ enum: ['LINK', 'NEW'] })
-  @IsIn(['LINK', 'NEW'])
-  type!: 'LINK' | 'NEW';
-
   @ApiProperty({ description: 'Código do fornecedor no ERP' })
   @IsString()
   @IsNotEmpty()
   supplierErpCode!: string;
 
-  @ApiPropertyOptional({ description: 'Código do item (obrigatório quando LINK)' })
-  @IsOptional()
+  @ApiProperty({ description: 'Código do item no catálogo do Linx' })
   @IsString()
-  itemErpCode?: string;
+  @IsNotEmpty()
+  itemErpCode!: string;
 
   @ApiProperty({ description: 'Descrição do item' })
   @IsString()

@@ -14,7 +14,15 @@ export interface ErpSupplier {
   nome: string;
   razaoSocial: string | null;
   cnpjCpf: string | null;
+  condicaoPgto: string | null;
   inativo: boolean;
+}
+
+export interface ErpPaymentCondition {
+  codigo: string;
+  descricao: string;
+  tipo: string | null;
+  parcelas: number | null;
 }
 
 export interface ErpAccount {
@@ -81,6 +89,13 @@ export function useCcRateios(company?: string) {
 /** Catálogo completo de itens da empresa. */
 export function useItems(company?: string) {
   return useQuery(erpQuery<ErpItem[]>(company, 'items'));
+}
+
+/** Condições de pagamento da empresa (COND_ENT_PGTOS). */
+export function usePaymentConditions(company?: string) {
+  return useQuery(
+    erpQuery<ErpPaymentCondition[]>(company, 'payment-conditions'),
+  );
 }
 
 /** Itens vinculados a um fornecedor (SS_ITEM_FISCAL_FORNECEDOR). */

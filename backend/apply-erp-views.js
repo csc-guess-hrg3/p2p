@@ -34,7 +34,8 @@ function loadConfig() {
   console.log('\n--- Validacao ---');
   for (const v of ['v_p2p_branches', 'v_p2p_cost_centers', 'v_p2p_suppliers',
                     'v_p2p_accounts', 'v_p2p_items', 'v_p2p_supplier_items',
-                    'v_p2p_branch_rateios', 'v_p2p_cc_rateios']) {
+                    'v_p2p_payment_conditions', 'v_p2p_branch_rateios',
+                    'v_p2p_cc_rateios']) {
     const r = await pool.request().query(`SELECT COUNT(*) n FROM dbo.${v}`);
     console.log(`${v}: ${r.recordset[0].n} linhas`);
   }

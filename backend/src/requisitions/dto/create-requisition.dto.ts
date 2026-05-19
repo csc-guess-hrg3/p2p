@@ -3,8 +3,9 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsIn,
-  IsISO8601,
+  IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -94,10 +95,26 @@ export class CreateRequisitionDto {
   @IsIn(Object.values(RequisitionNfType))
   tipoNotaFiscal!: string;
 
-  @ApiPropertyOptional({ description: 'Data necessária (ISO 8601)' })
+  @ApiProperty({ description: 'Código da condição de pagamento (COND_ENT_PGTOS)' })
+  @IsString()
+  @IsNotEmpty()
+  paymentConditionCode!: string;
+
+  @ApiPropertyOptional({ description: 'Requisição recorrente' })
   @IsOptional()
-  @IsISO8601()
-  neededBy?: string;
+  @IsBoolean()
+  recurring?: boolean;
+
+  @ApiPropertyOptional({ description: 'Meses de recorrência (se recorrente)' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  recurrenceMonths?: number;
+
+  @ApiPropertyOptional({ description: 'Contrato vinculado, quando aplicável' })
+  @IsOptional()
+  @IsString()
+  contractRef?: string;
 
   @ApiProperty({ type: [CreateRequisitionItemDto] })
   @IsArray()

@@ -57,7 +57,11 @@ export interface Requisition {
   tipoNotaFiscal: NfType;
   status: string;
   totalAmount: string;
-  neededBy: string | null;
+  paymentConditionCode: string | null;
+  paymentConditionDesc: string | null;
+  recurring: boolean;
+  recurrenceMonths: number | null;
+  contractRef: string | null;
   submittedAt: string | null;
   approvedAt: string | null;
   rejectedAt: string | null;
@@ -91,11 +95,10 @@ export interface RequisitionItemInput {
  * Item no formulário (estado da tela). fiscalMode indica se, ao salvar,
  * deve ser aberta uma pendência fiscal:
  *   NONE — item já vinculado ao fornecedor;
- *   LINK — item do catálogo, falta vincular ao fornecedor;
- *   NEW  — item novo, a equipe Fiscal vai cadastrar.
+ *   LINK — item do catálogo, falta vincular ao fornecedor.
  */
 export interface RequisitionItemForm {
-  fiscalMode: 'NONE' | 'LINK' | 'NEW';
+  fiscalMode: 'NONE' | 'LINK';
   itemErpCode: string | null;
   itemDescription: string;
   unit: string;
@@ -114,7 +117,10 @@ export interface RequisitionInput {
   title: string;
   justification: string;
   tipoNotaFiscal: NfType;
-  neededBy?: string;
+  paymentConditionCode: string;
+  recurring?: boolean;
+  recurrenceMonths?: number;
+  contractRef?: string;
   items: RequisitionItemInput[];
 }
 

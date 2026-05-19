@@ -83,6 +83,20 @@ SELECT 'HERING', RTRIM(CONTA_CONTABIL), RTRIM(DESC_CONTA), RTRIM(TIPO_CONTA),
 FROM DB_HRG3.dbo.CTB_CONTA_PLANO;
 GO
 
+-- ---------- CONDIÇÕES DE PAGAMENTO ----------
+-- Catálogo de condições de pagamento (COND_ENT_PGTOS). O fornecedor
+-- tem uma condição padrão; o usuário pode escolher outra desta lista.
+CREATE OR ALTER VIEW dbo.v_p2p_payment_conditions AS
+SELECT 'GUESS' AS empresa, RTRIM(CONDICAO_PGTO) AS codigo,
+       RTRIM(DESC_COND_PGTO) AS descricao, RTRIM(TIPO_CONDICAO) AS tipo,
+       NUMERO_PARCELAS AS parcelas
+FROM GUESS_PRODUCAO.dbo.COND_ENT_PGTOS
+UNION ALL
+SELECT 'HERING', RTRIM(CONDICAO_PGTO), RTRIM(DESC_COND_PGTO),
+       RTRIM(TIPO_CONDICAO), NUMERO_PARCELAS
+FROM DB_HRG3.dbo.COND_ENT_PGTOS;
+GO
+
 -- ---------- ITENS POR FORNECEDOR ----------
 -- Vínculo item-fornecedor (SS_ITEM_FISCAL_FORNECEDOR) cruzado com o
 -- catálogo. SS_ITEM_FISCAL_FORNECEDOR.CLIFOR = código do fornecedor

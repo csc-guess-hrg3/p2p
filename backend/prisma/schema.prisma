@@ -322,7 +322,12 @@ model Requisition {
   tipoNotaFiscal   String    @db.NVarChar(15)   // SEM_NF | NF_FUTURA | NF_EXISTENTE
   status           String    @default("DRAFT") @db.NVarChar(20)
   totalAmount      Decimal   @default(0) @db.Decimal(15, 2)
-  neededBy         DateTime?
+  // Condição de pagamento — default herdado do fornecedor (PRD 7.1)
+  paymentConditionCode String? @db.NVarChar(20)
+  paymentConditionDesc String? @db.NVarChar(100)
+  recurring        Boolean   @default(false)    // requisição recorrente
+  recurrenceMonths Int?                         // por quantos meses se repete
+  contractRef      String?   @db.NVarChar(100)  // contrato vinculado (quando aplicável)
   currentTierLevel Int?
   submittedAt      DateTime?
   approvedAt       DateTime?

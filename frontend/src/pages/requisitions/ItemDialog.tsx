@@ -28,7 +28,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
-type ItemMode = 'SUPPLIER' | 'CATALOG' | 'NEW';
+type ItemMode = 'SUPPLIER' | 'CATALOG';
 
 interface ItemDialogProps {
   open: boolean;
@@ -42,7 +42,6 @@ interface ItemDialogProps {
 const MODES: { value: ItemMode; label: string }[] = [
   { value: 'SUPPLIER', label: 'Item do fornecedor' },
   { value: 'CATALOG', label: 'Itens não vinculados ao fornecedor' },
-  { value: 'NEW', label: 'Item novo' },
 ];
 
 export function ItemDialog({
@@ -68,7 +67,6 @@ export function ItemDialog({
   const [accountingAccount, setAccountingAccount] = useState('');
   const [branchRateioCode, setBranchRateioCode] = useState('');
   const [costCenterRateioCode, setCostCenterRateioCode] = useState('');
-  const [editAlloc, setEditAlloc] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Popula o formulário ao abrir.
@@ -76,18 +74,7 @@ export function ItemDialog({
     if (!open) return;
     setError(null);
     if (initial) {
-      const complete =
-        !!initial.accountingAccount &&
-        !!initial.branchRateioCode &&
-        !!initial.costCenterRateioCode;
-      setEditAlloc(!complete || initial.fiscalMode === 'NEW');
-      setMode(
-        initial.fiscalMode === 'NEW'
-          ? 'NEW'
-          : initial.fiscalMode === 'LINK'
-            ? 'CATALOG'
-            : 'SUPPLIER',
-      );
+      setMode(initial.fiscalMode === 'LINK' ? 'CATALOG' : 'SUPPLIER');
       setItemErpCode(initial.itemErpCode ?? '');
       setItemDescription(initial.itemDescription);
       setUnit(initial.unit);
@@ -106,7 +93,6 @@ export function ItemDialog({
       setAccountingAccount('');
       setBranchRateioCode('');
       setCostCenterRateioCode('');
-      setEditAlloc(false);
     }
   }, [open, initial]);
 
@@ -116,31 +102,20 @@ export function ItemDialog({
     setItemErpCode(it.codigo);
     setItemDescription(it.descricao);
     setUnit(it.unidade ?? '');
-    const conta = it.contaContabilPadrao ?? '';
-    const rf = it.rateioFilialPadrao ?? '';
-    const rcc = it.rateioCcPadrao ?? '';
-    setAccountingAccount(conta);
-    setBranchRateioCode(rf);
-    setCostCenterRateioCode(rcc);
-    // Tem todos os padrões -> mostra fechado; senão abre a edição.
-    setEditAlloc(!(conta && rf && rcc));
+    setAccountingAccount(it.contaContabilPadrao ?? '');
+    setBranchRateioCode(it.rateioFilialPadrao ?? '');
+    setCostCenterRateioCode(it.rateioCcPadrao ?? '');
   }
 
   function changeMode(m: ItemMode) {
     setMode(m);
     setItemErpCode('');
-    if (m === 'NEW') {
-      setItemDescription('');
-      setEditAlloc(true);
-    } else {
-      setEditAlloc(false);
-    }
   }
 
   function handleConfirm() {
     const qty = Number(quantity);
     const price = Number(estimatedPrice);
-    if (mode !== 'NEW' && !itemErpCode) {
+    if (!itemErpCode) {
       return setError('Selecione o item.');
     }
     if (!itemDescription.trim()) return setError('Informe a descrição.');
@@ -153,9 +128,8 @@ export function ItemDialog({
       return setError('Selecione o rateio de centro de custo.');
     }
     onConfirm({
-      fiscalMode:
-        mode === 'SUPPLIER' ? 'NONE' : mode === 'CATALOG' ? 'LINK' : 'NEW',
-      itemErpCode: mode === 'NEW' ? null : itemErpCode,
+      fiscalMode: mode === 'CATALOG' ? 'LINK' : 'NONE',
+      itemErpCode,
       itemDescription: itemDescription.trim(),
       unit: unit.trim(),
       quantity: qty,
@@ -168,17 +142,6 @@ export function ItemDialog({
   }
 
   const supplierList = supplierItems.data ?? [];
-
-  const acc = (accounts.data ?? []).find((a) => a.codigo === accountingAccount);
-  const accLabel = acc ? `${acc.codigo} — ${acc.nome}` : null;
-  const br = (branchRateios.data ?? []).find(
-    (r) => r.codigo === branchRateioCode,
-  );
-  const branchLabel = br ? `${br.codigo} — ${br.descricao}` : null;
-  const cc = (ccRateios.data ?? []).find(
-    (r) => r.codigo === costCenterRateioCode,
-  );
-  const ccLabel = cc ? `${cc.codigo} — ${cc.descricao}` : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -241,7 +204,7 @@ export function ItemDialog({
               </Select>
               {!supplierItems.isLoading && supplierList.length === 0 && (
                 <p className="text-xs text-muted-foreground">
-                  Use “Outro item do catálogo” ou “Item novo”.
+                  Use “Itens não vinculados ao fornecedor”.
                 </p>
               )}
             </div>
@@ -274,23 +237,6 @@ export function ItemDialog({
             </div>
           )}
 
-          {mode === 'NEW' && (
-            <div className="grid grid-cols-3 gap-3">
-              <div className="col-span-3 space-y-1.5">
-                <Label>Descrição do item novo</Label>
-                <Input
-                  value={itemDescription}
-                  onChange={(e) => setItemDescription(e.target.value)}
-                  placeholder="Descreva o item a ser cadastrado"
-                />
-              </div>
-              <p className="col-span-3 text-xs text-warning">
-                Abrirá uma pendência para a equipe Fiscal cadastrar o item no
-                Linx.
-              </p>
-            </div>
-          )}
-
           {/* Quantidade / preço */}
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1.5">
@@ -304,12 +250,7 @@ export function ItemDialog({
             </div>
             <div className="space-y-1.5">
               <Label>Unidade</Label>
-              <Input
-                value={unit}
-                onChange={(e) => setUnit(e.target.value)}
-                placeholder="UN, CX…"
-                disabled={mode !== 'NEW'}
-              />
+              <Input value={unit} placeholder="UN" disabled />
             </div>
             <div className="space-y-1.5">
               <Label>Preço estimado</Label>
@@ -322,100 +263,62 @@ export function ItemDialog({
             </div>
           </div>
 
-          {/* Conta e rateios — padrão do item, com opção de editar */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label>Conta contábil e rateios</Label>
-              {!editAlloc && (
-                <button
-                  type="button"
-                  onClick={() => setEditAlloc(true)}
-                  className="text-xs font-medium text-primary hover:underline"
-                >
-                  Editar
-                </button>
-              )}
+          {/* Conta e rateios — preenchidos com o padrão do item, editáveis */}
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Conta contábil</Label>
+              <Select
+                value={accountingAccount}
+                onValueChange={setAccountingAccount}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a conta" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(accounts.data ?? []).map((a) => (
+                    <SelectItem key={a.codigo} value={a.codigo}>
+                      {a.codigo} — {a.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-
-            {!editAlloc ? (
-              <div className="space-y-1 rounded-md border bg-muted/40 p-3 text-sm">
-                <div>
-                  <span className="text-muted-foreground">
-                    Conta contábil:{' '}
-                  </span>
-                  {accLabel ?? '—'}
-                </div>
-                <div>
-                  <span className="text-muted-foreground">
-                    Rateio de filial:{' '}
-                  </span>
-                  {branchLabel ?? '—'}
-                </div>
-                <div>
-                  <span className="text-muted-foreground">
-                    Rateio de centro de custo:{' '}
-                  </span>
-                  {ccLabel ?? '—'}
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <Label>Conta contábil</Label>
-                  <Select
-                    value={accountingAccount}
-                    onValueChange={setAccountingAccount}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione a conta" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(accounts.data ?? []).map((a) => (
-                        <SelectItem key={a.codigo} value={a.codigo}>
-                          {a.codigo} — {a.nome}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Rateio de filial</Label>
-                  <Select
-                    value={branchRateioCode}
-                    onValueChange={setBranchRateioCode}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione o rateio de filial" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(branchRateios.data ?? []).map((r) => (
-                        <SelectItem key={r.codigo} value={r.codigo}>
-                          {r.codigo} — {r.descricao}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Rateio de centro de custo</Label>
-                  <Select
-                    value={costCenterRateioCode}
-                    onValueChange={setCostCenterRateioCode}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione o rateio de CC" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(ccRateios.data ?? []).map((r) => (
-                        <SelectItem key={r.codigo} value={r.codigo}>
-                          {r.codigo} — {r.descricao}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            )}
+            <div className="space-y-1.5">
+              <Label>Rateio de filial</Label>
+              <Select
+                value={branchRateioCode}
+                onValueChange={setBranchRateioCode}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o rateio de filial" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(branchRateios.data ?? []).map((r) => (
+                    <SelectItem key={r.codigo} value={r.codigo}>
+                      {r.codigo} — {r.descricao}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Rateio de centro de custo</Label>
+              <Select
+                value={costCenterRateioCode}
+                onValueChange={setCostCenterRateioCode}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o rateio de CC" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(ccRateios.data ?? []).map((r) => (
+                    <SelectItem key={r.codigo} value={r.codigo}>
+                      {r.codigo} — {r.descricao}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {error && <p className="text-sm text-destructive">{error}</p>}

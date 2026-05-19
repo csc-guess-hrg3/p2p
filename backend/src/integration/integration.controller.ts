@@ -67,6 +67,12 @@ export class IntegrationController {
     });
   }
 
+  @Get('payment-conditions')
+  @ApiOperation({ summary: 'Lista as condições de pagamento da empresa' })
+  paymentConditions(@Param('company') company: string) {
+    return this.integration.getPaymentConditions(company);
+  }
+
   @Get('suppliers/:supplierCode/items')
   @ApiOperation({ summary: 'Itens vinculados a um fornecedor' })
   supplierItems(

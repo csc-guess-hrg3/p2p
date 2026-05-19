@@ -113,7 +113,23 @@ export function RequisitionDetailPage() {
           <Field label="Tipo de NF" value={nfTypeLabel(req.tipoNotaFiscal)} />
           <Field label="Solicitante" value={req.requester?.name ?? '—'} />
           <Field label="Criada em" value={formatDate(req.createdAt)} />
-          <Field label="Necessária em" value={formatDate(req.neededBy)} />
+          <Field
+            label="Condição de pagamento"
+            value={
+              req.paymentConditionDesc
+                ? `${req.paymentConditionCode} — ${req.paymentConditionDesc}`
+                : '—'
+            }
+          />
+          <Field
+            label="Recorrência"
+            value={
+              req.recurring
+                ? `A cada ${req.recurrenceMonths ?? '?'} mês(es)`
+                : 'Não recorrente'
+            }
+          />
+          <Field label="Contrato vinculado" value={req.contractRef || '—'} />
           <Field
             label="Valor total"
             value={

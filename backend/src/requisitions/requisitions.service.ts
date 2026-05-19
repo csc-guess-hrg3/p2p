@@ -247,6 +247,16 @@ export class RequisitionsService {
       );
     }
 
+    const paymentCondition = await this.integration.findPaymentCondition(
+      company.code,
+      dto.paymentConditionCode,
+    );
+    if (!paymentCondition) {
+      throw new BadRequestException(
+        `Condição de pagamento inválida: ${dto.paymentConditionCode}`,
+      );
+    }
+
     const teamRateios = await this.loadTeamRateios(user.teamId, company.id);
     const { built, totalAmount } = await this.buildItems(
       company.code,
@@ -270,7 +280,11 @@ export class RequisitionsService {
         tipoNotaFiscal: dto.tipoNotaFiscal,
         status: RequisitionStatus.DRAFT,
         totalAmount,
-        neededBy: dto.neededBy ? new Date(dto.neededBy) : null,
+        paymentConditionCode: dto.paymentConditionCode,
+        paymentConditionDesc: paymentCondition.descricao,
+        recurring: dto.recurring ?? false,
+        recurrenceMonths: dto.recurring ? (dto.recurrenceMonths ?? null) : null,
+        contractRef: dto.contractRef ?? null,
         items: { create: built.map((b) => b.fields) },
       },
       include: { items: { include: { rateios: true } } },
@@ -363,8 +377,27 @@ export class RequisitionsService {
     if (dto.justification !== undefined) {
       data.justification = dto.justification;
     }
-    if (dto.neededBy !== undefined) {
-      data.neededBy = dto.neededBy ? new Date(dto.neededBy) : null;
+    if (dto.recurring !== undefined) {
+      data.recurring = dto.recurring;
+      data.recurrenceMonths = dto.recurring
+        ? (dto.recurrenceMonths ?? null)
+        : null;
+    }
+    if (dto.contractRef !== undefined) {
+      data.contractRef = dto.contractRef || null;
+    }
+    if (dto.paymentConditionCode !== undefined) {
+      const cond = await this.integration.findPaymentCondition(
+        company.code,
+        dto.paymentConditionCode,
+      );
+      if (!cond) {
+        throw new BadRequestException(
+          `Condição de pagamento inválida: ${dto.paymentConditionCode}`,
+        );
+      }
+      data.paymentConditionCode = dto.paymentConditionCode;
+      data.paymentConditionDesc = cond.descricao;
     }
     if (dto.branchErpCode !== undefined) {
       const branch = await this.integration.findBranch(

@@ -63,6 +63,14 @@ export interface ErpItem {
   inativo: boolean;
 }
 
+/** Condição de pagamento (COND_ENT_PGTOS). */
+export interface ErpPaymentCondition {
+  codigo: string;
+  descricao: string;
+  tipo: string | null;
+  parcelas: number | null;
+}
+
 /** Uma linha de um template de rateio (destino + percentual). */
 export interface ErpRateioLine {
   filialCodigo: string;

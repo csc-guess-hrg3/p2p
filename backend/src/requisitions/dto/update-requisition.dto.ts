@@ -3,9 +3,11 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
-  IsISO8601,
+  IsBoolean,
+  IsInt,
   IsOptional,
   IsString,
+  Min,
   MinLength,
   ValidateNested,
 } from 'class-validator';
@@ -41,8 +43,24 @@ export class UpdateRequisitionDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsISO8601()
-  neededBy?: string;
+  @IsString()
+  paymentConditionCode?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  recurring?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  recurrenceMonths?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  contractRef?: string;
 
   @ApiPropertyOptional({ type: [CreateRequisitionItemDto] })
   @IsOptional()

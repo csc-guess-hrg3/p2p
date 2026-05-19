@@ -9,10 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { IntegrationService } from '../integration/integration.service';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { CreateFiscalItemRequestDto } from './dto/create-fiscal-item-request.dto';
-import {
-  ApproveFiscalItemRequestDto,
-  RejectFiscalItemRequestDto,
-} from './dto/resolve-fiscal-item-request.dto';
+import { RejectFiscalItemRequestDto } from './dto/resolve-fiscal-item-request.dto';
 import { QueryFiscalItemRequestsDto } from './dto/query-fiscal-item-requests.dto';
 
 const REQUESTER = { select: { id: true, name: true } };
@@ -41,7 +38,10 @@ export class FiscalItemRequestsService {
     }
   }
 
-  /** Abre uma pendência fiscal (vínculo de item ou cadastro de item novo). */
+  /**
+   * Abre uma pendência fiscal de VÍNCULO item-fornecedor. O cadastro de
+   * itens novos é feito diretamente no Linx — o P2P só vincula.
+   */
   async create(user: AuthenticatedUser, dto: CreateFiscalItemRequestDto) {
     if (!user.companyIds.includes(dto.companyId)) {
       throw new ForbiddenException('Sem acesso a esta empresa.');
@@ -56,28 +56,24 @@ export class FiscalItemRequestsService {
     if (!supplier) {
       throw new BadRequestException('Fornecedor não encontrado no ERP.');
     }
-    if (dto.type === 'LINK') {
-      if (!dto.itemErpCode) {
-        throw new BadRequestException(
-          'Informe o código do item para o vínculo.',
-        );
-      }
-      const item = await this.integration.findItem(
-        company.code,
-        dto.itemErpCode,
-      );
-      if (!item) {
-        throw new BadRequestException('Item não encontrado no catálogo.');
-      }
+    if (!dto.itemErpCode) {
+      throw new BadRequestException('Informe o código do item para o vínculo.');
+    }
+    const item = await this.integration.findItem(
+      company.code,
+      dto.itemErpCode,
+    );
+    if (!item) {
+      throw new BadRequestException('Item não encontrado no catálogo.');
     }
     return this.prisma.fiscalItemRequest.create({
       data: {
         companyId: dto.companyId,
-        type: dto.type,
+        type: 'LINK',
         status: 'PENDING',
         supplierErpCode: dto.supplierErpCode,
         supplierName: supplier.nome,
-        itemErpCode: dto.type === 'LINK' ? dto.itemErpCode : null,
+        itemErpCode: dto.itemErpCode,
         itemDescription: dto.itemDescription,
         unit: dto.unit ?? null,
         requestedById: user.id,
@@ -130,15 +126,10 @@ export class FiscalItemRequestsService {
   }
 
   /**
-   * Aprova a pendência e efetiva a gravação no Linx:
-   *  LINK — grava o vínculo em SS_ITEM_FISCAL_FORNECEDOR;
-   *  NEW  — cadastra o item em CADASTRO_ITEM_FISCAL e o vincula ao fornecedor.
+   * Aprova a pendência e grava o vínculo item-fornecedor no Linx
+   * (SS_ITEM_FISCAL_FORNECEDOR).
    */
-  async approve(
-    user: AuthenticatedUser,
-    id: string,
-    dto: ApproveFiscalItemRequestDto,
-  ) {
+  async approve(user: AuthenticatedUser, id: string) {
     await this.assertFiscalUser(user);
     const req = await this.findOne(user, id);
     if (req.status !== 'PENDING') {
@@ -147,46 +138,15 @@ export class FiscalItemRequestsService {
     const company = await this.prisma.company.findUniqueOrThrow({
       where: { id: req.companyId },
     });
-
-    let itemErpCode = req.itemErpCode;
-    if (req.type === 'LINK') {
-      await this.integration.linkSupplierItem(
-        company.erpDbName,
-        req.supplierErpCode,
-        req.itemErpCode as string,
-      );
-    } else {
-      const codigo = dto.itemErpCode?.trim();
-      if (!codigo) {
-        throw new BadRequestException(
-          'Informe o código do item a cadastrar no Linx.',
-        );
-      }
-      const unidade = (dto.unit ?? req.unit ?? '').trim();
-      if (!unidade) {
-        throw new BadRequestException('Informe a unidade do item.');
-      }
-      await this.integration.createFiscalItem(company.erpDbName, {
-        codigo,
-        descricao: req.itemDescription,
-        unidade,
-        contaContabil: dto.accountingAccount ?? null,
-        rateioFilial: dto.branchRateioCode ?? null,
-        rateioCc: dto.costCenterRateioCode ?? null,
-      });
-      await this.integration.linkSupplierItem(
-        company.erpDbName,
-        req.supplierErpCode,
-        codigo,
-      );
-      itemErpCode = codigo;
-    }
-
+    await this.integration.linkSupplierItem(
+      company.erpDbName,
+      req.supplierErpCode,
+      req.itemErpCode as string,
+    );
     return this.prisma.fiscalItemRequest.update({
       where: { id },
       data: {
         status: 'APPROVED',
-        itemErpCode,
         resolvedById: user.id,
         resolvedAt: new Date(),
       },

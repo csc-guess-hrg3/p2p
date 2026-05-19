@@ -7,6 +7,7 @@ import {
   ErpBranch,
   ErpCostCenter,
   ErpItem,
+  ErpPaymentCondition,
   ErpRateio,
   ErpSupplier,
 } from './integration.types';
@@ -131,6 +132,30 @@ export class IntegrationService {
       FROM dbo.v_p2p_items
       WHERE empresa = ${c} ${this.activeFilter(onlyActive)} ${searchFilter}
       ORDER BY descricao`;
+  }
+
+  /** Condições de pagamento da empresa (COND_ENT_PGTOS). */
+  async getPaymentConditions(
+    company: string,
+  ): Promise<ErpPaymentCondition[]> {
+    const c = this.assertCompany(company);
+    return this.prisma.$queryRaw<ErpPaymentCondition[]>`
+      SELECT codigo, descricao, tipo, parcelas
+      FROM dbo.v_p2p_payment_conditions
+      WHERE empresa = ${c}
+      ORDER BY codigo`;
+  }
+
+  async findPaymentCondition(
+    company: string,
+    codigo: string,
+  ): Promise<ErpPaymentCondition | null> {
+    const c = this.assertCompany(company);
+    const rows = await this.prisma.$queryRaw<ErpPaymentCondition[]>`
+      SELECT codigo, descricao, tipo, parcelas
+      FROM dbo.v_p2p_payment_conditions
+      WHERE empresa = ${c} AND codigo = ${codigo}`;
+    return rows[0] ?? null;
   }
 
   /**
@@ -375,38 +400,6 @@ export class IntegrationService {
         (CLIFOR, CODIGO_ITEM, VALOR_UNITARIO)
       VALUES (${supplierCode}, ${itemCode}, 0)`);
     this.logger.log(`Vínculo gravado no Linx: ${supplierCode}/${itemCode}`);
-  }
-
-  /** Cadastra um item novo no Linx (CADASTRO_ITEM_FISCAL). */
-  async createFiscalItem(
-    erpDbName: string,
-    item: {
-      codigo: string;
-      descricao: string;
-      unidade: string;
-      contaContabil?: string | null;
-      rateioFilial?: string | null;
-      rateioCc?: string | null;
-    },
-  ): Promise<void> {
-    const db = this.assertDbName(erpDbName);
-    const dup = await this.prisma.$queryRaw<{ n: number }[]>(Prisma.sql`
-      SELECT COUNT(*) AS n
-      FROM ${Prisma.raw(db)}.dbo.CADASTRO_ITEM_FISCAL
-      WHERE CODIGO_ITEM = ${item.codigo}`);
-    if (Number(dup[0].n) > 0) {
-      throw new BadRequestException(
-        `Já existe um item com o código "${item.codigo}" no Linx.`,
-      );
-    }
-    await this.prisma.$executeRaw(Prisma.sql`
-      INSERT INTO ${Prisma.raw(db)}.dbo.CADASTRO_ITEM_FISCAL
-        (CODIGO_ITEM, ITEM_DESCRICAO, UNIDADE, INATIVO, LX_STATUS_REGISTRO,
-         CONTA_CONTABIL, RATEIO_FILIAL, RATEIO_CENTRO_CUSTO)
-      VALUES (${item.codigo}, ${item.descricao}, ${item.unidade}, 0, 0,
-              ${item.contaContabil ?? null}, ${item.rateioFilial ?? null},
-              ${item.rateioCc ?? null})`);
-    this.logger.log(`Item cadastrado no Linx: ${item.codigo}`);
   }
 
   /** Agrupa linhas de rateio (uma linha por destino) em templates. */

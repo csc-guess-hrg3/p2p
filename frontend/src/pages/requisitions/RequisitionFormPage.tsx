@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { isAxiosError } from 'axios';
 import { Copy, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useCompany } from '@/lib/company';
-import { useBranches } from '@/lib/integration';
+import { useBranches, usePaymentConditions } from '@/lib/integration';
 import {
   useRequisition,
   useCreateRequisition,
@@ -21,6 +21,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Select,
@@ -40,16 +41,29 @@ import {
 import { ItemDialog } from './ItemDialog';
 import { SupplierCombobox } from './SupplierCombobox';
 
-const schema = z.object({
-  branchErpCode: z.string().min(1, 'Selecione a filial'),
-  supplierErpCode: z.string().min(1, 'Selecione o fornecedor'),
-  title: z.string().min(1, 'Informe o título'),
-  tipoNotaFiscal: z.enum(['NF_EXISTENTE', 'NF_FUTURA', 'SEM_NF']),
-  neededBy: z.string().optional(),
-  justification: z
-    .string()
-    .min(50, 'A justificativa deve ter ao menos 50 caracteres'),
-});
+const schema = z
+  .object({
+    branchErpCode: z.string().min(1, 'Selecione a filial'),
+    supplierErpCode: z.string().min(1, 'Selecione o fornecedor'),
+    title: z.string().min(1, 'Informe o título'),
+    tipoNotaFiscal: z.enum(['NF_EXISTENTE', 'NF_FUTURA', 'SEM_NF']),
+    paymentConditionCode: z
+      .string()
+      .min(1, 'Selecione a condição de pagamento'),
+    recurring: z.boolean(),
+    recurrenceMonths: z.string().optional(),
+    contractRef: z.string().optional(),
+    justification: z
+      .string()
+      .min(50, 'A justificativa deve ter ao menos 50 caracteres'),
+  })
+  .refine(
+    (d) => !d.recurring || Number(d.recurrenceMonths) >= 1,
+    {
+      message: 'Informe os meses de recorrência',
+      path: ['recurrenceMonths'],
+    },
+  );
 type FormValues = z.infer<typeof schema>;
 
 function FieldError({ msg }: { msg?: string }) {
@@ -65,6 +79,7 @@ export function RequisitionFormPage() {
   const code = activeCompany?.code;
 
   const branches = useBranches(code);
+  const paymentConditions = usePaymentConditions(code);
   const existing = useRequisition(isEdit ? id : undefined);
   const createMut = useCreateRequisition();
   const updateMut = useUpdateRequisition();
@@ -93,12 +108,16 @@ export function RequisitionFormPage() {
       supplierErpCode: '',
       title: '',
       tipoNotaFiscal: 'NF_EXISTENTE',
-      neededBy: '',
+      paymentConditionCode: '',
+      recurring: false,
+      recurrenceMonths: '',
+      contractRef: '',
       justification: '',
     },
   });
 
   const supplierErpCode = watch('supplierErpCode');
+  const recurring = watch('recurring');
 
   // Edição: popula o formulário.
   useEffect(() => {
@@ -109,7 +128,12 @@ export function RequisitionFormPage() {
       supplierErpCode: r.supplierErpCode,
       title: r.title,
       tipoNotaFiscal: r.tipoNotaFiscal,
-      neededBy: r.neededBy ? r.neededBy.slice(0, 10) : '',
+      paymentConditionCode: r.paymentConditionCode ?? '',
+      recurring: r.recurring,
+      recurrenceMonths: r.recurrenceMonths
+        ? String(r.recurrenceMonths)
+        : '',
+      contractRef: r.contractRef ?? '',
       justification: r.justification ?? '',
     });
     setSupplierName(r.supplierName);
@@ -169,7 +193,12 @@ export function RequisitionFormPage() {
       title: values.title,
       justification: values.justification,
       tipoNotaFiscal: values.tipoNotaFiscal,
-      neededBy: values.neededBy || undefined,
+      paymentConditionCode: values.paymentConditionCode,
+      recurring: values.recurring,
+      recurrenceMonths: values.recurring
+        ? Number(values.recurrenceMonths)
+        : undefined,
+      contractRef: values.contractRef || undefined,
       items: items.map((it) => ({
         itemErpCode: it.itemErpCode ?? undefined,
         itemDescription: it.itemDescription,
@@ -187,15 +216,16 @@ export function RequisitionFormPage() {
         ? await updateMut.mutateAsync({ id: id!, dto })
         : await createMut.mutateAsync(dto);
 
-      // Abre pendências fiscais para itens sem vínculo / novos.
-      const pending = items.filter((it) => it.fiscalMode !== 'NONE');
+      // Abre pendências fiscais de vínculo para itens não vinculados.
+      const pending = items.filter(
+        (it) => it.fiscalMode === 'LINK' && it.itemErpCode,
+      );
       const results = await Promise.allSettled(
         pending.map((it) =>
           fiscalMut.mutateAsync({
             companyId: activeCompany.id,
-            type: it.fiscalMode as 'LINK' | 'NEW',
             supplierErpCode: values.supplierErpCode,
-            itemErpCode: it.itemErpCode ?? undefined,
+            itemErpCode: it.itemErpCode as string,
             itemDescription: it.itemDescription,
             unit: it.unit,
           }),
@@ -299,6 +329,12 @@ export function RequisitionFormPage() {
               onChange={(codigo, supplier) => {
                 setValue('supplierErpCode', codigo, { shouldValidate: true });
                 setSupplierName(supplier.nome);
+                // Default da condição de pagamento herdado do fornecedor.
+                if (supplier.condicaoPgto) {
+                  setValue('paymentConditionCode', supplier.condicaoPgto, {
+                    shouldValidate: true,
+                  });
+                }
               }}
             />
             <FieldError msg={errors.supplierErpCode?.message} />
@@ -310,32 +346,94 @@ export function RequisitionFormPage() {
             <FieldError msg={errors.title?.message} />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label>Tipo de nota fiscal</Label>
+          <div className="space-y-1.5">
+            <Label>Tipo de nota fiscal</Label>
+            <Controller
+              control={control}
+              name="tipoNotaFiscal"
+              render={({ field }) => (
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NF_EXISTENTE">NF já existe</SelectItem>
+                    <SelectItem value="NF_FUTURA">
+                      NF futura (adiantamento)
+                    </SelectItem>
+                    <SelectItem value="SEM_NF">Sem NF</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Condição de pagamento</Label>
+            <Controller
+              control={control}
+              name="paymentConditionCode"
+              render={({ field }) => (
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione a condição" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(paymentConditions.data ?? []).map((c) => (
+                      <SelectItem key={c.codigo} value={c.codigo}>
+                        {c.codigo} — {c.descricao}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+            <FieldError msg={errors.paymentConditionCode?.message} />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="contractRef">
+              Contrato vinculado{' '}
+              <span className="text-muted-foreground">(opcional)</span>
+            </Label>
+            <Input
+              id="contractRef"
+              placeholder="Nº ou referência do contrato"
+              {...register('contractRef')}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Recorrência</Label>
+            <div className="flex h-9 items-center gap-3">
               <Controller
                 control={control}
-                name="tipoNotaFiscal"
+                name="recurring"
                 render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="NF_EXISTENTE">NF já existe</SelectItem>
-                      <SelectItem value="NF_FUTURA">
-                        NF futura (adiantamento)
-                      </SelectItem>
-                      <SelectItem value="SEM_NF">Sem NF</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
                 )}
               />
+              <span className="text-sm text-muted-foreground">
+                Requisição recorrente
+              </span>
+              {recurring && (
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    type="number"
+                    className="w-20"
+                    placeholder="meses"
+                    {...register('recurrenceMonths')}
+                  />
+                  <span className="text-sm text-muted-foreground">
+                    meses
+                  </span>
+                </div>
+              )}
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="neededBy">Necessária em</Label>
-              <Input id="neededBy" type="date" {...register('neededBy')} />
-            </div>
+            <FieldError msg={errors.recurrenceMonths?.message} />
           </div>
 
           <div className="col-span-2 space-y-1.5">
@@ -401,9 +499,6 @@ export function RequisitionFormPage() {
                         <span>{it.itemDescription}</span>
                         {it.fiscalMode === 'LINK' && (
                           <Badge variant="warning">vínculo fiscal</Badge>
-                        )}
-                        {it.fiscalMode === 'NEW' && (
-                          <Badge variant="warning">item novo</Badge>
                         )}
                       </div>
                       <span className="text-xs text-muted-foreground">
