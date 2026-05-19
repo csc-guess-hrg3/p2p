@@ -97,6 +97,17 @@ export function ItemDialog({
     }
   }, [open, initial]);
 
+  // Fornecedor sem itens vinculados.
+  const noSupplierItems =
+    !supplierItems.isLoading && (supplierItems.data ?? []).length === 0;
+
+  // Sem itens vinculados: direciona o usuário ao catálogo.
+  useEffect(() => {
+    if (open && noSupplierItems && mode === 'SUPPLIER') {
+      setMode('CATALOG');
+    }
+  }, [open, noSupplierItems, mode]);
+
   /** Ao escolher um item do ERP, preenche descrição, unidade e padrões. */
   function applyItem(it: ErpItem | undefined) {
     if (!it) return;
@@ -158,22 +169,34 @@ export function ItemDialog({
         <div className="space-y-4">
           {/* Modo de escolha do item */}
           <div className="flex gap-1 rounded-md bg-muted p-1">
-            {MODES.map((m) => (
-              <button
-                key={m.value}
-                type="button"
-                onClick={() => changeMode(m.value)}
-                className={cn(
-                  'flex-1 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors',
-                  mode === m.value
-                    ? 'bg-background shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {m.label}
-              </button>
-            ))}
+            {MODES.map((m) => {
+              const disabled = m.value === 'SUPPLIER' && noSupplierItems;
+              return (
+                <button
+                  key={m.value}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => changeMode(m.value)}
+                  className={cn(
+                    'flex-1 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors',
+                    mode === m.value
+                      ? 'bg-background shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground',
+                    disabled && 'cursor-not-allowed opacity-40',
+                  )}
+                >
+                  {m.label}
+                </button>
+              );
+            })}
           </div>
+
+          {noSupplierItems && (
+            <p className="rounded-md bg-warning/10 px-3 py-2 text-sm text-warning">
+              Nenhum item vinculado ao fornecedor — selecione um item do
+              catálogo abaixo.
+            </p>
+          )}
 
           {mode === 'SUPPLIER' && (
             <div className="space-y-1.5">
