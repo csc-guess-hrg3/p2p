@@ -1,10 +1,5 @@
 import { ChevronDown, FlaskConical, Server } from 'lucide-react';
-import {
-  getEnvironment,
-  setEnvironment,
-  clearToken,
-  type AppEnv,
-} from '@/lib/api';
+import { getEnvironment, setEnvironment, type AppEnv } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
@@ -19,7 +14,14 @@ const ENVS: { value: AppEnv; label: string }[] = [
   { value: 'HML', label: 'Homologação' },
 ];
 
-/** Alterna entre Produção e Homologação. Trocar reinicia a sessão. */
+/**
+ * Alterna entre Produção e Homologação.
+ *
+ * A troca é transparente: o login LDAP é o mesmo nos dois ambientes e o
+ * JWT é portável (resolvido pelo usuário de rede), então a sessão é
+ * mantida. Só muda o servidor/banco de destino. A empresa ativa é por
+ * ambiente, então é limpa para o app re-selecionar a partir do /auth/me.
+ */
 export function EnvironmentSwitch() {
   const current = getEnvironment();
   const isHml = current === 'HML';
@@ -27,11 +29,10 @@ export function EnvironmentSwitch() {
   function change(env: AppEnv) {
     if (env === current) return;
     setEnvironment(env);
-    // Sessão e empresa são por ambiente — limpa e força novo login.
-    clearToken();
+    // A empresa ativa usa IDs por ambiente — limpa para re-selecionar.
     localStorage.removeItem('p2p_company');
-    localStorage.removeItem('p2p_refresh');
-    window.location.href = '/login';
+    // Mantém o token; recarrega para refazer as queries no novo backend.
+    window.location.href = '/';
   }
 
   return (

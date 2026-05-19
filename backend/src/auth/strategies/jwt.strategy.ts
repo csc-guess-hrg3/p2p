@@ -8,6 +8,11 @@ import { AuthenticatedUser, JwtPayload } from '../auth.types';
 /**
  * Valida o JWT de acesso e recarrega o usuário do banco a cada request,
  * garantindo que alterações de status/perfil tenham efeito imediato.
+ *
+ * O usuário é resolvido pelo `adUsername` (login de rede), que é estável
+ * entre ambientes — assim o mesmo token vale em Produção e Homologação,
+ * já que ambos compartilham o JWT_SECRET. O `payload.sub` é um UUID por
+ * ambiente e não serve para essa resolução.
  */
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
@@ -24,7 +29,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
 
   async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
     const user = await this.prisma.user.findUnique({
-      where: { id: payload.sub },
+      where: { adUsername: payload.adUsername },
       include: { companies: true },
     });
 
