@@ -9,6 +9,7 @@ import {
 } from '@/lib/fiscal';
 import { formatDate } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
+import { ItemCombobox } from '@/pages/requisitions/ItemCombobox';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import {
@@ -90,18 +91,14 @@ function ApproveDialog({
           </div>
           <div className="space-y-1.5">
             <Label>Item a vincular</Label>
-            <Select value={itemCode} onValueChange={setItemCode}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione o item" />
-              </SelectTrigger>
-              <SelectContent>
-                {(catalog.data ?? []).map((i) => (
-                  <SelectItem key={i.codigo} value={i.codigo}>
-                    {i.codigo} — {i.descricao}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <ItemCombobox
+              items={catalog.data ?? []}
+              value={itemCode}
+              loading={catalog.isLoading}
+              showCode
+              placeholder="Selecione o item"
+              onSelect={(i) => setItemCode(i.codigo)}
+            />
             {changed && (
               <p className="text-xs text-warning">
                 Item diferente do solicitado — o solicitante será notificado.

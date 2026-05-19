@@ -15,6 +15,8 @@ interface ItemComboboxProps {
   loading?: boolean;
   placeholder?: string;
   emptyText?: string;
+  /** Exibe o código junto da descrição (usado pela equipe Fiscal). */
+  showCode?: boolean;
   onSelect: (item: ErpItem) => void;
 }
 
@@ -25,11 +27,14 @@ export function ItemCombobox({
   loading,
   placeholder,
   emptyText,
+  showCode,
   onSelect,
 }: ItemComboboxProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
 
+  const label = (i: ErpItem) =>
+    showCode ? `${i.codigo} — ${i.descricao}` : i.descricao;
   const selected = items.find((i) => i.codigo === value);
   const term = search.trim().toLowerCase();
   const filtered = (
@@ -52,7 +57,7 @@ export function ItemCombobox({
     >
       <PopoverTrigger className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring">
         <span className={cn('truncate', !selected && 'text-muted-foreground')}>
-          {selected ? selected.descricao : placeholder ?? 'Selecione o item'}
+          {selected ? label(selected) : placeholder ?? 'Selecione o item'}
         </span>
         <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
       </PopoverTrigger>
@@ -91,7 +96,7 @@ export function ItemCombobox({
               }}
               className="w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
             >
-              {i.descricao}
+              {label(i)}
             </button>
           ))}
         </div>
