@@ -1,34 +1,27 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useForm, useFieldArray, Controller } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { isAxiosError } from 'axios';
-import { Plus, Trash2 } from 'lucide-react';
+import { Copy, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useCompany } from '@/lib/company';
-import {
-  useBranches,
-  useSuppliers,
-  useAccounts,
-  useBranchRateios,
-  useCcRateios,
-} from '@/lib/integration';
+import { useBranches } from '@/lib/integration';
 import {
   useRequisition,
   useCreateRequisition,
   useUpdateRequisition,
   type RequisitionInput,
+  type RequisitionItemForm,
 } from '@/lib/requisitions';
+import { useCreateFiscalItemRequest } from '@/lib/fiscal';
+import { formatCurrency, formatNumber } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Select,
   SelectContent,
@@ -36,17 +29,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-
-const itemSchema = z.object({
-  itemDescription: z.string().min(1, 'Informe a descrição'),
-  quantity: z.coerce.number().min(0.0001, 'Quantidade inválida'),
-  unit: z.string().min(1, 'Informe a unidade'),
-  estimatedPrice: z.coerce.number().min(0, 'Preço inválido'),
-  accountingAccount: z.string().min(1, 'Selecione a conta'),
-  branchRateioCode: z.string().min(1, 'Selecione o rateio'),
-  costCenterRateioCode: z.string().min(1, 'Selecione o rateio'),
-  notes: z.string().optional(),
-});
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { ItemDialog } from './ItemDialog';
+import { SupplierCombobox } from './SupplierCombobox';
 
 const schema = z.object({
   branchErpCode: z.string().min(1, 'Selecione a filial'),
@@ -54,22 +46,11 @@ const schema = z.object({
   title: z.string().min(1, 'Informe o título'),
   tipoNotaFiscal: z.enum(['NF_EXISTENTE', 'NF_FUTURA', 'SEM_NF']),
   neededBy: z.string().optional(),
-  justification: z.string().min(50, 'A justificativa deve ter ao menos 50 caracteres'),
-  items: z.array(itemSchema).min(1, 'Adicione ao menos um item'),
+  justification: z
+    .string()
+    .min(50, 'A justificativa deve ter ao menos 50 caracteres'),
 });
-
-type FormValues = z.input<typeof schema>;
-
-const EMPTY_ITEM = {
-  itemDescription: '',
-  quantity: '' as unknown as number,
-  unit: '',
-  estimatedPrice: '' as unknown as number,
-  accountingAccount: '',
-  branchRateioCode: '',
-  costCenterRateioCode: '',
-  notes: '',
-};
+type FormValues = z.infer<typeof schema>;
 
 function FieldError({ msg }: { msg?: string }) {
   if (!msg) return null;
@@ -84,20 +65,26 @@ export function RequisitionFormPage() {
   const code = activeCompany?.code;
 
   const branches = useBranches(code);
-  const suppliers = useSuppliers(code);
-  const accounts = useAccounts(code);
-  const branchRateios = useBranchRateios(code);
-  const ccRateios = useCcRateios(code);
-
   const existing = useRequisition(isEdit ? id : undefined);
   const createMut = useCreateRequisition();
   const updateMut = useUpdateRequisition();
+  const fiscalMut = useCreateFiscalItemRequest();
+
+  const [items, setItems] = useState<RequisitionItemForm[]>([]);
+  const [itemsError, setItemsError] = useState<string | null>(null);
+  const [supplierName, setSupplierName] = useState('');
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [dialogInitial, setDialogInitial] =
+    useState<RequisitionItemForm | null>(null);
 
   const {
     register,
     control,
     handleSubmit,
     reset,
+    watch,
+    setValue,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -108,12 +95,12 @@ export function RequisitionFormPage() {
       tipoNotaFiscal: 'NF_EXISTENTE',
       neededBy: '',
       justification: '',
-      items: [{ ...EMPTY_ITEM }],
     },
   });
-  const { fields, append, remove } = useFieldArray({ control, name: 'items' });
 
-  // Em edição: popula o formulário com a requisição carregada.
+  const supplierErpCode = watch('supplierErpCode');
+
+  // Edição: popula o formulário.
   useEffect(() => {
     const r = existing.data;
     if (!r) return;
@@ -124,34 +111,67 @@ export function RequisitionFormPage() {
       tipoNotaFiscal: r.tipoNotaFiscal,
       neededBy: r.neededBy ? r.neededBy.slice(0, 10) : '',
       justification: r.justification ?? '',
-      items: (r.items ?? []).map((it) => ({
+    });
+    setSupplierName(r.supplierName);
+    setItems(
+      (r.items ?? []).map((it) => ({
+        fiscalMode: 'NONE' as const,
+        itemErpCode: it.itemErpCode,
         itemDescription: it.itemDescription,
-        quantity: Number(it.quantity),
         unit: it.unit,
+        quantity: Number(it.quantity),
         estimatedPrice: Number(it.estimatedPrice),
         accountingAccount: it.accountingAccount,
         branchRateioCode: it.branchRateioCode,
         costCenterRateioCode: it.costCenterRateioCode,
-        notes: it.notes ?? '',
       })),
-    });
+    );
   }, [existing.data, reset]);
 
   const editableButNotDraft =
     isEdit && existing.data && existing.data.status !== 'DRAFT';
 
+  function openAdd() {
+    setEditingIndex(null);
+    setDialogInitial(null);
+    setDialogOpen(true);
+  }
+  function openEdit(index: number) {
+    setEditingIndex(index);
+    setDialogInitial(items[index]);
+    setDialogOpen(true);
+  }
+  function openDuplicate(index: number) {
+    setEditingIndex(null);
+    setDialogInitial({ ...items[index] });
+    setDialogOpen(true);
+  }
+  function handleItemConfirm(item: RequisitionItemForm) {
+    setItemsError(null);
+    setItems((prev) => {
+      if (editingIndex === null) return [...prev, item];
+      const next = [...prev];
+      next[editingIndex] = item;
+      return next;
+    });
+  }
+
   async function onSubmit(values: FormValues) {
     if (!activeCompany) return;
-    const parsed = schema.parse(values);
+    if (items.length === 0) {
+      setItemsError('Adicione ao menos um item.');
+      return;
+    }
     const dto: RequisitionInput = {
       companyId: activeCompany.id,
-      branchErpCode: parsed.branchErpCode,
-      supplierErpCode: parsed.supplierErpCode,
-      title: parsed.title,
-      justification: parsed.justification,
-      tipoNotaFiscal: parsed.tipoNotaFiscal,
-      neededBy: parsed.neededBy || undefined,
-      items: parsed.items.map((it) => ({
+      branchErpCode: values.branchErpCode,
+      supplierErpCode: values.supplierErpCode,
+      title: values.title,
+      justification: values.justification,
+      tipoNotaFiscal: values.tipoNotaFiscal,
+      neededBy: values.neededBy || undefined,
+      items: items.map((it) => ({
+        itemErpCode: it.itemErpCode ?? undefined,
         itemDescription: it.itemDescription,
         quantity: it.quantity,
         unit: it.unit,
@@ -159,17 +179,35 @@ export function RequisitionFormPage() {
         accountingAccount: it.accountingAccount,
         branchRateioCode: it.branchRateioCode,
         costCenterRateioCode: it.costCenterRateioCode,
-        notes: it.notes || undefined,
+        notes: it.notes,
       })),
     };
     try {
-      if (isEdit) {
-        await updateMut.mutateAsync({ id: id!, dto });
-        navigate(`/requisicoes/${id}`);
-      } else {
-        const created = await createMut.mutateAsync(dto);
-        navigate(`/requisicoes/${created.id}`);
+      const saved = isEdit
+        ? await updateMut.mutateAsync({ id: id!, dto })
+        : await createMut.mutateAsync(dto);
+
+      // Abre pendências fiscais para itens sem vínculo / novos.
+      const pending = items.filter((it) => it.fiscalMode !== 'NONE');
+      const results = await Promise.allSettled(
+        pending.map((it) =>
+          fiscalMut.mutateAsync({
+            companyId: activeCompany.id,
+            type: it.fiscalMode as 'LINK' | 'NEW',
+            supplierErpCode: values.supplierErpCode,
+            itemErpCode: it.itemErpCode ?? undefined,
+            itemDescription: it.itemDescription,
+            unit: it.unit,
+          }),
+        ),
+      );
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      if (failed > 0) {
+        alert(
+          `Requisição salva, mas ${failed} pendência(s) fiscal(is) não pôde(puderam) ser aberta(s).`,
+        );
       }
+      navigate(`/requisicoes/${saved.id}`);
     } catch (err) {
       const msg = isAxiosError(err)
         ? (err.response?.data as { message?: string | string[] })?.message
@@ -197,9 +235,6 @@ export function RequisitionFormPage() {
       </Card>
     );
   }
-
-  const rateioLabel = (codigo: string, descricao: string) =>
-    `${codigo} — ${descricao}`;
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 pb-10">
@@ -257,23 +292,14 @@ export function RequisitionFormPage() {
 
           <div className="space-y-1.5">
             <Label>Fornecedor</Label>
-            <Controller
-              control={control}
-              name="supplierErpCode"
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione o fornecedor" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(suppliers.data ?? []).map((s) => (
-                      <SelectItem key={s.codigo} value={s.codigo}>
-                        {s.codigo} — {s.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
+            <SupplierCombobox
+              company={code}
+              value={supplierErpCode}
+              selectedName={supplierName}
+              onChange={(codigo, supplier) => {
+                setValue('supplierErpCode', codigo, { shouldValidate: true });
+                setSupplierName(supplier.nome);
+              }}
             />
             <FieldError msg={errors.supplierErpCode?.message} />
           </div>
@@ -315,7 +341,9 @@ export function RequisitionFormPage() {
           <div className="col-span-2 space-y-1.5">
             <Label htmlFor="justification">
               Justificativa{' '}
-              <span className="text-muted-foreground">(mín. 50 caracteres)</span>
+              <span className="text-muted-foreground">
+                (mín. 50 caracteres)
+              </span>
             </Label>
             <Textarea
               id="justification"
@@ -327,7 +355,7 @@ export function RequisitionFormPage() {
         </CardContent>
       </Card>
 
-      {/* Itens */}
+      {/* Itens — lista fechada */}
       <Card>
         <CardHeader className="flex-row items-center justify-between">
           <CardTitle>Itens</CardTitle>
@@ -335,151 +363,113 @@ export function RequisitionFormPage() {
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => append({ ...EMPTY_ITEM })}
+            disabled={!supplierErpCode}
+            onClick={openAdd}
           >
             <Plus className="size-4" />
             Adicionar item
           </Button>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {errors.items?.message && (
-            <FieldError msg={errors.items.message} />
+        <CardContent className="space-y-2">
+          {!supplierErpCode && (
+            <p className="text-sm text-muted-foreground">
+              Selecione o fornecedor para adicionar itens.
+            </p>
           )}
-          {fields.map((field, index) => (
-            <div
-              key={field.id}
-              className="space-y-3 rounded-md border p-4"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Item {index + 1}</span>
-                {fields.length > 1 && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => remove(index)}
-                  >
-                    <Trash2 className="size-4 text-destructive" />
-                  </Button>
-                )}
-              </div>
-
-              <div className="grid grid-cols-4 gap-3">
-                <div className="col-span-4 space-y-1.5">
-                  <Label>Descrição</Label>
-                  <Input {...register(`items.${index}.itemDescription`)} />
-                  <FieldError
-                    msg={errors.items?.[index]?.itemDescription?.message}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Quantidade</Label>
-                  <Input
-                    type="number"
-                    step="any"
-                    {...register(`items.${index}.quantity`)}
-                  />
-                  <FieldError
-                    msg={errors.items?.[index]?.quantity?.message}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Unidade</Label>
-                  <Input
-                    placeholder="UN, CX…"
-                    {...register(`items.${index}.unit`)}
-                  />
-                  <FieldError msg={errors.items?.[index]?.unit?.message} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Preço estimado</Label>
-                  <Input
-                    type="number"
-                    step="any"
-                    {...register(`items.${index}.estimatedPrice`)}
-                  />
-                  <FieldError
-                    msg={errors.items?.[index]?.estimatedPrice?.message}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Conta contábil</Label>
-                  <Controller
-                    control={control}
-                    name={`items.${index}.accountingAccount`}
-                    render={({ field: f }) => (
-                      <Select value={f.value} onValueChange={f.onChange}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Conta" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(accounts.data ?? []).map((a) => (
-                            <SelectItem key={a.codigo} value={a.codigo}>
-                              {a.codigo} — {a.nome}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                  <FieldError
-                    msg={errors.items?.[index]?.accountingAccount?.message}
-                  />
-                </div>
-
-                <div className="col-span-2 space-y-1.5">
-                  <Label>Rateio de filial</Label>
-                  <Controller
-                    control={control}
-                    name={`items.${index}.branchRateioCode`}
-                    render={({ field: f }) => (
-                      <Select value={f.value} onValueChange={f.onChange}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Rateio de filial" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(branchRateios.data ?? []).map((r) => (
-                            <SelectItem key={r.codigo} value={r.codigo}>
-                              {rateioLabel(r.codigo, r.descricao)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                  <FieldError
-                    msg={errors.items?.[index]?.branchRateioCode?.message}
-                  />
-                </div>
-                <div className="col-span-2 space-y-1.5">
-                  <Label>Rateio de centro de custo</Label>
-                  <Controller
-                    control={control}
-                    name={`items.${index}.costCenterRateioCode`}
-                    render={({ field: f }) => (
-                      <Select value={f.value} onValueChange={f.onChange}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Rateio de CC" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(ccRateios.data ?? []).map((r) => (
-                            <SelectItem key={r.codigo} value={r.codigo}>
-                              {rateioLabel(r.codigo, r.descricao)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                  <FieldError
-                    msg={errors.items?.[index]?.costCenterRateioCode?.message}
-                  />
-                </div>
-              </div>
-            </div>
-          ))}
+          {supplierErpCode && items.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              Nenhum item adicionado.
+            </p>
+          )}
+          {items.length > 0 && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Item</TableHead>
+                  <TableHead className="text-right">Qtde</TableHead>
+                  <TableHead>Un.</TableHead>
+                  <TableHead className="text-right">Preço</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="w-28" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.map((it, index) => (
+                  <TableRow key={index}>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <span>{it.itemDescription}</span>
+                        {it.fiscalMode === 'LINK' && (
+                          <Badge variant="warning">vínculo fiscal</Badge>
+                        )}
+                        {it.fiscalMode === 'NEW' && (
+                          <Badge variant="warning">item novo</Badge>
+                        )}
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {it.itemErpCode ?? 'sem código'} · conta{' '}
+                        {it.accountingAccount}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {formatNumber(it.quantity)}
+                    </TableCell>
+                    <TableCell>{it.unit}</TableCell>
+                    <TableCell className="text-right">
+                      {formatCurrency(it.estimatedPrice)}
+                    </TableCell>
+                    <TableCell className="text-right font-medium">
+                      {formatCurrency(it.quantity * it.estimatedPrice)}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => openEdit(index)}
+                        >
+                          <Pencil className="size-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => openDuplicate(index)}
+                        >
+                          <Copy className="size-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() =>
+                            setItems((prev) =>
+                              prev.filter((_, i) => i !== index),
+                            )
+                          }
+                        >
+                          <Trash2 className="size-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+          <FieldError msg={itemsError ?? undefined} />
         </CardContent>
       </Card>
+
+      <ItemDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        company={code}
+        supplierCode={supplierErpCode}
+        initial={dialogInitial}
+        onConfirm={handleItemConfirm}
+      />
     </form>
   );
 }

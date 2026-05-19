@@ -23,6 +23,17 @@ export interface ErpAccount {
   inativo: boolean;
 }
 
+export interface ErpItem {
+  codigo: string;
+  descricao: string;
+  unidade: string | null;
+  contaContabilPadrao: string | null;
+  rateioFilialPadrao: string | null;
+  rateioCcPadrao: string | null;
+  grupo: string | null;
+  inativo: boolean;
+}
+
 export interface ErpRateioLine {
   filialCodigo: string;
   centroCustoCodigo?: string;
@@ -65,4 +76,24 @@ export function useBranchRateios(company?: string) {
 
 export function useCcRateios(company?: string) {
   return useQuery(erpQuery<ErpRateio[]>(company, 'cc-rateios'));
+}
+
+/** Catálogo completo de itens da empresa. */
+export function useItems(company?: string) {
+  return useQuery(erpQuery<ErpItem[]>(company, 'items'));
+}
+
+/** Itens vinculados a um fornecedor (SS_ITEM_FISCAL_FORNECEDOR). */
+export function useSupplierItems(company?: string, supplierCode?: string) {
+  return useQuery({
+    queryKey: ['erp', company, 'supplier-items', supplierCode],
+    queryFn: async () =>
+      (
+        await api.get<ErpItem[]>(
+          `/integration/${company}/suppliers/${supplierCode}/items`,
+        )
+      ).data,
+    enabled: !!company && !!supplierCode,
+    staleTime: 5 * 60_000,
+  });
 }

@@ -87,6 +87,26 @@ export interface RequisitionItemInput {
   notes?: string;
 }
 
+/**
+ * Item no formulário (estado da tela). fiscalMode indica se, ao salvar,
+ * deve ser aberta uma pendência fiscal:
+ *   NONE — item já vinculado ao fornecedor;
+ *   LINK — item do catálogo, falta vincular ao fornecedor;
+ *   NEW  — item novo, a equipe Fiscal vai cadastrar.
+ */
+export interface RequisitionItemForm {
+  fiscalMode: 'NONE' | 'LINK' | 'NEW';
+  itemErpCode: string | null;
+  itemDescription: string;
+  unit: string;
+  quantity: number;
+  estimatedPrice: number;
+  accountingAccount: string;
+  branchRateioCode: string;
+  costCenterRateioCode: string;
+  notes?: string;
+}
+
 export interface RequisitionInput {
   companyId: string;
   branchErpCode: string;
