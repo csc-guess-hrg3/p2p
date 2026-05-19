@@ -12,6 +12,7 @@ import {
   DropdownMenuCheckItem,
 } from '@/components/ui/dropdown-menu';
 import { NAV_ITEMS } from './nav';
+import { EnvironmentSwitch } from './EnvironmentSwitch';
 
 const PROFILE_LABELS: Record<string, string> = {
   ADMIN: 'Administrador',
@@ -45,6 +46,9 @@ export function Topbar() {
       </h1>
 
       <div className="flex items-center gap-3">
+        {/* Ambiente: produção / homologação */}
+        <EnvironmentSwitch />
+
         {/* Seletor de empresa */}
         {companies.length > 1 ? (
           <DropdownMenu>

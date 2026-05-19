@@ -14,7 +14,9 @@ backend/generated/
 .env
 .env.local
 .env.production
+.env.hml
 backend/.env
+backend/.env.hml
 frontend/.env
 
 # Logs
@@ -40,3 +42,4 @@ Thumbs.db
 /P2P_Especificacao_Tecnica.pdf
 /P2P_Especificacao_Tecnica.docx
 /PRD_Procure_to_Pay.docx
+/CLAUDE.md

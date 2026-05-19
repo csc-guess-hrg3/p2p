@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { isAxiosError } from 'axios';
 import { useAuth } from '@/lib/auth';
+import { getEnvironment } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -52,6 +53,11 @@ export function LoginPage() {
           <p className="mt-1 text-sm text-muted-foreground">
             Procure-to-Pay
           </p>
+          {getEnvironment() === 'HML' && (
+            <span className="mt-2 rounded-full border border-warning/40 bg-warning/10 px-3 py-0.5 text-xs font-semibold uppercase tracking-wide text-warning">
+              Homologação
+            </span>
+          )}
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
