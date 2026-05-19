@@ -67,6 +67,20 @@ export class IntegrationController {
     });
   }
 
+  @Get('suppliers/:supplierCode/items')
+  @ApiOperation({ summary: 'Itens vinculados a um fornecedor' })
+  supplierItems(
+    @Param('company') company: string,
+    @Param('supplierCode') supplierCode: string,
+    @Query('includeInactive') includeInactive?: string,
+  ) {
+    return this.integration.getSupplierItems(
+      company,
+      supplierCode,
+      includeInactive !== 'true',
+    );
+  }
+
   @Get('branch-rateios')
   @ApiOperation({ summary: 'Lista os templates de rateio de filial' })
   branchRateios(

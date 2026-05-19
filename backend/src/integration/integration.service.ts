@@ -66,16 +66,28 @@ export class IntegrationService {
       ORDER BY nome`;
   }
 
-  /** Fornecedores da empresa. Aceita busca por nome/razão social. */
+  /**
+   * Fornecedores da empresa. Busca por nome, razão social ou CNPJ/CPF —
+   * o CNPJ casa com ou sem máscara (pontos, barra e traço são ignorados).
+   */
   async getSuppliers(
     company: string,
     options: { onlyActive?: boolean; search?: string } = {},
   ): Promise<ErpSupplier[]> {
     const c = this.assertCompany(company);
     const { onlyActive = true, search } = options;
-    const searchFilter = search
-      ? Prisma.sql`AND (nome LIKE ${'%' + search + '%'} OR razao_social LIKE ${'%' + search + '%'})`
-      : Prisma.empty;
+    let searchFilter = Prisma.empty;
+    if (search) {
+      const term = `%${search}%`;
+      const digits = search.replace(/\D/g, '');
+      if (digits) {
+        const dterm = `%${digits}%`;
+        searchFilter = Prisma.sql`AND (nome LIKE ${term} OR razao_social LIKE ${term}
+          OR REPLACE(REPLACE(REPLACE(cnpj_cpf, '.', ''), '/', ''), '-', '') LIKE ${dterm})`;
+      } else {
+        searchFilter = Prisma.sql`AND (nome LIKE ${term} OR razao_social LIKE ${term})`;
+      }
+    }
     return this.prisma.$queryRaw<ErpSupplier[]>`
       SELECT codigo, nome, razao_social AS razaoSocial, cnpj_cpf AS cnpjCpf,
              tipo_pessoa AS tipoPessoa, email, telefone, tipo,
@@ -118,6 +130,28 @@ export class IntegrationService {
              grupo, inativo
       FROM dbo.v_p2p_items
       WHERE empresa = ${c} ${this.activeFilter(onlyActive)} ${searchFilter}
+      ORDER BY descricao`;
+  }
+
+  /**
+   * Itens vinculados a um fornecedor (SS_ITEM_FISCAL_FORNECEDOR).
+   * É o conjunto que o usuário escolhe ao montar uma requisição.
+   */
+  async getSupplierItems(
+    company: string,
+    supplierCode: string,
+    onlyActive = true,
+  ): Promise<ErpItem[]> {
+    const c = this.assertCompany(company);
+    return this.prisma.$queryRaw<ErpItem[]>`
+      SELECT codigo, descricao, unidade,
+             conta_contabil_padrao AS contaContabilPadrao,
+             rateio_filial_padrao AS rateioFilialPadrao,
+             rateio_cc_padrao AS rateioCcPadrao,
+             grupo, inativo
+      FROM dbo.v_p2p_supplier_items
+      WHERE empresa = ${c} AND fornecedor = ${supplierCode}
+        ${this.activeFilter(onlyActive)}
       ORDER BY descricao`;
   }
 

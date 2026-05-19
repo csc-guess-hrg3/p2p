@@ -83,6 +83,28 @@ SELECT 'HERING', RTRIM(CONTA_CONTABIL), RTRIM(DESC_CONTA), RTRIM(TIPO_CONTA),
 FROM DB_HRG3.dbo.CTB_CONTA_PLANO;
 GO
 
+-- ---------- ITENS POR FORNECEDOR ----------
+-- Vínculo item-fornecedor (SS_ITEM_FISCAL_FORNECEDOR) cruzado com o
+-- catálogo. SS_ITEM_FISCAL_FORNECEDOR.CLIFOR = código do fornecedor
+-- (mesmo COD_CLIFOR exposto em v_p2p_suppliers). VALOR_UNITARIO do
+-- vínculo é ignorado de propósito (faz parte de outro processo).
+CREATE OR ALTER VIEW dbo.v_p2p_supplier_items AS
+SELECT 'GUESS' AS empresa, RTRIM(sf.CLIFOR) AS fornecedor,
+       RTRIM(i.CODIGO_ITEM) AS codigo, RTRIM(i.ITEM_DESCRICAO) AS descricao,
+       RTRIM(i.UNIDADE) AS unidade, RTRIM(i.CONTA_CONTABIL) AS conta_contabil_padrao,
+       RTRIM(i.RATEIO_FILIAL) AS rateio_filial_padrao,
+       RTRIM(i.RATEIO_CENTRO_CUSTO) AS rateio_cc_padrao,
+       RTRIM(i.ITEM_FISCAL_GRUPO) AS grupo, i.INATIVO AS inativo
+FROM GUESS_PRODUCAO.dbo.SS_ITEM_FISCAL_FORNECEDOR sf
+JOIN GUESS_PRODUCAO.dbo.CADASTRO_ITEM_FISCAL i ON i.CODIGO_ITEM = sf.CODIGO_ITEM
+UNION ALL
+SELECT 'HERING', RTRIM(sf.CLIFOR), RTRIM(i.CODIGO_ITEM), RTRIM(i.ITEM_DESCRICAO),
+       RTRIM(i.UNIDADE), RTRIM(i.CONTA_CONTABIL), RTRIM(i.RATEIO_FILIAL),
+       RTRIM(i.RATEIO_CENTRO_CUSTO), RTRIM(i.ITEM_FISCAL_GRUPO), i.INATIVO
+FROM DB_HRG3.dbo.SS_ITEM_FISCAL_FORNECEDOR sf
+JOIN DB_HRG3.dbo.CADASTRO_ITEM_FISCAL i ON i.CODIGO_ITEM = sf.CODIGO_ITEM;
+GO
+
 -- ---------- ITENS (catálogo de compras) ----------
 CREATE OR ALTER VIEW dbo.v_p2p_items AS
 SELECT 'GUESS' AS empresa, RTRIM(CODIGO_ITEM) AS codigo,
