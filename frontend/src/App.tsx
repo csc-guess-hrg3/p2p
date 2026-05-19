@@ -10,6 +10,10 @@ import { RequisitionFormPage } from '@/pages/requisitions/RequisitionFormPage';
 import { RequisitionDetailPage } from '@/pages/requisitions/RequisitionDetailPage';
 import { FiscalQueuePage } from '@/pages/fiscal/FiscalQueuePage';
 import { ApprovalsPage } from '@/pages/approvals/ApprovalsPage';
+import { PurchaseOrdersListPage } from '@/pages/purchase-orders/PurchaseOrdersListPage';
+import { PurchaseOrderDetailPage } from '@/pages/purchase-orders/PurchaseOrderDetailPage';
+import { FundRequestsListPage } from '@/pages/fund-requests/FundRequestsListPage';
+import { FundRequestDetailPage } from '@/pages/fund-requests/FundRequestDetailPage';
 
 function App() {
   return (
@@ -38,20 +42,18 @@ function App() {
                   element={<RequisitionFormPage />}
                 />
                 <Route path="aprovacoes" element={<ApprovalsPage />} />
+                <Route path="pedidos" element={<PurchaseOrdersListPage />} />
                 <Route
-                  path="pedidos"
-                  element={
-                    <Placeholder title="Pedidos de Compra" etapa="Etapa F5" />
-                  }
+                  path="pedidos/:id"
+                  element={<PurchaseOrderDetailPage />}
                 />
                 <Route
                   path="solicitacoes-verba"
-                  element={
-                    <Placeholder
-                      title="Solicitações de Verba"
-                      etapa="Etapa F5"
-                    />
-                  }
+                  element={<FundRequestsListPage />}
+                />
+                <Route
+                  path="solicitacoes-verba/:id"
+                  element={<FundRequestDetailPage />}
                 />
                 <Route
                   path="recebimentos"

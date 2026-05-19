@@ -1,0 +1,192 @@
+import { useParams, Link } from 'react-router-dom';
+import { ArrowLeft, Banknote, FileText, Send } from 'lucide-react';
+import { usePurchaseOrder, useSendToSupplier } from '@/lib/purchase-orders';
+import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
+import { StatusBadge } from '@/components/StatusBadge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+
+function Field({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div>
+      <p className="text-xs uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <p className="text-sm">{value}</p>
+    </div>
+  );
+}
+
+export function PurchaseOrderDetailPage() {
+  const { id } = useParams();
+  const { data: po, isLoading } = usePurchaseOrder(id);
+  const sendMut = useSendToSupplier();
+
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Carregando…</p>;
+  }
+  if (!po) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Pedido de compra não encontrado.
+      </p>
+    );
+  }
+
+  const canSend = po.status === 'APPROVED';
+
+  async function handleSend() {
+    if (!po) return;
+    if (!confirm('Marcar o pedido como enviado ao fornecedor?')) return;
+    try {
+      await sendMut.mutateAsync(po.id);
+    } catch {
+      alert('Não foi possível enviar o pedido ao fornecedor.');
+    }
+  }
+
+  return (
+    <div className="space-y-4 pb-10">
+      <div className="flex items-center justify-between">
+        <Button variant="ghost" size="sm" asChild>
+          <Link to="/pedidos">
+            <ArrowLeft className="size-4" />
+            Pedidos de Compra
+          </Link>
+        </Button>
+        {canSend && (
+          <Button onClick={handleSend} disabled={sendMut.isPending}>
+            <Send className="size-4" />
+            {sendMut.isPending ? 'Enviando…' : 'Enviar ao fornecedor'}
+          </Button>
+        )}
+      </div>
+
+      <Card>
+        <CardHeader className="flex-row items-start justify-between">
+          <div>
+            <CardTitle className="text-xl">{po.number}</CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {po.supplierName}
+            </p>
+          </div>
+          <StatusBadge status={po.status} />
+        </CardHeader>
+        <CardContent className="grid grid-cols-3 gap-4">
+          <Field label="Filial" value={po.branchName} />
+          <Field label="Fornecedor" value={po.supplierName} />
+          <Field label="Comprador" value={po.buyer?.name ?? '—'} />
+          <Field
+            label="Condição de pagamento"
+            value={po.paymentCondition || '—'}
+          />
+          <Field
+            label="Entrega prevista"
+            value={formatDate(po.expectedDelivery)}
+          />
+          <Field label="Criado em" value={formatDate(po.createdAt)} />
+          <Field
+            label="Endereço de entrega"
+            value={po.deliveryAddress || '—'}
+          />
+          <Field
+            label="Enviado ao fornecedor"
+            value={formatDate(po.sentToSupplierAt)}
+          />
+          <Field
+            label="Valor total"
+            value={
+              <span className="font-semibold">
+                {formatCurrency(po.totalAmount)}
+              </span>
+            }
+          />
+          <div className="col-span-3 flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" asChild>
+              <Link to={`/requisicoes/${po.requisitionId}`}>
+                <FileText className="size-4" />
+                Ver requisição de origem
+              </Link>
+            </Button>
+            {po.fundRequest && (
+              <Button variant="outline" size="sm" asChild>
+                <Link to={`/solicitacoes-verba/${po.fundRequest.id}`}>
+                  <Banknote className="size-4" />
+                  SV de adiantamento {po.fundRequest.number}
+                </Link>
+              </Button>
+            )}
+          </div>
+          {po.erpPedido && (
+            <Field label="Pedido no ERP" value={po.erpPedido} />
+          )}
+          {po.status === 'CANCELLED' && po.cancellationReason && (
+            <div className="col-span-3">
+              <Field
+                label="Motivo do cancelamento"
+                value={po.cancellationReason}
+              />
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Itens</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Descrição</TableHead>
+                <TableHead className="text-right">Qtde</TableHead>
+                <TableHead>Un.</TableHead>
+                <TableHead className="text-right">Preço unit.</TableHead>
+                <TableHead className="text-right">Total</TableHead>
+                <TableHead className="text-right">Recebido</TableHead>
+                <TableHead>Conta</TableHead>
+                <TableHead>Rateios</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(po.items ?? []).map((it) => (
+                <TableRow key={it.id}>
+                  <TableCell>{it.itemDescription}</TableCell>
+                  <TableCell className="text-right">
+                    {formatNumber(it.quantity)}
+                  </TableCell>
+                  <TableCell>{it.unit}</TableCell>
+                  <TableCell className="text-right">
+                    {formatCurrency(it.unitPrice)}
+                  </TableCell>
+                  <TableCell className="text-right font-medium">
+                    {formatCurrency(it.totalPrice)}
+                  </TableCell>
+                  <TableCell className="text-right text-muted-foreground">
+                    {formatNumber(it.receivedQty)}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {it.accountingAccount}
+                    {it.accountName ? ` — ${it.accountName}` : ''}
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    F: {it.branchRateioCode} · CC: {it.costCenterRateioCode}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

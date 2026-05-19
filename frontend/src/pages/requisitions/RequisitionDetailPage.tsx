@@ -1,10 +1,12 @@
+import { useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Pencil, Send, Trash2 } from 'lucide-react';
+import { ArrowLeft, Pencil, Send, ShoppingCart, Trash2 } from 'lucide-react';
 import {
   useRequisition,
   useSubmitRequisition,
   useDeleteRequisition,
 } from '@/lib/requisitions';
+import { ConvertToPoDialog } from '@/pages/purchase-orders/ConvertToPoDialog';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
@@ -35,6 +37,7 @@ export function RequisitionDetailPage() {
   const { data: req, isLoading } = useRequisition(id);
   const submitMut = useSubmitRequisition();
   const deleteMut = useDeleteRequisition();
+  const [convertOpen, setConvertOpen] = useState(false);
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Carregando…</p>;
@@ -44,6 +47,8 @@ export function RequisitionDetailPage() {
   }
 
   const isDraft = req.status === 'DRAFT';
+  const canConvert =
+    req.status === 'APPROVED' && req.tipoNotaFiscal !== 'SEM_NF';
 
   async function handleSubmit() {
     if (!req) return;
@@ -97,7 +102,21 @@ export function RequisitionDetailPage() {
             </Button>
           </div>
         )}
+        {canConvert && (
+          <Button onClick={() => setConvertOpen(true)}>
+            <ShoppingCart className="size-4" />
+            Converter em Pedido de Compra
+          </Button>
+        )}
       </div>
+
+      {canConvert && (
+        <ConvertToPoDialog
+          open={convertOpen}
+          onOpenChange={setConvertOpen}
+          requisition={req}
+        />
+      )}
 
       <Card>
         <CardHeader className="flex-row items-start justify-between">
