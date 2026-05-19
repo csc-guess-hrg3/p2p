@@ -285,6 +285,7 @@ export class RequisitionsService {
         recurring: dto.recurring ?? false,
         recurrenceMonths: dto.recurring ? (dto.recurrenceMonths ?? null) : null,
         contractRef: dto.contractRef ?? null,
+        tipoCompra: dto.tipoCompra ?? null,
         items: { create: built.map((b) => b.fields) },
       },
       include: { items: { include: { rateios: true } } },
@@ -527,6 +528,42 @@ export class RequisitionsService {
               submittedAt: new Date(),
               currentTierLevel: firstLevel,
             },
+    });
+    return this.findOne(user, id);
+  }
+
+  /**
+   * Preenche a classificação fiscal da requisição (CTB + natureza,
+   * opcionalmente tipoCompra). Restrito a REVIEWER/ADMIN. Pode ser
+   * chamado antes ou depois da aprovação — mas obrigatório antes da
+   * conversão em PC (a gravação no Linx exige esses campos).
+   */
+  async fiscalClassify(
+    user: AuthenticatedUser,
+    id: string,
+    dto: { ctbTipoOperacao: number; naturezaEntrada: string; tipoCompra?: string },
+  ) {
+    if (
+      user.profile !== UserProfile.REVIEWER &&
+      user.profile !== UserProfile.ADMIN
+    ) {
+      throw new ForbiddenException(
+        'Somente o fiscal/revisor pode classificar fiscalmente.',
+      );
+    }
+    const req = await this.findOne(user, id);
+    if (req.status === RequisitionStatus.CONVERTED) {
+      throw new BadRequestException(
+        'Requisição já convertida em PC — não é possível reclassificar.',
+      );
+    }
+    await this.prisma.requisition.update({
+      where: { id },
+      data: {
+        ctbTipoOperacao: dto.ctbTipoOperacao,
+        naturezaEntrada: dto.naturezaEntrada,
+        ...(dto.tipoCompra ? { tipoCompra: dto.tipoCompra } : {}),
+      },
     });
     return this.findOne(user, id);
   }

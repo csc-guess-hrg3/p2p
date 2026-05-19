@@ -64,8 +64,42 @@ model Company {
   teamCostCenterRateios TeamCostCenterRateio[]
   settings              SystemSetting[]
   fiscalItemRequests    FiscalItemRequest[]
+  erpConfig             CompanyErpConfig?
 
   @@map("companies")
+}
+
+// ============================================================
+// Configuração da integração com o ERP Linx, por empresa.
+// Cada empresa pode usar TIPO_COMPRA, CTB_TIPO_OPERACAO e NATUREZA_ENTRADA
+// diferentes (Guess e Hering têm cadastros distintos no Linx). Aqui ficam
+// os defaults que o P2P aplica quando o solicitante/fiscal não sobrescreve.
+// SMTP também é por empresa: cada uma pode usar seu próprio servidor.
+// ============================================================
+model CompanyErpConfig {
+  companyId                   String   @id @db.UniqueIdentifier
+  codTransacao                String   @db.NVarChar(25)   // 'COMPRAS_003'
+  tabelaFilha                 String   @db.NVarChar(25)   // 'COMPRAS_CONSUMIVEL'
+  tipoCompraDefault           String   @db.NVarChar(25)   // ex.: 'COMPRA DIVERSAS'
+  ctbTipoOperacaoDefault      Int                          // ex.: 202
+  naturezaEntradaDefault      String   @db.NVarChar(15)   // ex.: '202.01'
+  moeda                       String   @default("R$") @db.NVarChar(6)
+  transportadoraPadrao        String?  @db.NVarChar(25)   // nome (varchar 25 no ERP)
+  smtpHost                    String?  @db.NVarChar(255)
+  smtpPort                    Int?
+  smtpUser                    String?  @db.NVarChar(255)
+  smtpPassword                String?  @db.NVarChar(500)  // criptografado seria ideal; por ora plain
+  smtpSecure                  Boolean  @default(false)
+  smtpFrom                    String?  @db.NVarChar(255)
+  smtpFromName                String?  @db.NVarChar(255)
+  emailSubjectTemplate        String?  @db.NVarChar(255)
+  emailBodyTemplate           String?  @db.NVarChar(Max)
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@map("company_erp_configs")
 }
 
 // ============================================================
@@ -328,6 +362,11 @@ model Requisition {
   recurring        Boolean   @default(false)    // requisição recorrente
   recurrenceMonths Int?                         // por quantos meses se repete
   contractRef      String?   @db.NVarChar(100)  // contrato vinculado (quando aplicável)
+  // Classificação Linx — preenchida pelo solicitante (tipoCompra) e pelo
+  // fiscal (ctbTipoOperacao + naturezaEntrada) antes da conversão em PC.
+  tipoCompra       String?   @db.NVarChar(25)
+  ctbTipoOperacao  Int?
+  naturezaEntrada  String?   @db.NVarChar(15)
   currentTierLevel Int?
   submittedAt      DateTime?
   approvedAt       DateTime?

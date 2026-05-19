@@ -11,6 +11,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { ConvertToPurchaseOrderDto } from './dto/convert-to-po.dto';
 import { QueryPurchaseOrdersDto } from './dto/query-purchase-orders.dto';
+import { SendToSupplierDto } from './dto/send-to-supplier.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
@@ -49,11 +50,24 @@ export class PurchaseOrdersController {
   }
 
   @Post(':id/send-to-supplier')
-  @ApiOperation({ summary: 'Marca o pedido como enviado ao fornecedor' })
+  @ApiOperation({
+    summary: 'Envia o pedido ao fornecedor — grava no Linx e envia e-mail',
+  })
   sendToSupplier(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
+    @Body() dto: SendToSupplierDto,
   ) {
-    return this.purchaseOrders.sendToSupplier(user, id);
+    return this.purchaseOrders.sendToSupplier(user, id, dto);
+  }
+
+  @Post(':id/resend')
+  @ApiOperation({ summary: 'Reenvia o e-mail do pedido ao fornecedor' })
+  resend(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: SendToSupplierDto,
+  ) {
+    return this.purchaseOrders.resendToSupplier(user, id, dto);
   }
 }

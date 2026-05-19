@@ -102,3 +102,29 @@ FROM HML_GUESS.dbo.CTB_CENTRO_CUSTO_RATEIO r
 JOIN HML_GUESS.dbo.CTB_CENTRO_CUSTO_RATEIO_ITEM i ON i.RATEIO_CENTRO_CUSTO = r.RATEIO_CENTRO_CUSTO
 WHERE r.INATIVO = 0 AND r.RATEIO_ENTRAR_EM_LISTA <> 0;
 GO
+
+-- ---------- TIPOS DE COMPRA (Linx) ----------
+-- Lista de TIPO_COMPRA aplicáveis ao fluxo de consumíveis (P2P).
+CREATE OR ALTER VIEW dbo.v_p2p_compras_tipos AS
+SELECT 'GUESS' AS empresa, RTRIM(TIPO_COMPRA) AS tipo_compra,
+       RTRIM(AE_DOCUMENTO) AS ae_documento
+FROM HML_GUESS.dbo.COMPRAS_TIPOS
+WHERE INDICA_COMPRA_CONSUMO = 1;
+GO
+
+-- ---------- TIPO DE OPERAÇÃO CONTÁBIL — entradas ativas ----------
+CREATE OR ALTER VIEW dbo.v_p2p_ctb_tipo_operacao AS
+SELECT 'GUESS' AS empresa, CTB_TIPO_OPERACAO AS codigo,
+       RTRIM(DESC_TIPO_OPERACAO) AS descricao
+FROM HML_GUESS.dbo.CTB_LX_TIPO_OPERACAO
+WHERE INDICA_ENTRADA_SAIDA = 'E' AND INATIVO = 0;
+GO
+
+-- ---------- NATUREZAS DE ENTRADA ----------
+-- Filtradas pelo CTB_TIPO_OPERACAO escolhido (cascade na tela do fiscal).
+CREATE OR ALTER VIEW dbo.v_p2p_naturezas_entrada AS
+SELECT 'GUESS' AS empresa, RTRIM(NATUREZA) AS codigo,
+       RTRIM(DESC_NATUREZA) AS descricao, CTB_TIPO_OPERACAO AS ctb_tipo_operacao
+FROM HML_GUESS.dbo.NATUREZAS_ENTRADAS
+WHERE INATIVO = 0;
+GO

@@ -62,6 +62,9 @@ export interface Requisition {
   recurring: boolean;
   recurrenceMonths: number | null;
   contractRef: string | null;
+  tipoCompra: string | null;
+  ctbTipoOperacao: number | null;
+  naturezaEntrada: string | null;
   submittedAt: string | null;
   approvedAt: string | null;
   rejectedAt: string | null;
@@ -121,7 +124,14 @@ export interface RequisitionInput {
   recurring?: boolean;
   recurrenceMonths?: number;
   contractRef?: string;
+  tipoCompra?: string;
   items: RequisitionItemInput[];
+}
+
+export interface FiscalClassifyInput {
+  ctbTipoOperacao: number;
+  naturezaEntrada: string;
+  tipoCompra?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -185,6 +195,22 @@ export function useSubmitRequisition() {
   return useMutation({
     mutationFn: async (id: string) =>
       (await api.post<Requisition>(`/requisitions/${id}/submit`)).data,
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['requisitions'] });
+      qc.invalidateQueries({ queryKey: ['requisition', data.id] });
+    },
+  });
+}
+
+export function useFiscalClassify() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      ...dto
+    }: { id: string } & FiscalClassifyInput) =>
+      (await api.patch<Requisition>(`/requisitions/${id}/fiscal-classify`, dto))
+        .data,
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['requisitions'] });
       qc.invalidateQueries({ queryKey: ['requisition', data.id] });

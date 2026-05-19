@@ -7,6 +7,9 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NumberingService } from '../numbering/numbering.service';
+import { LinxErpService } from '../integration/linx-erp.service';
+import { EmailService } from '../integration/email.service';
+import { IntegrationService } from '../integration/integration.service';
 import {
   FundRequestStatus,
   PurchaseOrderStatus,
@@ -31,6 +34,9 @@ export class PurchaseOrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly numbering: NumberingService,
+    private readonly linx: LinxErpService,
+    private readonly email: EmailService,
+    private readonly integration: IntegrationService,
   ) {}
 
   /**
@@ -272,21 +278,163 @@ export class PurchaseOrdersService {
     return po;
   }
 
-  /** Marca o pedido como enviado ao fornecedor. */
-  async sendToSupplier(user: AuthenticatedUser, id: string) {
+  /**
+   * Envia o pedido ao fornecedor — fluxo completo:
+   *  1) Grava no Linx (COMPRAS + COMPRAS_CONSUMIVEL + STATUS_LOG)
+   *     usando LX_SEQUENCIAL para o nº do PEDIDO.
+   *  2) Renderiza PDF, envia por e-mail (SMTP da empresa).
+   *  3) Loga em COMPRAS_EMAIL_LOG (no Linx).
+   *  4) Atualiza o PC: erpPedido, status SENT_TO_SUPPLIER, sentToSupplierAt.
+   *
+   * O e-mail pode ser pulado com `skipEmail=true` (caso o fornecedor não
+   * tenha e-mail cadastrado e o comprador opte por enviar manualmente).
+   */
+  async sendToSupplier(
+    user: AuthenticatedUser,
+    id: string,
+    opts: {
+      recipientEmail?: string;
+      skipEmail?: boolean;
+      subject?: string;
+      bodyText?: string;
+    } = {},
+  ) {
     const po = await this.findOne(user, id);
     if (po.status !== PurchaseOrderStatus.APPROVED) {
       throw new BadRequestException(
         'Só pedidos aprovados podem ser enviados ao fornecedor.',
       );
     }
+    const company = await this.prisma.company.findUniqueOrThrow({
+      where: { id: po.companyId },
+    });
+
+    // 1) Grava no Linx (idempotente se já tiver erpPedido).
+    const full = await this.prisma.purchaseOrder.findUniqueOrThrow({
+      where: { id: po.id },
+      include: { items: true },
+    });
+    const { pedido } = await this.linx.gravarPedidoCompra(full, user);
+
+    // 2) Resolve destinatário e envia o e-mail (a menos que skipEmail).
+    let emailSent = false;
+    let emailRecipient: string | null = null;
+    if (!opts.skipEmail) {
+      let to = opts.recipientEmail?.trim() || '';
+      if (!to) {
+        const sup = await this.integration.findSupplier(
+          company.code,
+          po.supplierErpCode,
+        );
+        to = sup?.email?.trim() || '';
+      }
+      if (!to) {
+        throw new BadRequestException(
+          'Fornecedor sem e-mail cadastrado. Informe o destinatário ou marque ' +
+            '"não notificar" para enviar manualmente.',
+        );
+      }
+      const fullForEmail = await this.prisma.purchaseOrder.findUniqueOrThrow({
+        where: { id: po.id },
+        include: { items: true },
+      });
+      await this.email.sendPurchaseOrderEmail(
+        { ...fullForEmail, erpPedido: pedido },
+        {
+          to,
+          subject: opts.subject,
+          bodyText: opts.bodyText,
+        },
+      );
+      emailSent = true;
+      emailRecipient = to;
+      // 3) Log no Linx (best-effort).
+      await this.linx.logEmail(
+        company.erpDbName,
+        pedido,
+        to,
+        user.name ?? user.adUsername ?? '',
+        `Envio P2P PC ${po.number}`,
+      );
+    }
+
+    // 4) Atualiza o PC.
+    const now = new Date();
     await this.prisma.purchaseOrder.update({
       where: { id },
       data: {
         status: PurchaseOrderStatus.SENT_TO_SUPPLIER,
-        sentToSupplierAt: new Date(),
+        sentToSupplierAt: now,
+        erpPedido: pedido,
+        integratedAt: now,
       },
     });
-    return this.findOne(user, id);
+
+    const updated = await this.findOne(user, id);
+    return { ...updated, emailSent, emailRecipient };
+  }
+
+  /**
+   * Reenvia o e-mail do pedido ao fornecedor. Não regrava no ERP — o
+   * pedido já está lá (`erpPedido` setado). Útil quando o comprador
+   * percebe que o e-mail anterior não chegou ou caiu em spam.
+   */
+  async resendToSupplier(
+    user: AuthenticatedUser,
+    id: string,
+    opts: {
+      recipientEmail?: string;
+      subject?: string;
+      bodyText?: string;
+    } = {},
+  ) {
+    const po = await this.findOne(user, id);
+    if (po.status !== PurchaseOrderStatus.SENT_TO_SUPPLIER &&
+        po.status !== PurchaseOrderStatus.PARTIALLY_RECEIVED &&
+        po.status !== PurchaseOrderStatus.FULLY_RECEIVED) {
+      throw new BadRequestException(
+        'Só pedidos já enviados podem ser reenviados.',
+      );
+    }
+    if (!po.erpPedido) {
+      throw new BadRequestException(
+        'Pedido sem referência no ERP — use "Enviar ao Fornecedor" primeiro.',
+      );
+    }
+    const company = await this.prisma.company.findUniqueOrThrow({
+      where: { id: po.companyId },
+    });
+
+    let to = opts.recipientEmail?.trim() || '';
+    if (!to) {
+      const sup = await this.integration.findSupplier(
+        company.code,
+        po.supplierErpCode,
+      );
+      to = sup?.email?.trim() || '';
+    }
+    if (!to) {
+      throw new BadRequestException(
+        'E-mail do destinatário não informado.',
+      );
+    }
+
+    const full = await this.prisma.purchaseOrder.findUniqueOrThrow({
+      where: { id: po.id },
+      include: { items: true },
+    });
+    await this.email.sendPurchaseOrderEmail(full, {
+      to,
+      subject: opts.subject,
+      bodyText: opts.bodyText,
+    });
+    await this.linx.logEmail(
+      company.erpDbName,
+      po.erpPedido,
+      to,
+      user.name ?? user.adUsername ?? '',
+      `Reenvio P2P PC ${po.number}`,
+    );
+    return { ok: true, recipient: to };
   }
 }

@@ -14,6 +14,7 @@ import { RequisitionsService } from './requisitions.service';
 import { CreateRequisitionDto } from './dto/create-requisition.dto';
 import { UpdateRequisitionDto } from './dto/update-requisition.dto';
 import { QueryRequisitionsDto } from './dto/query-requisitions.dto';
+import { FiscalClassifyDto } from './dto/fiscal-classify.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
@@ -63,6 +64,18 @@ export class RequisitionsController {
     @Body() dto: UpdateRequisitionDto,
   ) {
     return this.requisitions.update(user, id, dto);
+  }
+
+  @Patch(':id/fiscal-classify')
+  @ApiOperation({
+    summary: 'Classificação fiscal (CTB + natureza + tipo de compra)',
+  })
+  fiscalClassify(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: FiscalClassifyDto,
+  ) {
+    return this.requisitions.fiscalClassify(user, id, dto);
   }
 
   @Delete(':id')

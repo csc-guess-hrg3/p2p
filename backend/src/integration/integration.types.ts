@@ -71,6 +71,25 @@ export interface ErpPaymentCondition {
   parcelas: number | null;
 }
 
+/** Tipo de compra do Linx (COMPRAS_TIPOS) — fluxo de consumíveis. */
+export interface ErpCompraTipo {
+  tipoCompra: string;
+  aeDocumento: string | null;
+}
+
+/** Tipo de operação contábil de entrada (CTB_LX_TIPO_OPERACAO). */
+export interface ErpCtbTipoOperacao {
+  codigo: number;
+  descricao: string;
+}
+
+/** Natureza de entrada (NATUREZAS_ENTRADAS). Pertence a um CTB. */
+export interface ErpNaturezaEntrada {
+  codigo: string;
+  descricao: string;
+  ctbTipoOperacao: number;
+}
+
 /** Uma linha de um template de rateio (destino + percentual). */
 export interface ErpRateioLine {
   filialCodigo: string;

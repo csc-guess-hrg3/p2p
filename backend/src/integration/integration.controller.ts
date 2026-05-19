@@ -110,4 +110,28 @@ export class IntegrationController {
       includeInactive !== 'true',
     );
   }
+
+  @Get('compras-tipos')
+  @ApiOperation({ summary: 'Tipos de compra do Linx (consumíveis)' })
+  comprasTipos(@Param('company') company: string) {
+    return this.integration.getComprasTipos(company);
+  }
+
+  @Get('ctb-tipo-operacao')
+  @ApiOperation({ summary: 'Tipos de operação contábil de entrada' })
+  ctbTipoOperacao(@Param('company') company: string) {
+    return this.integration.getCtbTipoOperacao(company);
+  }
+
+  @Get('naturezas-entrada')
+  @ApiOperation({ summary: 'Naturezas de entrada (opcional: filtrar por CTB)' })
+  naturezasEntrada(
+    @Param('company') company: string,
+    @Query('ctb') ctb?: string,
+  ) {
+    return this.integration.getNaturezasEntrada(
+      company,
+      ctb ? Number(ctb) : undefined,
+    );
+  }
 }

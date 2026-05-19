@@ -1,12 +1,22 @@
 import { useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Pencil, Send, ShoppingCart, Trash2 } from 'lucide-react';
+import {
+  ArrowLeft,
+  ClipboardList,
+  Pencil,
+  Send,
+  ShoppingCart,
+  Trash2,
+} from 'lucide-react';
 import {
   useRequisition,
   useSubmitRequisition,
   useDeleteRequisition,
 } from '@/lib/requisitions';
+import { useAuth } from '@/lib/auth';
+import { useCompany } from '@/lib/company';
 import { ConvertToPoDialog } from '@/pages/purchase-orders/ConvertToPoDialog';
+import { FiscalClassifyDialog } from './FiscalClassifyDialog';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
@@ -37,7 +47,10 @@ export function RequisitionDetailPage() {
   const { data: req, isLoading } = useRequisition(id);
   const submitMut = useSubmitRequisition();
   const deleteMut = useDeleteRequisition();
+  const { user } = useAuth();
+  const { activeCompany } = useCompany();
   const [convertOpen, setConvertOpen] = useState(false);
+  const [fiscalOpen, setFiscalOpen] = useState(false);
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Carregando…</p>;
@@ -47,8 +60,13 @@ export function RequisitionDetailPage() {
   }
 
   const isDraft = req.status === 'DRAFT';
+  const isFiscal = user?.profile === 'REVIEWER' || user?.profile === 'ADMIN';
+  const canClassify = isFiscal && req.status !== 'CONVERTED';
+  const fiscalReady = req.ctbTipoOperacao != null && !!req.naturezaEntrada;
   const canConvert =
-    req.status === 'APPROVED' && req.tipoNotaFiscal !== 'SEM_NF';
+    req.status === 'APPROVED' &&
+    req.tipoNotaFiscal !== 'SEM_NF' &&
+    fiscalReady;
 
   async function handleSubmit() {
     if (!req) return;
@@ -102,6 +120,12 @@ export function RequisitionDetailPage() {
             </Button>
           </div>
         )}
+        {canClassify && (
+          <Button variant="outline" onClick={() => setFiscalOpen(true)}>
+            <ClipboardList className="size-4" />
+            {fiscalReady ? 'Revisar classificação fiscal' : 'Classificar fiscalmente'}
+          </Button>
+        )}
         {canConvert && (
           <Button onClick={() => setConvertOpen(true)}>
             <ShoppingCart className="size-4" />
@@ -110,11 +134,27 @@ export function RequisitionDetailPage() {
         )}
       </div>
 
+      {req.status === 'APPROVED' &&
+        req.tipoNotaFiscal !== 'SEM_NF' &&
+        !fiscalReady && (
+          <p className="text-sm text-warning">
+            Aguardando classificação fiscal (CTB + natureza) para converter em PC.
+          </p>
+        )}
+
       {canConvert && (
         <ConvertToPoDialog
           open={convertOpen}
           onOpenChange={setConvertOpen}
           requisition={req}
+        />
+      )}
+      {fiscalOpen && activeCompany && (
+        <FiscalClassifyDialog
+          open={fiscalOpen}
+          onOpenChange={setFiscalOpen}
+          requisition={req}
+          companyCode={activeCompany.code}
         />
       )}
 
@@ -152,6 +192,15 @@ export function RequisitionDetailPage() {
             }
           />
           <Field label="Contrato vinculado" value={req.contractRef || '—'} />
+          <Field label="Tipo de compra (Linx)" value={req.tipoCompra || '—'} />
+          <Field
+            label="Classificação fiscal"
+            value={
+              req.ctbTipoOperacao != null && req.naturezaEntrada
+                ? `CTB ${req.ctbTipoOperacao} · Natureza ${req.naturezaEntrada}`
+                : 'Não classificada'
+            }
+          />
           <Field
             label="Valor total"
             value={

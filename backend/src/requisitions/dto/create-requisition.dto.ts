@@ -116,6 +116,14 @@ export class CreateRequisitionDto {
   @IsString()
   contractRef?: string;
 
+  @ApiPropertyOptional({
+    description: 'Tipo de compra Linx (COMPRAS_TIPOS.TIPO_COMPRA). ' +
+      'Opcional: se ausente, usa o default da empresa.',
+  })
+  @IsOptional()
+  @IsString()
+  tipoCompra?: string;
+
   @ApiProperty({ type: [CreateRequisitionItemDto] })
   @IsArray()
   @ArrayMinSize(1)

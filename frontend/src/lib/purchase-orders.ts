@@ -120,15 +120,39 @@ export function useConvertToPurchaseOrder() {
   });
 }
 
+export interface SendToSupplierInput {
+  recipientEmail?: string;
+  skipEmail?: boolean;
+  subject?: string;
+  bodyText?: string;
+}
+
 export function useSendToSupplier() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) =>
-      (await api.post<PurchaseOrder>(`/purchase-orders/${id}/send-to-supplier`))
-        .data,
+    mutationFn: async ({
+      id,
+      ...dto
+    }: { id: string } & SendToSupplierInput) =>
+      (
+        await api.post<PurchaseOrder>(
+          `/purchase-orders/${id}/send-to-supplier`,
+          dto,
+        )
+      ).data,
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['purchase-orders'] });
       qc.invalidateQueries({ queryKey: ['purchase-order', data.id] });
     },
+  });
+}
+
+export function useResendToSupplier() {
+  return useMutation({
+    mutationFn: async ({
+      id,
+      ...dto
+    }: { id: string } & SendToSupplierInput) =>
+      (await api.post(`/purchase-orders/${id}/resend`, dto)).data,
   });
 }

@@ -1,8 +1,11 @@
 import { Module } from '@nestjs/common';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { PurchaseOrdersController } from './purchase-orders.controller';
+import { IntegrationModule } from '../integration/integration.module';
+import { NumberingModule } from '../numbering/numbering.module';
 
 @Module({
+  imports: [IntegrationModule, NumberingModule],
   controllers: [PurchaseOrdersController],
   providers: [PurchaseOrdersService],
   exports: [PurchaseOrdersService],

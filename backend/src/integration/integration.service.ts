@@ -5,8 +5,11 @@ import {
   CompanyCode,
   ErpAccount,
   ErpBranch,
+  ErpCompraTipo,
   ErpCostCenter,
+  ErpCtbTipoOperacao,
   ErpItem,
+  ErpNaturezaEntrada,
   ErpPaymentCondition,
   ErpRateio,
   ErpSupplier,
@@ -229,6 +232,49 @@ export class IntegrationService {
         ${onlyActive ? Prisma.sql`AND rateio_inativo = 0` : Prisma.empty}
       ORDER BY rateio_descricao`;
     return this.groupRateios(rows, true);
+  }
+
+  // ----------------------------------------------------------------
+  // Catálogos Linx para gravação do Pedido de Compra
+  // ----------------------------------------------------------------
+
+  /** Tipos de compra disponíveis (fluxo de consumíveis). */
+  async getComprasTipos(company: string): Promise<ErpCompraTipo[]> {
+    const c = this.assertCompany(company);
+    return this.prisma.$queryRaw<ErpCompraTipo[]>`
+      SELECT tipo_compra AS tipoCompra, ae_documento AS aeDocumento
+      FROM dbo.v_p2p_compras_tipos
+      WHERE empresa = ${c}
+      ORDER BY tipo_compra`;
+  }
+
+  /** Tipos de operação contábil de ENTRADA ativos. */
+  async getCtbTipoOperacao(company: string): Promise<ErpCtbTipoOperacao[]> {
+    const c = this.assertCompany(company);
+    return this.prisma.$queryRaw<ErpCtbTipoOperacao[]>`
+      SELECT codigo, descricao
+      FROM dbo.v_p2p_ctb_tipo_operacao
+      WHERE empresa = ${c}
+      ORDER BY descricao`;
+  }
+
+  /**
+   * Naturezas de entrada. Quando `ctb` é informado, filtra apenas as
+   * naturezas vinculadas àquele tipo de operação (cascade na tela do fiscal).
+   */
+  async getNaturezasEntrada(
+    company: string,
+    ctb?: number,
+  ): Promise<ErpNaturezaEntrada[]> {
+    const c = this.assertCompany(company);
+    const ctbFilter = ctb != null
+      ? Prisma.sql`AND ctb_tipo_operacao = ${ctb}`
+      : Prisma.empty;
+    return this.prisma.$queryRaw<ErpNaturezaEntrada[]>`
+      SELECT codigo, descricao, ctb_tipo_operacao AS ctbTipoOperacao
+      FROM dbo.v_p2p_naturezas_entrada
+      WHERE empresa = ${c} ${ctbFilter}
+      ORDER BY codigo`;
   }
 
   // ----------------------------------------------------------------

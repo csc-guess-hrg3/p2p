@@ -1,6 +1,12 @@
+import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Banknote, FileText, Send } from 'lucide-react';
+import { ArrowLeft, Banknote, FileText, Send, RotateCw } from 'lucide-react';
 import { usePurchaseOrder, useSendToSupplier } from '@/lib/purchase-orders';
+import { useCompany } from '@/lib/company';
+import {
+  SendToSupplierDialog,
+  shouldSkipSendPreview,
+} from './SendToSupplierDialog';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
@@ -28,7 +34,10 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 export function PurchaseOrderDetailPage() {
   const { id } = useParams();
   const { data: po, isLoading } = usePurchaseOrder(id);
+  const { activeCompany } = useCompany();
   const sendMut = useSendToSupplier();
+  const [sendOpen, setSendOpen] = useState(false);
+  const [resendOpen, setResendOpen] = useState(false);
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Carregando…</p>;
@@ -42,14 +51,22 @@ export function PurchaseOrderDetailPage() {
   }
 
   const canSend = po.status === 'APPROVED';
+  const canResend =
+    po.status === 'SENT_TO_SUPPLIER' ||
+    po.status === 'PARTIALLY_RECEIVED' ||
+    po.status === 'FULLY_RECEIVED';
 
   async function handleSend() {
     if (!po) return;
-    if (!confirm('Marcar o pedido como enviado ao fornecedor?')) return;
-    try {
-      await sendMut.mutateAsync(po.id);
-    } catch {
-      alert('Não foi possível enviar o pedido ao fornecedor.');
+    // Se o usuário marcou "não exibir de novo", envia direto sem dialog.
+    if (shouldSkipSendPreview()) {
+      try {
+        await sendMut.mutateAsync({ id: po.id });
+      } catch {
+        alert('Não foi possível enviar o pedido ao fornecedor.');
+      }
+    } else {
+      setSendOpen(true);
     }
   }
 
@@ -68,7 +85,32 @@ export function PurchaseOrderDetailPage() {
             {sendMut.isPending ? 'Enviando…' : 'Enviar ao fornecedor'}
           </Button>
         )}
+        {canResend && (
+          <Button variant="outline" onClick={() => setResendOpen(true)}>
+            <RotateCw className="size-4" />
+            Reenviar e-mail
+          </Button>
+        )}
       </div>
+
+      {sendOpen && activeCompany && (
+        <SendToSupplierDialog
+          open={sendOpen}
+          onOpenChange={setSendOpen}
+          po={po}
+          mode="send"
+          companyCode={activeCompany.code}
+        />
+      )}
+      {resendOpen && activeCompany && (
+        <SendToSupplierDialog
+          open={resendOpen}
+          onOpenChange={setResendOpen}
+          po={po}
+          mode="resend"
+          companyCode={activeCompany.code}
+        />
+      )}
 
       <Card>
         <CardHeader className="flex-row items-start justify-between">

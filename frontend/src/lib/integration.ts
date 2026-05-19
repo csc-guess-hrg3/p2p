@@ -14,8 +14,26 @@ export interface ErpSupplier {
   nome: string;
   razaoSocial: string | null;
   cnpjCpf: string | null;
+  email: string | null;
+  telefone: string | null;
   condicaoPgto: string | null;
   inativo: boolean;
+}
+
+export interface ErpCompraTipo {
+  tipoCompra: string;
+  aeDocumento: string | null;
+}
+
+export interface ErpCtbTipoOperacao {
+  codigo: number;
+  descricao: string;
+}
+
+export interface ErpNaturezaEntrada {
+  codigo: string;
+  descricao: string;
+  ctbTipoOperacao: number;
 }
 
 export interface ErpPaymentCondition {
@@ -96,6 +114,35 @@ export function usePaymentConditions(company?: string) {
   return useQuery(
     erpQuery<ErpPaymentCondition[]>(company, 'payment-conditions'),
   );
+}
+
+/** Tipos de compra Linx (COMPRAS_TIPOS) — fluxo de consumíveis. */
+export function useComprasTipos(company?: string) {
+  return useQuery(erpQuery<ErpCompraTipo[]>(company, 'compras-tipos'));
+}
+
+/** Tipos de operação contábil de entrada (CTB_LX_TIPO_OPERACAO). */
+export function useCtbTipoOperacao(company?: string) {
+  return useQuery(erpQuery<ErpCtbTipoOperacao[]>(company, 'ctb-tipo-operacao'));
+}
+
+/**
+ * Naturezas de entrada filtradas por CTB. Quando `ctb` é undefined,
+ * retorna todas — útil quando o fiscal ainda não escolheu o CTB.
+ */
+export function useNaturezasEntrada(company?: string, ctb?: number | null) {
+  return useQuery({
+    queryKey: ['erp', company, 'naturezas-entrada', ctb ?? null],
+    queryFn: async () =>
+      (
+        await api.get<ErpNaturezaEntrada[]>(
+          `/integration/${company}/naturezas-entrada`,
+          { params: ctb != null ? { ctb } : undefined },
+        )
+      ).data,
+    enabled: !!company,
+    staleTime: 5 * 60_000,
+  });
 }
 
 /** Itens vinculados a um fornecedor (SS_ITEM_FISCAL_FORNECEDOR). */
