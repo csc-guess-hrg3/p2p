@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { IntegrationService } from '../integration/integration.service';
 import { AuthenticatedUser } from '../auth/auth.types';
+import { UserProfile } from '../common/enums';
 import { CreateFiscalItemRequestDto } from './dto/create-fiscal-item-request.dto';
 import { ApproveFiscalItemRequestDto } from './dto/resolve-fiscal-item-request.dto';
 import { QueryFiscalItemRequestsDto } from './dto/query-fiscal-item-requests.dto';
@@ -21,8 +22,9 @@ export class FiscalItemRequestsService {
     private readonly integration: IntegrationService,
   ) {}
 
-  /** O usuário pertence à equipe Fiscal? */
+  /** O usuário resolve pendências fiscais? Admin sempre pode; senão, equipe Fiscal. */
   private async isFiscalUser(user: AuthenticatedUser): Promise<boolean> {
+    if (user.profile === UserProfile.ADMIN) return true;
     if (!user.teamId) return false;
     const team = await this.prisma.team.findUnique({
       where: { id: user.teamId },

@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CurrencyInput } from '@/components/ui/currency-input';
+import { ItemCombobox } from './ItemCombobox';
 import { Label } from '@/components/ui/label';
 import {
   Dialog,
@@ -201,59 +202,27 @@ export function ItemDialog({
           {mode === 'SUPPLIER' && (
             <div className="space-y-1.5">
               <Label>Item vinculado ao fornecedor</Label>
-              <Select
+              <ItemCombobox
+                items={supplierList}
                 value={itemErpCode}
-                onValueChange={(v) =>
-                  applyItem(supplierList.find((i) => i.codigo === v))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue
-                    placeholder={
-                      supplierItems.isLoading
-                        ? 'Carregando…'
-                        : supplierList.length === 0
-                          ? 'Nenhum item vinculado a este fornecedor'
-                          : 'Selecione o item'
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {supplierList.map((i) => (
-                    <SelectItem key={i.codigo} value={i.codigo}>
-                      {i.descricao}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {!supplierItems.isLoading && supplierList.length === 0 && (
-                <p className="text-xs text-muted-foreground">
-                  Use “Itens não vinculados ao fornecedor”.
-                </p>
-              )}
+                loading={supplierItems.isLoading}
+                placeholder="Selecione o item"
+                emptyText="Nenhum item vinculado a este fornecedor"
+                onSelect={applyItem}
+              />
             </div>
           )}
 
           {mode === 'CATALOG' && (
             <div className="space-y-1.5">
               <Label>Item do catálogo (será vinculado ao fornecedor)</Label>
-              <Select
+              <ItemCombobox
+                items={catalog.data ?? []}
                 value={itemErpCode}
-                onValueChange={(v) =>
-                  applyItem((catalog.data ?? []).find((i) => i.codigo === v))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o item do catálogo" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(catalog.data ?? []).map((i) => (
-                    <SelectItem key={i.codigo} value={i.codigo}>
-                      {i.descricao}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                loading={catalog.isLoading}
+                placeholder="Selecione o item do catálogo"
+                onSelect={applyItem}
+              />
               <p className="text-xs text-warning">
                 Abrirá uma pendência fiscal para vincular este item ao
                 fornecedor.
