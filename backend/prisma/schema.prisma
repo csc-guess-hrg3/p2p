@@ -63,6 +63,7 @@ model Company {
   teamBranchRateios     TeamBranchRateio[]
   teamCostCenterRateios TeamCostCenterRateio[]
   settings              SystemSetting[]
+  fiscalItemRequests    FiscalItemRequest[]
 
   @@map("companies")
 }
@@ -90,6 +91,41 @@ model SystemSetting {
 }
 
 // ============================================================
+// PENDÊNCIAS FISCAIS DE ITEM
+// Quando o item da requisição não está vinculado ao fornecedor no Linx:
+//   LINK — item existe no catálogo, falta vincular ao fornecedor
+//   NEW  — item não existe; equipe Fiscal cadastra no Linx
+// Resolvida pela equipe Fiscal (Team.isFiscal); ao aprovar, o P2P grava
+// o vínculo / o item novo no Linx.
+// ============================================================
+
+model FiscalItemRequest {
+  id              String    @id @default(uuid()) @db.UniqueIdentifier
+  companyId       String    @db.UniqueIdentifier
+  type            String    @db.NVarChar(10)   // LINK | NEW
+  status          String    @default("PENDING") @db.NVarChar(15) // PENDING | APPROVED | REJECTED
+  supplierErpCode String    @db.NVarChar(50)
+  supplierName    String    @db.NVarChar(255)
+  itemErpCode     String?   @db.NVarChar(50)   // LINK: item existente; NEW: definido na aprovação
+  itemDescription String    @db.NVarChar(255)
+  unit            String?   @db.NVarChar(20)
+  requestedById   String    @db.UniqueIdentifier
+  resolvedById    String?   @db.UniqueIdentifier
+  resolvedAt      DateTime?
+  rejectionReason String?   @db.NVarChar(Max)
+  notes           String?   @db.NVarChar(Max)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  company     Company @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  requestedBy User    @relation("fiscalRequester", fields: [requestedById], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  resolvedBy  User?   @relation("fiscalResolver", fields: [resolvedById], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@index([companyId, status])
+  @@map("fiscal_item_requests")
+}
+
+// ============================================================
 // EQUIPES — escopo de operação parametrizável
 // Uma equipe pode operar em várias empresas. Define quais rateios de
 // filial e de centro de custo seus membros podem usar e enxergar.
@@ -100,6 +136,7 @@ model Team {
   name      String    @db.NVarChar(150)
   managerId String?   @db.UniqueIdentifier  // gestor — visibilidade + dono do orçamento
   active    Boolean   @default(true)
+  isFiscal  Boolean   @default(false)       // equipe Fiscal — resolve pendências de item
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
@@ -198,6 +235,8 @@ model User {
   receivings          Receiving[]
   notifications       Notification[]
   updatedSettings     SystemSetting[]
+  fiscalRequests      FiscalItemRequest[] @relation("fiscalRequester")
+  fiscalResolutions   FiscalItemRequest[] @relation("fiscalResolver")
 
   @@map("users")
 }
