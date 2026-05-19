@@ -41,7 +41,7 @@ interface ItemDialogProps {
 
 const MODES: { value: ItemMode; label: string }[] = [
   { value: 'SUPPLIER', label: 'Item do fornecedor' },
-  { value: 'CATALOG', label: 'Outro item do catálogo' },
+  { value: 'CATALOG', label: 'Itens não vinculados ao fornecedor' },
   { value: 'NEW', label: 'Item novo' },
 ];
 
@@ -68,6 +68,7 @@ export function ItemDialog({
   const [accountingAccount, setAccountingAccount] = useState('');
   const [branchRateioCode, setBranchRateioCode] = useState('');
   const [costCenterRateioCode, setCostCenterRateioCode] = useState('');
+  const [editAlloc, setEditAlloc] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Popula o formulário ao abrir.
@@ -75,6 +76,11 @@ export function ItemDialog({
     if (!open) return;
     setError(null);
     if (initial) {
+      const complete =
+        !!initial.accountingAccount &&
+        !!initial.branchRateioCode &&
+        !!initial.costCenterRateioCode;
+      setEditAlloc(!complete || initial.fiscalMode === 'NEW');
       setMode(
         initial.fiscalMode === 'NEW'
           ? 'NEW'
@@ -100,6 +106,7 @@ export function ItemDialog({
       setAccountingAccount('');
       setBranchRateioCode('');
       setCostCenterRateioCode('');
+      setEditAlloc(false);
     }
   }, [open, initial]);
 
@@ -109,15 +116,25 @@ export function ItemDialog({
     setItemErpCode(it.codigo);
     setItemDescription(it.descricao);
     setUnit(it.unidade ?? '');
-    if (it.contaContabilPadrao) setAccountingAccount(it.contaContabilPadrao);
-    if (it.rateioFilialPadrao) setBranchRateioCode(it.rateioFilialPadrao);
-    if (it.rateioCcPadrao) setCostCenterRateioCode(it.rateioCcPadrao);
+    const conta = it.contaContabilPadrao ?? '';
+    const rf = it.rateioFilialPadrao ?? '';
+    const rcc = it.rateioCcPadrao ?? '';
+    setAccountingAccount(conta);
+    setBranchRateioCode(rf);
+    setCostCenterRateioCode(rcc);
+    // Tem todos os padrões -> mostra fechado; senão abre a edição.
+    setEditAlloc(!(conta && rf && rcc));
   }
 
   function changeMode(m: ItemMode) {
     setMode(m);
     setItemErpCode('');
-    if (m === 'NEW') setItemDescription('');
+    if (m === 'NEW') {
+      setItemDescription('');
+      setEditAlloc(true);
+    } else {
+      setEditAlloc(false);
+    }
   }
 
   function handleConfirm() {
@@ -151,6 +168,17 @@ export function ItemDialog({
   }
 
   const supplierList = supplierItems.data ?? [];
+
+  const acc = (accounts.data ?? []).find((a) => a.codigo === accountingAccount);
+  const accLabel = acc ? `${acc.codigo} — ${acc.nome}` : null;
+  const br = (branchRateios.data ?? []).find(
+    (r) => r.codigo === branchRateioCode,
+  );
+  const branchLabel = br ? `${br.codigo} — ${br.descricao}` : null;
+  const cc = (ccRateios.data ?? []).find(
+    (r) => r.codigo === costCenterRateioCode,
+  );
+  const ccLabel = cc ? `${cc.codigo} — ${cc.descricao}` : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -294,62 +322,100 @@ export function ItemDialog({
             </div>
           </div>
 
-          {/* Conta e rateios */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1.5">
-              <Label>Conta contábil</Label>
-              <Select
-                value={accountingAccount}
-                onValueChange={setAccountingAccount}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Conta" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(accounts.data ?? []).map((a) => (
-                    <SelectItem key={a.codigo} value={a.codigo}>
-                      {a.codigo} — {a.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          {/* Conta e rateios — padrão do item, com opção de editar */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>Conta contábil e rateios</Label>
+              {!editAlloc && (
+                <button
+                  type="button"
+                  onClick={() => setEditAlloc(true)}
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  Editar
+                </button>
+              )}
             </div>
-            <div className="space-y-1.5">
-              <Label>Rateio de filial</Label>
-              <Select
-                value={branchRateioCode}
-                onValueChange={setBranchRateioCode}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Rateio" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(branchRateios.data ?? []).map((r) => (
-                    <SelectItem key={r.codigo} value={r.codigo}>
-                      {r.codigo} — {r.descricao}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Rateio de centro de custo</Label>
-              <Select
-                value={costCenterRateioCode}
-                onValueChange={setCostCenterRateioCode}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Rateio" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(ccRateios.data ?? []).map((r) => (
-                    <SelectItem key={r.codigo} value={r.codigo}>
-                      {r.codigo} — {r.descricao}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+
+            {!editAlloc ? (
+              <div className="space-y-1 rounded-md border bg-muted/40 p-3 text-sm">
+                <div>
+                  <span className="text-muted-foreground">
+                    Conta contábil:{' '}
+                  </span>
+                  {accLabel ?? '—'}
+                </div>
+                <div>
+                  <span className="text-muted-foreground">
+                    Rateio de filial:{' '}
+                  </span>
+                  {branchLabel ?? '—'}
+                </div>
+                <div>
+                  <span className="text-muted-foreground">
+                    Rateio de centro de custo:{' '}
+                  </span>
+                  {ccLabel ?? '—'}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label>Conta contábil</Label>
+                  <Select
+                    value={accountingAccount}
+                    onValueChange={setAccountingAccount}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione a conta" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(accounts.data ?? []).map((a) => (
+                        <SelectItem key={a.codigo} value={a.codigo}>
+                          {a.codigo} — {a.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Rateio de filial</Label>
+                  <Select
+                    value={branchRateioCode}
+                    onValueChange={setBranchRateioCode}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione o rateio de filial" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(branchRateios.data ?? []).map((r) => (
+                        <SelectItem key={r.codigo} value={r.codigo}>
+                          {r.codigo} — {r.descricao}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Rateio de centro de custo</Label>
+                  <Select
+                    value={costCenterRateioCode}
+                    onValueChange={setCostCenterRateioCode}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione o rateio de CC" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(ccRateios.data ?? []).map((r) => (
+                        <SelectItem key={r.codigo} value={r.codigo}>
+                          {r.codigo} — {r.descricao}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
           </div>
 
           {error && <p className="text-sm text-destructive">{error}</p>}
