@@ -8,6 +8,7 @@ import { Placeholder } from '@/pages/Placeholder';
 import { RequisitionsListPage } from '@/pages/requisitions/RequisitionsListPage';
 import { RequisitionFormPage } from '@/pages/requisitions/RequisitionFormPage';
 import { RequisitionDetailPage } from '@/pages/requisitions/RequisitionDetailPage';
+import { FiscalQueuePage } from '@/pages/fiscal/FiscalQueuePage';
 
 function App() {
   return (
@@ -61,6 +62,10 @@ function App() {
                   element={
                     <Placeholder title="Recebimentos" etapa="Etapa F6" />
                   }
+                />
+                <Route
+                  path="pendencias-fiscais"
+                  element={<FiscalQueuePage />}
                 />
                 <Route
                   path="admin"

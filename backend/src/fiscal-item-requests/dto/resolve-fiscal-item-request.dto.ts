@@ -1,9 +1,17 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString } from 'class-validator';
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { IsOptional, IsString } from 'class-validator';
 
-export class RejectFiscalItemRequestDto {
-  @ApiProperty({ description: 'Motivo da rejeição' })
+/**
+ * Aprovação de uma pendência fiscal de vínculo.
+ * A equipe Fiscal não rejeita: se discordar do item, informa o código
+ * do item correto e o vínculo é feito com ele (o solicitante é notificado).
+ */
+export class ApproveFiscalItemRequestDto {
+  @ApiPropertyOptional({
+    description:
+      'Código do item correto, quando a equipe Fiscal substituir o item',
+  })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  reason!: string;
+  itemErpCode?: string;
 }

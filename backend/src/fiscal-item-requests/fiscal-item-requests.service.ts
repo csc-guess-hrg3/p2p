@@ -9,7 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { IntegrationService } from '../integration/integration.service';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { CreateFiscalItemRequestDto } from './dto/create-fiscal-item-request.dto';
-import { RejectFiscalItemRequestDto } from './dto/resolve-fiscal-item-request.dto';
+import { ApproveFiscalItemRequestDto } from './dto/resolve-fiscal-item-request.dto';
 import { QueryFiscalItemRequestsDto } from './dto/query-fiscal-item-requests.dto';
 
 const REQUESTER = { select: { id: true, name: true } };
@@ -128,8 +128,16 @@ export class FiscalItemRequestsService {
   /**
    * Aprova a pendência e grava o vínculo item-fornecedor no Linx
    * (SS_ITEM_FISCAL_FORNECEDOR).
+   *
+   * A equipe Fiscal não rejeita: se discordar do item, informa em
+   * `itemErpCode` o item correto — o vínculo é feito com ele e o
+   * solicitante é notificado da alteração.
    */
-  async approve(user: AuthenticatedUser, id: string) {
+  async approve(
+    user: AuthenticatedUser,
+    id: string,
+    dto: ApproveFiscalItemRequestDto,
+  ) {
     await this.assertFiscalUser(user);
     const req = await this.findOne(user, id);
     if (req.status !== 'PENDING') {
@@ -138,42 +146,56 @@ export class FiscalItemRequestsService {
     const company = await this.prisma.company.findUniqueOrThrow({
       where: { id: req.companyId },
     });
+
+    // Item a vincular: o original, ou o corrigido pela equipe Fiscal.
+    let itemCode = req.itemErpCode as string;
+    const itemChanged = !!dto.itemErpCode && dto.itemErpCode !== itemCode;
+    if (itemChanged) {
+      const corrected = await this.integration.findItem(
+        company.code,
+        dto.itemErpCode as string,
+      );
+      if (!corrected) {
+        throw new BadRequestException(
+          'Item corrigido não encontrado no catálogo do Linx.',
+        );
+      }
+      itemCode = dto.itemErpCode as string;
+    }
+
     await this.integration.linkSupplierItem(
       company.erpDbName,
       req.supplierErpCode,
-      req.itemErpCode as string,
+      itemCode,
     );
-    return this.prisma.fiscalItemRequest.update({
+
+    const updated = await this.prisma.fiscalItemRequest.update({
       where: { id },
       data: {
         status: 'APPROVED',
+        itemErpCode: itemCode,
         resolvedById: user.id,
         resolvedAt: new Date(),
       },
       include: { requestedBy: REQUESTER, resolvedBy: REQUESTER },
     });
-  }
 
-  /** Rejeita a pendência fiscal. */
-  async reject(
-    user: AuthenticatedUser,
-    id: string,
-    dto: RejectFiscalItemRequestDto,
-  ) {
-    await this.assertFiscalUser(user);
-    const req = await this.findOne(user, id);
-    if (req.status !== 'PENDING') {
-      throw new BadRequestException('Esta pendência já foi resolvida.');
+    // Notifica o solicitante se a equipe Fiscal trocou o item.
+    if (itemChanged) {
+      await this.prisma.notification.create({
+        data: {
+          companyId: req.companyId,
+          userId: req.requestedById,
+          type: 'GENERAL',
+          title: 'Item alterado pela equipe Fiscal',
+          body:
+            `A equipe Fiscal vinculou o item ${itemCode} no lugar de ` +
+            `${req.itemErpCode} na pendência "${req.itemDescription}".`,
+          entityType: 'FISCAL_ITEM_REQUEST',
+          entityId: req.id,
+        },
+      });
     }
-    return this.prisma.fiscalItemRequest.update({
-      where: { id },
-      data: {
-        status: 'REJECTED',
-        rejectionReason: dto.reason,
-        resolvedById: user.id,
-        resolvedAt: new Date(),
-      },
-      include: { requestedBy: REQUESTER, resolvedBy: REQUESTER },
-    });
+    return updated;
   }
 }

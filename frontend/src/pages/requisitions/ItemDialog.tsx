@@ -198,7 +198,7 @@ export function ItemDialog({
                 <SelectContent>
                   {supplierList.map((i) => (
                     <SelectItem key={i.codigo} value={i.codigo}>
-                      {i.codigo} — {i.descricao}
+                      {i.descricao}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -226,7 +226,7 @@ export function ItemDialog({
                 <SelectContent>
                   {(catalog.data ?? []).map((i) => (
                     <SelectItem key={i.codigo} value={i.codigo}>
-                      {i.codigo} — {i.descricao}
+                      {i.descricao}
                     </SelectItem>
                   ))}
                 </SelectContent>

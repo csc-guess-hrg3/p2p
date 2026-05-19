@@ -5,6 +5,7 @@ import {
   ShoppingCart,
   Banknote,
   PackageCheck,
+  ClipboardCheck,
   Settings,
   type LucideIcon,
 } from 'lucide-react';
@@ -23,5 +24,10 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/pedidos', label: 'Pedidos de Compra', icon: ShoppingCart },
   { to: '/solicitacoes-verba', label: 'Solicitações de Verba', icon: Banknote },
   { to: '/recebimentos', label: 'Recebimentos', icon: PackageCheck },
+  {
+    to: '/pendencias-fiscais',
+    label: 'Pendências Fiscais',
+    icon: ClipboardCheck,
+  },
   { to: '/admin', label: 'Administração', icon: Settings },
 ];

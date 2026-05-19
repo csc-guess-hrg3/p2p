@@ -53,25 +53,26 @@ export function useCreateFiscalItemRequest() {
   });
 }
 
+/**
+ * Aprova uma pendência. A equipe Fiscal pode informar `itemErpCode`
+ * para vincular um item diferente do solicitado (correção).
+ */
 export function useApproveFiscalItemRequest() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) =>
-      (await api.post<FiscalItemRequest>(`/fiscal-item-requests/${id}/approve`))
-        .data,
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ['fiscal-item-requests'] }),
-  });
-}
-
-export function useRejectFiscalItemRequest() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, reason }: { id: string; reason: string }) =>
-      (await api.post<FiscalItemRequest>(
-        `/fiscal-item-requests/${id}/reject`,
-        { reason },
-      )).data,
+    mutationFn: async ({
+      id,
+      itemErpCode,
+    }: {
+      id: string;
+      itemErpCode?: string;
+    }) =>
+      (
+        await api.post<FiscalItemRequest>(
+          `/fiscal-item-requests/${id}/approve`,
+          itemErpCode ? { itemErpCode } : {},
+        )
+      ).data,
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ['fiscal-item-requests'] }),
   });

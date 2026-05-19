@@ -10,7 +10,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FiscalItemRequestsService } from './fiscal-item-requests.service';
 import { CreateFiscalItemRequestDto } from './dto/create-fiscal-item-request.dto';
-import { RejectFiscalItemRequestDto } from './dto/resolve-fiscal-item-request.dto';
+import { ApproveFiscalItemRequestDto } from './dto/resolve-fiscal-item-request.dto';
 import { QueryFiscalItemRequestsDto } from './dto/query-fiscal-item-requests.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -48,18 +48,14 @@ export class FiscalItemRequestsController {
   }
 
   @Post(':id/approve')
-  @ApiOperation({ summary: 'Aprova a pendência e grava no Linx' })
-  approve(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.service.approve(user, id);
-  }
-
-  @Post(':id/reject')
-  @ApiOperation({ summary: 'Rejeita a pendência fiscal' })
-  reject(
+  @ApiOperation({
+    summary: 'Aprova a pendência e grava o vínculo no Linx',
+  })
+  approve(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
-    @Body() dto: RejectFiscalItemRequestDto,
+    @Body() dto: ApproveFiscalItemRequestDto,
   ) {
-    return this.service.reject(user, id, dto);
+    return this.service.approve(user, id, dto);
   }
 }

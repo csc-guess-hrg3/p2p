@@ -502,8 +502,7 @@ export function RequisitionFormPage() {
                         )}
                       </div>
                       <span className="text-xs text-muted-foreground">
-                        {it.itemErpCode ?? 'sem código'} · conta{' '}
-                        {it.accountingAccount}
+                        Conta {it.accountingAccount}
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
