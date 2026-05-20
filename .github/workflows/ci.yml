@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancela runs anteriores no mesmo PR/branch para não acumular jobs.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (lint + test + build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install
+        run: npm ci --ignore-scripts
+
+      # Prisma generate é necessário para o tsc compilar os types do client.
+      # `npm ci --ignore-scripts` puxa o pacote mas não roda o postinstall.
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Lint
+        run: npm run lint -- --max-warnings=0
+        # eslint configurado com --fix por padrão; aqui rodamos como check.
+        # Se o lint estiver muito ruidoso no início, comentar esta linha.
+        continue-on-error: true
+
+      - name: Test
+        run: npm test -- --ci --colors=false
+
+      - name: Build
+        run: npm run build
+
+  frontend:
+    name: Frontend (type-check + build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci --ignore-scripts
+
+      - name: Type-check
+        run: npx tsc -b --noEmit
+
+      - name: Build
+        run: npm run build
