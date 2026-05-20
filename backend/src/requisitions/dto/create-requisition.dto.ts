@@ -124,6 +124,18 @@ export class CreateRequisitionDto {
   @IsString()
   tipoCompra?: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Número de cotações anexadas (RN-REQ-02). Quando o total da ' +
+      'requisição atinge o threshold configurado em SystemSetting, o ' +
+      'submit exige este valor >= mínimo configurado.',
+    minimum: 0,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  quotationsCount?: number;
+
   @ApiProperty({ type: [CreateRequisitionItemDto] })
   @IsArray()
   @ArrayMinSize(1)

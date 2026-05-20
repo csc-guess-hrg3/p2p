@@ -1,9 +1,12 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
+import { HealthModule } from './health/health.module';
+import { CryptoModule } from './common/crypto/crypto.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { NumberingModule } from './numbering/numbering.module';
 import { AuthModule } from './auth/auth.module';
@@ -28,7 +31,14 @@ import { IntegrationModule } from './integration/integration.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    // Throttle global — 60 req / minuto por IP por padrão.
+    // Endpoints sensíveis (login) recebem throttle adicional via @Throttle.
+    ThrottlerModule.forRoot([
+      { name: 'default', ttl: 60_000, limit: 60 },
+    ]),
+    CryptoModule,
     PrismaModule,
+    HealthModule,
     NumberingModule,
     AuthModule,
     UsersModule,
@@ -53,6 +63,7 @@ import { IntegrationModule } from './integration/integration.module';
   providers: [
     AppService,
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })
 export class AppModule {}

@@ -62,6 +62,15 @@ export class UpdateRequisitionDto {
   @IsString()
   contractRef?: string;
 
+  @ApiPropertyOptional({
+    description: 'Número de cotações anexadas (RN-REQ-02).',
+    minimum: 0,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  quotationsCount?: number;
+
   @ApiPropertyOptional({ type: [CreateRequisitionItemDto] })
   @IsOptional()
   @IsArray()

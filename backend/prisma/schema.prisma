@@ -362,6 +362,12 @@ model Requisition {
   recurring        Boolean   @default(false)    // requisição recorrente
   recurrenceMonths Int?                         // por quantos meses se repete
   contractRef      String?   @db.NVarChar(100)  // contrato vinculado (quando aplicável)
+  // Número de cotações anexadas pelo solicitante (RN-REQ-02 / REQ-08).
+  // Quando o total >= threshold configurado em SystemSetting, o submit exige
+  // este campo >= mínimo configurado. Quando o upload de anexos estiver
+  // pronto, esta contagem será espelhada automaticamente a partir da relação
+  // `attachments` (com kind = QUOTATION).
+  quotationsCount  Int       @default(0)
   // Classificação Linx — preenchida pelo solicitante (tipoCompra) e pelo
   // fiscal (ctbTipoOperacao + naturezaEntrada) antes da conversão em PC.
   tipoCompra       String?   @db.NVarChar(25)

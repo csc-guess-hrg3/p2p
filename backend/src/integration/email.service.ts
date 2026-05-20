@@ -7,6 +7,7 @@ import * as nodemailer from 'nodemailer';
 import PDFDocument from 'pdfkit';
 import { PrismaService } from '../prisma/prisma.service';
 import { PurchaseOrder, PurchaseOrderItem } from '@prisma/client';
+import { SecretService } from '../common/crypto/secret.service';
 
 interface SendOptions {
   to: string;
@@ -27,7 +28,10 @@ interface SendOptions {
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly secrets: SecretService,
+  ) {}
 
   /** Gera o PDF do PC em memória e devolve um Buffer. */
   async renderPurchaseOrderPdf(
@@ -135,12 +139,15 @@ export class EmailService {
       );
     }
 
+    // SMTP password é armazenado criptografado (AES-256-GCM com chave em env).
+    // Em modo passthrough (sem SECRET_ENCRYPTION_KEY), decrypt devolve plain.
+    const smtpPass = this.secrets.decrypt(cfg.smtpPassword) ?? '';
     const transporter = nodemailer.createTransport({
       host: cfg.smtpHost,
       port: cfg.smtpPort,
       secure: cfg.smtpSecure,
       auth: cfg.smtpUser
-        ? { user: cfg.smtpUser, pass: cfg.smtpPassword ?? '' }
+        ? { user: cfg.smtpUser, pass: smtpPass }
         : undefined,
     });
 

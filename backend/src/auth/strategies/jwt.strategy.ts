@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
+import type { Request } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthenticatedUser, JwtPayload } from '../auth.types';
 
@@ -9,11 +10,21 @@ import { AuthenticatedUser, JwtPayload } from '../auth.types';
  * Valida o JWT de acesso e recarrega o usuário do banco a cada request,
  * garantindo que alterações de status/perfil tenham efeito imediato.
  *
+ * Estratégias de extração (em ordem):
+ *   1) Cookie httpOnly `p2p_token` — caminho preferido.
+ *   2) Header `Authorization: Bearer ...` — compatibilidade com clientes legados.
+ *
  * O usuário é resolvido pelo `adUsername` (login de rede), que é estável
  * entre ambientes — assim o mesmo token vale em Produção e Homologação,
- * já que ambos compartilham o JWT_SECRET. O `payload.sub` é um UUID por
- * ambiente e não serve para essa resolução.
+ * já que ambos compartilham o JWT_SECRET.
  */
+function fromCookie(req: Request): string | null {
+  type CookieMap = Record<string, string | undefined>;
+  const cookies = ((req as unknown as { cookies?: CookieMap }).cookies ??
+    {}) as CookieMap;
+  return cookies.p2p_token ?? null;
+}
+
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(
@@ -21,7 +32,10 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     private readonly prisma: PrismaService,
   ) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        fromCookie,
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ]),
       ignoreExpiration: false,
       secretOrKey: config.getOrThrow<string>('JWT_SECRET'),
     });

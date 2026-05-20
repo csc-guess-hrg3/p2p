@@ -9,6 +9,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { IntegrationService } from '../integration/integration.service';
 import { NumberingService } from '../numbering/numbering.service';
 import { ApprovalsService } from '../approvals/approvals.service';
+import { SettingsService } from '../settings/settings.service';
+import { SETTING_KEYS } from '../settings/setting-defs';
 import {
   ApprovalEntityType,
   RequisitionStatus,
@@ -29,7 +31,44 @@ export class RequisitionsService {
     private readonly integration: IntegrationService,
     private readonly numbering: NumberingService,
     private readonly approvals: ApprovalsService,
+    private readonly settings: SettingsService,
   ) {}
+
+  /**
+   * Verifica a regra de cotações mínimas (RN-REQ-02 / REQ-08) — Admin define
+   * o threshold (valor da requisição a partir do qual exige cotações) e o
+   * mínimo (quantas cotações) em SystemSetting. Threshold 0 desliga a regra.
+   */
+  private async assertQuotationsPolicy(
+    companyId: string,
+    totalAmount: number,
+    quotationsCount: number,
+  ): Promise<void> {
+    const threshold = await this.settings.getNumber(
+      companyId,
+      SETTING_KEYS.REQUISITIONS_MIN_QUOTATIONS_THRESHOLD_AMOUNT,
+    );
+    if (threshold <= 0) return; // regra desligada
+    if (totalAmount < threshold) return; // abaixo do gatilho
+    const minRequired = await this.settings.getNumber(
+      companyId,
+      SETTING_KEYS.REQUISITIONS_MIN_QUOTATIONS_REQUIRED,
+    );
+    if (quotationsCount < minRequired) {
+      const formatted = totalAmount.toLocaleString('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+      });
+      const thresholdFmt = threshold.toLocaleString('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+      });
+      throw new BadRequestException(
+        `Requisição de ${formatted} exige no mínimo ${minRequired} cotação(ões) ` +
+          `(valor de referência ${thresholdFmt}). Anexadas: ${quotationsCount}.`,
+      );
+    }
+  }
 
   /** Garante que o usuário tem acesso à empresa e devolve o código do ERP. */
   private async resolveCompany(
@@ -286,6 +325,7 @@ export class RequisitionsService {
         recurrenceMonths: dto.recurring ? (dto.recurrenceMonths ?? null) : null,
         contractRef: dto.contractRef ?? null,
         tipoCompra: dto.tipoCompra ?? null,
+        quotationsCount: dto.quotationsCount ?? 0,
         items: { create: built.map((b) => b.fields) },
       },
       include: { items: { include: { rateios: true } } },
@@ -386,6 +426,9 @@ export class RequisitionsService {
     }
     if (dto.contractRef !== undefined) {
       data.contractRef = dto.contractRef || null;
+    }
+    if (dto.quotationsCount !== undefined) {
+      data.quotationsCount = dto.quotationsCount;
     }
     if (dto.paymentConditionCode !== undefined) {
       const cond = await this.integration.findPaymentCondition(
@@ -503,6 +546,13 @@ export class RequisitionsService {
     if (req.items.length === 0) {
       throw new BadRequestException('A requisição não tem itens.');
     }
+
+    // RN-REQ-02 — exige cotações quando o total atinge o threshold do Admin.
+    await this.assertQuotationsPolicy(
+      req.companyId,
+      Number(req.totalAmount),
+      req.quotationsCount ?? 0,
+    );
 
     const firstLevel = await this.approvals.startApproval({
       companyId: req.companyId,
