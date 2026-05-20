@@ -1,22 +1,27 @@
 import { useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import {
+  AlertTriangle,
   ArrowLeft,
+  Check,
   ClipboardList,
   Pencil,
   Send,
   ShoppingCart,
   Trash2,
+  X,
 } from 'lucide-react';
 import {
   useRequisition,
   useSubmitRequisition,
   useDeleteRequisition,
 } from '@/lib/requisitions';
+import { usePendingApprovals } from '@/lib/approvals';
 import { useAuth } from '@/lib/auth';
 import { useCompany } from '@/lib/company';
 import { ConvertToPoDialog } from '@/pages/purchase-orders/ConvertToPoDialog';
 import { FiscalClassifyDialog } from './FiscalClassifyDialog';
+import { DecideDialog } from '@/pages/approvals/DecideDialog';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
@@ -49,8 +54,12 @@ export function RequisitionDetailPage() {
   const deleteMut = useDeleteRequisition();
   const { user } = useAuth();
   const { activeCompany } = useCompany();
+  const { data: pendingApprovals = [] } = usePendingApprovals();
   const [convertOpen, setConvertOpen] = useState(false);
   const [fiscalOpen, setFiscalOpen] = useState(false);
+  const [decision, setDecision] = useState<{
+    approved: boolean;
+  } | null>(null);
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Carregando…</p>;
@@ -63,10 +72,20 @@ export function RequisitionDetailPage() {
   const isFiscal = user?.profile === 'REVIEWER' || user?.profile === 'ADMIN';
   const canClassify = isFiscal && req.status !== 'CONVERTED';
   const fiscalReady = req.ctbTipoOperacao != null && !!req.naturezaEntrada;
+  const needsFiscalClassification =
+    req.status === 'APPROVED' &&
+    req.tipoNotaFiscal !== 'SEM_NF' &&
+    !fiscalReady;
   const canConvert =
     req.status === 'APPROVED' &&
     req.tipoNotaFiscal !== 'SEM_NF' &&
     fiscalReady;
+  // Etapa de aprovação atribuída ao usuário logado para esta requisição.
+  // Se houver, o aprovador pode decidir direto desta tela (sem voltar
+  // à fila de Aprovações) — atalho importante para volumes maiores.
+  const myPendingStep = pendingApprovals.find(
+    (s) => s.requisition.id === req.id,
+  );
 
   async function handleSubmit() {
     if (!req) return;
@@ -120,7 +139,23 @@ export function RequisitionDetailPage() {
             </Button>
           </div>
         )}
-        {canClassify && (
+        {/* Aprovador logado decide direto desta tela */}
+        {myPendingStep && (
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setDecision({ approved: false })}
+            >
+              <X className="size-4 text-destructive" />
+              Rejeitar
+            </Button>
+            <Button onClick={() => setDecision({ approved: true })}>
+              <Check className="size-4" />
+              Aprovar
+            </Button>
+          </div>
+        )}
+        {canClassify && !myPendingStep && (
           <Button variant="outline" onClick={() => setFiscalOpen(true)}>
             <ClipboardList className="size-4" />
             {fiscalReady ? 'Revisar classificação fiscal' : 'Classificar fiscalmente'}
@@ -134,13 +169,38 @@ export function RequisitionDetailPage() {
         )}
       </div>
 
-      {req.status === 'APPROVED' &&
-        req.tipoNotaFiscal !== 'SEM_NF' &&
-        !fiscalReady && (
-          <p className="text-sm text-warning">
-            Aguardando classificação fiscal (CTB + natureza) para converter em PC.
-          </p>
-        )}
+      {/*
+        Banner pré-requisito de integração: requisição APROVADA mas sem
+        CTB+natureza ainda. Como sem isso não dá pra gravar no Linx, vale
+        a sinalização forte (cor de alerta + ícone + CTA do fiscal).
+      */}
+      {needsFiscalClassification && (
+        <div className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/10 p-4">
+          <AlertTriangle className="mt-0.5 size-5 shrink-0 text-warning" />
+          <div className="flex-1 space-y-1">
+            <p className="text-sm font-semibold text-warning">
+              Classificação fiscal não preenchida
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Antes de virar pedido de compra, esta requisição precisa de
+              uma classificação fiscal e contábil.
+              {isFiscal
+                ? ' Clique em "Classificar fiscalmente" para preencher.'
+                : ' Aguardando o fiscal preencher.'}
+            </p>
+          </div>
+          {canClassify && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setFiscalOpen(true)}
+            >
+              <ClipboardList className="size-4" />
+              Classificar fiscalmente
+            </Button>
+          )}
+        </div>
+      )}
 
       {canConvert && (
         <ConvertToPoDialog
@@ -155,6 +215,13 @@ export function RequisitionDetailPage() {
           onOpenChange={setFiscalOpen}
           requisition={req}
           companyCode={activeCompany.code}
+        />
+      )}
+      {decision && myPendingStep && (
+        <DecideDialog
+          step={myPendingStep}
+          approved={decision.approved}
+          onClose={() => setDecision(null)}
         />
       )}
 
@@ -192,13 +259,13 @@ export function RequisitionDetailPage() {
             }
           />
           <Field label="Contrato vinculado" value={req.contractRef || '—'} />
-          <Field label="Tipo de compra (Linx)" value={req.tipoCompra || '—'} />
+          <Field label="Tipo de compra" value={req.tipoCompra || '—'} />
           <Field
             label="Classificação fiscal"
             value={
               req.ctbTipoOperacao != null && req.naturezaEntrada
-                ? `CTB ${req.ctbTipoOperacao} · Natureza ${req.naturezaEntrada}`
-                : 'Não classificada'
+                ? `Operação ${req.ctbTipoOperacao} · Natureza ${req.naturezaEntrada}`
+                : 'Não preenchida'
             }
           />
           <Field

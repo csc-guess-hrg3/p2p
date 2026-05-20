@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, Search } from 'lucide-react';
+import { AlertTriangle, Plus, Search } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { useRequisitions } from '@/lib/requisitions';
 import { formatCurrency, formatDate } from '@/lib/format';
@@ -129,7 +129,20 @@ export function RequisitionsListPage() {
                   {r.tipoNotaFiscal === 'NF_FUTURA' ? 'Sim' : '—'}
                 </TableCell>
                 <TableCell>
-                  <StatusBadge status={r.status} />
+                  <div className="flex items-center gap-1.5">
+                    <StatusBadge status={r.status} />
+                    {r.status === 'APPROVED' &&
+                      r.tipoNotaFiscal !== 'SEM_NF' &&
+                      (r.ctbTipoOperacao == null || !r.naturezaEntrada) && (
+                        <span
+                          title="Classificação fiscal pendente — preencher antes de virar pedido"
+                          className="inline-flex items-center gap-1 rounded-md border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-warning"
+                        >
+                          <AlertTriangle className="size-3" />
+                          Fiscal
+                        </span>
+                      )}
+                  </div>
                 </TableCell>
                 <TableCell className="text-right">
                   {formatCurrency(r.totalAmount)}

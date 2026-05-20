@@ -14,6 +14,8 @@ import { PurchaseOrdersListPage } from '@/pages/purchase-orders/PurchaseOrdersLi
 import { PurchaseOrderDetailPage } from '@/pages/purchase-orders/PurchaseOrderDetailPage';
 import { FundRequestsListPage } from '@/pages/fund-requests/FundRequestsListPage';
 import { FundRequestDetailPage } from '@/pages/fund-requests/FundRequestDetailPage';
+import { ReceivingsListPage } from '@/pages/receiving/ReceivingsListPage';
+import { ReceivingDetailPage } from '@/pages/receiving/ReceivingDetailPage';
 import { Toaster } from '@/components/ui/toaster';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
@@ -58,11 +60,10 @@ function App() {
                     path="solicitacoes-verba/:id"
                     element={<FundRequestDetailPage />}
                   />
+                  <Route path="recebimentos" element={<ReceivingsListPage />} />
                   <Route
-                    path="recebimentos"
-                    element={
-                      <Placeholder title="Recebimentos" etapa="Etapa F6" />
-                    }
+                    path="recebimentos/:id"
+                    element={<ReceivingDetailPage />}
                   />
                   <Route
                     path="pendencias-fiscais"

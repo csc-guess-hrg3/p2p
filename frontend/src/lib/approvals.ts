@@ -44,6 +44,9 @@ export function useDecideApproval() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['approvals'] });
       qc.invalidateQueries({ queryKey: ['requisitions'] });
+      // Detalhe ['requisition', id] também precisa refletir o novo estado
+      // (status + cadeia de aprovação) sem o usuário ter que recarregar.
+      qc.invalidateQueries({ queryKey: ['requisition'] });
     },
   });
 }

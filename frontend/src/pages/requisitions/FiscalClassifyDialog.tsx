@@ -70,7 +70,7 @@ export function FiscalClassifyDialog({
   async function handleConfirm() {
     setError(null);
     if (!ctb || !natureza) {
-      setError('Informe o tipo de operação e a natureza.');
+      setError('Informe a operação contábil e a natureza.');
       return;
     }
     try {
@@ -95,10 +95,10 @@ export function FiscalClassifyDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Classificação fiscal</DialogTitle>
+          <DialogTitle>Classificação fiscal e contábil</DialogTitle>
           <DialogDescription>
-            Define CTB_TIPO_OPERACAO e NATUREZA_ENTRADA usados na gravação do
-            Pedido de Compra no Linx.
+            Informe a classificação que o financeiro vai usar quando o
+            pedido virar nota fiscal e título a pagar.
           </DialogDescription>
         </DialogHeader>
 
@@ -123,7 +123,7 @@ export function FiscalClassifyDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label>Tipo de operação contábil</Label>
+            <Label>Operação contábil</Label>
             <Select
               value={ctb != null ? String(ctb) : ''}
               onValueChange={(v) => setCtb(Number(v))}
@@ -151,7 +151,7 @@ export function FiscalClassifyDialog({
               <SelectTrigger>
                 <SelectValue
                   placeholder={
-                    !ctb ? 'Escolha o tipo de operação primeiro' : 'Selecione'
+                    !ctb ? 'Escolha a operação contábil primeiro' : 'Selecione'
                   }
                 />
               </SelectTrigger>

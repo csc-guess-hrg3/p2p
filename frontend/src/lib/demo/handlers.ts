@@ -618,6 +618,124 @@ function handlePurchaseOrders(method: string, segments: string[], query: URLSear
 // FUND REQUESTS
 // ───────────────────────────────────────────────────────────────
 
+// ───────────────────────────────────────────────────────────────
+// RECEIVING (F6)
+// ───────────────────────────────────────────────────────────────
+
+function handleReceiving(
+  method: string,
+  segments: string[],
+  query: URLSearchParams,
+  data?: any,
+): DemoResponse | null {
+  const id = segments[1];
+  const action = segments[2];
+  const state = getDemoState();
+
+  if (method === 'GET' && !id) {
+    const filtered = filterByQuery(state.receivings, query, ['number']);
+    return ok(paginate(filtered, query));
+  }
+  if (method === 'GET' && id && !action) {
+    const r = state.receivings.find((x: any) => x.id === id);
+    return r ? ok(r) : notFound();
+  }
+  if (method === 'POST' && !id) {
+    return mutateDemoState((s) => {
+      const po = s.purchaseOrders.find((p: any) => p.id === data.purchaseOrderId);
+      if (!po) return notFound('Pedido de compra não encontrado (demo).');
+      if (!['APPROVED', 'SENT_TO_SUPPLIER', 'PARTIALLY_RECEIVED'].includes(po.status)) {
+        return badRequest('Pedido não admite recebimento.');
+      }
+      const userId = getDemoSessionUserId();
+      const userObj = s.users.find((u: any) => u.id === userId);
+      const items = (data.items ?? []).map((line: any) => {
+        const accepted = Number(line.acceptedQty || 0);
+        const rejected = Number(line.rejectedQty ?? 0);
+        const received = Number(line.receivedQty || accepted + rejected);
+        if (Number((accepted + rejected).toFixed(4)) !== Number(received.toFixed(4))) {
+          throw new Error('Aceito + rejeitado deve ser igual ao recebido.');
+        }
+        return {
+          id: uid('recit'),
+          purchaseOrderItemId: line.purchaseOrderItemId,
+          receivedQty: received.toFixed(4),
+          acceptedQty: accepted.toFixed(4),
+          rejectedQty: rejected.toFixed(4),
+          rejectionReason: line.rejectionReason ?? null,
+        };
+      });
+      const rec: any = {
+        id: uid('rec'),
+        number: nextNumber('REC'),
+        purchaseOrderId: po.id,
+        companyId: po.companyId,
+        receivedById: userObj?.id ?? null,
+        status: 'DRAFT',
+        receivedAt: data.receivedAt ?? todayIso(),
+        measurementStart: data.measurementStart ?? null,
+        measurementEnd: data.measurementEnd ?? null,
+        completionPct: data.completionPct ?? null,
+        notes: data.notes ?? null,
+        divergenceNotes: null,
+        confirmedAt: null,
+        createdAt: todayIso(),
+        updatedAt: todayIso(),
+        receivedBy: userObj ? { id: userObj.id, name: userObj.name } : undefined,
+        purchaseOrder: { id: po.id, number: po.number, status: po.status },
+        items,
+      };
+      s.receivings.push(rec);
+      return ok(rec);
+    });
+  }
+  if (method === 'POST' && id && action === 'confirm') {
+    return mutateDemoState((s) => {
+      const rec = s.receivings.find((x: any) => x.id === id);
+      if (!rec) return notFound();
+      if (rec.status !== 'DRAFT') {
+        return badRequest('Só recebimentos em rascunho podem ser confirmados.');
+      }
+      const po = s.purchaseOrders.find((p: any) => p.id === rec.purchaseOrderId);
+      if (!po) return notFound('Pedido associado não encontrado (demo).');
+
+      // Acumula aceito no saldo dos itens do PC.
+      for (const ri of rec.items) {
+        const poItem = po.items.find((pi: any) => pi.id === ri.purchaseOrderItemId);
+        if (poItem) {
+          const cur = Number(poItem.receivedQty || 0);
+          poItem.receivedQty = (cur + Number(ri.acceptedQty)).toFixed(4);
+        }
+      }
+      // Recalcula status do PC.
+      const fullyReceived = po.items.every(
+        (it: any) => Number(it.receivedQty) - Number(it.quantity) >= -1e-6,
+      );
+      po.status = fullyReceived ? 'FULLY_RECEIVED' : 'PARTIALLY_RECEIVED';
+      po.updatedAt = todayIso();
+
+      // Divergência simulada quando rejeição > 0 (no demo a tolerância é zero).
+      const totalReceived = rec.items.reduce(
+        (a: number, it: any) => a + Number(it.receivedQty),
+        0,
+      );
+      const totalRejected = rec.items.reduce(
+        (a: number, it: any) => a + Number(it.rejectedQty),
+        0,
+      );
+      const divergent = totalRejected > 0;
+      rec.status = divergent ? 'DIVERGENT' : 'CONFIRMED';
+      rec.confirmedAt = todayIso();
+      rec.divergenceNotes = divergent
+        ? `Rejeição de ${((totalRejected / Math.max(totalReceived, 1)) * 100).toFixed(2)}% no recebimento.`
+        : null;
+      rec.updatedAt = todayIso();
+      return ok(rec);
+    });
+  }
+  return null;
+}
+
 function handleFundRequests(method: string, segments: string[], query: URLSearchParams): DemoResponse | null {
   const id = segments[1];
   const state = getDemoState();
@@ -691,6 +809,7 @@ export function routeDemoRequest(
     approvals: () => handleApprovals(m, segments, data),
     'purchase-orders': () => handlePurchaseOrders(m, segments, query, data),
     'fund-requests': () => handleFundRequests(m, segments, query),
+    receiving: () => handleReceiving(m, segments, query, data),
     'fiscal-item-requests': () => handleFiscalItemRequests(m, segments, query, data),
   };
 

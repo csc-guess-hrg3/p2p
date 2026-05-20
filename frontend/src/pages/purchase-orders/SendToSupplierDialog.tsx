@@ -102,8 +102,8 @@ export function SendToSupplierDialog({
           </DialogTitle>
           <DialogDescription>
             {mode === 'send'
-              ? 'Confira o e-mail antes de gravar no ERP e enviar ao fornecedor.'
-              : 'O pedido já está no ERP. Apenas o e-mail será reenviado.'}
+              ? 'Confira o e-mail antes de oficializar o pedido e enviar ao fornecedor.'
+              : 'O pedido já foi oficializado. Apenas o e-mail será reenviado.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -113,7 +113,8 @@ export function SendToSupplierDialog({
               <div className="text-sm">
                 <p className="font-medium">Não notificar o fornecedor</p>
                 <p className="text-xs text-muted-foreground">
-                  Grava o pedido no ERP mas não envia o e-mail.
+                  Oficializa o pedido sem mandar o e-mail. Você combina com o
+                  fornecedor por fora.
                 </p>
               </div>
               <Switch checked={skipEmail} onCheckedChange={setSkipEmail} />
@@ -137,7 +138,7 @@ export function SendToSupplierDialog({
                 />
                 {!defaultEmail && (
                   <p className="text-xs text-muted-foreground">
-                    O fornecedor não tem e-mail no cadastro do ERP.
+                    O fornecedor não tem e-mail cadastrado.
                   </p>
                 )}
               </div>
@@ -187,7 +188,7 @@ export function SendToSupplierDialog({
               ? 'Enviando…'
               : mode === 'send'
                 ? skipEmail
-                  ? 'Gravar no ERP'
+                  ? 'Oficializar pedido'
                   : 'Enviar'
                 : 'Reenviar'}
           </Button>

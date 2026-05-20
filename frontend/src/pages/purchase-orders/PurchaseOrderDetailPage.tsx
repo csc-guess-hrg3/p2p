@@ -1,12 +1,20 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Banknote, FileText, Send, RotateCw } from 'lucide-react';
+import {
+  ArrowLeft,
+  Banknote,
+  FileText,
+  PackageCheck,
+  RotateCw,
+  Send,
+} from 'lucide-react';
 import { usePurchaseOrder, useSendToSupplier } from '@/lib/purchase-orders';
 import { useCompany } from '@/lib/company';
 import {
   SendToSupplierDialog,
   shouldSkipSendPreview,
 } from './SendToSupplierDialog';
+import { ReceiveDialog } from '@/pages/receiving/ReceiveDialog';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
@@ -41,6 +49,7 @@ export function PurchaseOrderDetailPage() {
   const { toast } = useToast();
   const [sendOpen, setSendOpen] = useState(false);
   const [resendOpen, setResendOpen] = useState(false);
+  const [receiveOpen, setReceiveOpen] = useState(false);
 
   if (isLoading) {
     return (
@@ -64,6 +73,12 @@ export function PurchaseOrderDetailPage() {
     po.status === 'SENT_TO_SUPPLIER' ||
     po.status === 'PARTIALLY_RECEIVED' ||
     po.status === 'FULLY_RECEIVED';
+  // Recebimento aceito a partir do envio ao fornecedor, e bloqueado quando
+  // o pedido já foi totalmente recebido ou cancelado.
+  const canReceive =
+    po.status === 'SENT_TO_SUPPLIER' ||
+    po.status === 'PARTIALLY_RECEIVED' ||
+    po.status === 'APPROVED';
 
   async function handleSend() {
     if (!po) return;
@@ -112,6 +127,12 @@ export function PurchaseOrderDetailPage() {
             Reenviar e-mail
           </Button>
         )}
+        {canReceive && (
+          <Button variant="outline" onClick={() => setReceiveOpen(true)}>
+            <PackageCheck className="size-4" />
+            Registrar recebimento
+          </Button>
+        )}
       </div>
 
       {sendOpen && activeCompany && (
@@ -130,6 +151,13 @@ export function PurchaseOrderDetailPage() {
           po={po}
           mode="resend"
           companyCode={activeCompany.code}
+        />
+      )}
+      {receiveOpen && (
+        <ReceiveDialog
+          open={receiveOpen}
+          onOpenChange={setReceiveOpen}
+          po={po}
         />
       )}
 
@@ -189,7 +217,7 @@ export function PurchaseOrderDetailPage() {
             )}
           </div>
           {po.erpPedido && (
-            <Field label="Pedido no ERP" value={po.erpPedido} />
+            <Field label="Nº do pedido no financeiro" value={po.erpPedido} />
           )}
           {po.status === 'CANCELLED' && po.cancellationReason && (
             <div className="col-span-3">
