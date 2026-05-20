@@ -108,31 +108,33 @@ export function PurchaseOrderDetailPage() {
 
   return (
     <div className="space-y-4 pb-10">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <Button variant="ghost" size="sm" asChild>
           <Link to="/pedidos">
             <ArrowLeft className="size-4" />
             Pedidos de Compra
           </Link>
         </Button>
-        {canSend && (
-          <Button onClick={handleSend} disabled={sendMut.isPending}>
-            <Send className="size-4" />
-            {sendMut.isPending ? 'Enviando…' : 'Enviar ao fornecedor'}
-          </Button>
-        )}
-        {canResend && (
-          <Button variant="outline" onClick={() => setResendOpen(true)}>
-            <RotateCw className="size-4" />
-            Reenviar e-mail
-          </Button>
-        )}
-        {canReceive && (
-          <Button variant="outline" onClick={() => setReceiveOpen(true)}>
-            <PackageCheck className="size-4" />
-            Registrar recebimento
-          </Button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {canResend && (
+            <Button variant="outline" onClick={() => setResendOpen(true)}>
+              <RotateCw className="size-4" />
+              Reenviar e-mail
+            </Button>
+          )}
+          {canReceive && (
+            <Button variant="outline" onClick={() => setReceiveOpen(true)}>
+              <PackageCheck className="size-4" />
+              Registrar recebimento
+            </Button>
+          )}
+          {canSend && (
+            <Button onClick={handleSend} disabled={sendMut.isPending}>
+              <Send className="size-4" />
+              {sendMut.isPending ? 'Enviando…' : 'Enviar ao fornecedor'}
+            </Button>
+          )}
+        </div>
       </div>
 
       {sendOpen && activeCompany && (

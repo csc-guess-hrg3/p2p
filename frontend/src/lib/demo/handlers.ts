@@ -63,6 +63,7 @@ function nextNumber(prefix: string): string {
     ...state.requisitions.map((r) => r.number),
     ...state.purchaseOrders.map((p) => p.number),
     ...state.fundRequests.map((f) => f.number),
+    ...((state as any).receivings ?? []).map((r: any) => r.number),
   ];
   const filtered = list.filter((n) => n.startsWith(`${prefix}-DEMO-`));
   const max = filtered.reduce((acc, n) => {
@@ -807,6 +808,38 @@ function handleReceiving(
     return r ? ok(r) : notFound();
   }
   if (method === 'POST' && !id) {
+    // Validação fora da transação — devolver badRequest sem persistir.
+    if (!data?.purchaseOrderId) {
+      return badRequest('Pedido de compra não informado.');
+    }
+    const rawItems = (data.items ?? []) as any[];
+    if (rawItems.length === 0) {
+      return badRequest('Informe pelo menos um item recebido.');
+    }
+    const sanitized: any[] = [];
+    for (const line of rawItems) {
+      const accepted = Number(line.acceptedQty || 0);
+      const rejected = Number(line.rejectedQty ?? 0);
+      const received = Number(
+        line.receivedQty != null && line.receivedQty !== 0
+          ? line.receivedQty
+          : accepted + rejected,
+      );
+      const sumOk =
+        Math.abs(accepted + rejected - received) < 0.0001;
+      if (!sumOk) {
+        return badRequest(
+          'Aceito + rejeitado deve ser igual ao recebido em todos os itens.',
+        );
+      }
+      sanitized.push({
+        purchaseOrderItemId: line.purchaseOrderItemId,
+        receivedQty: received,
+        acceptedQty: accepted,
+        rejectedQty: rejected,
+        rejectionReason: line.rejectionReason ?? null,
+      });
+    }
     return mutateDemoState((s) => {
       const po = s.purchaseOrders.find((p: any) => p.id === data.purchaseOrderId);
       if (!po) return notFound('Pedido de compra não encontrado (demo).');
@@ -815,22 +848,14 @@ function handleReceiving(
       }
       const userId = getDemoSessionUserId();
       const userObj = s.users.find((u: any) => u.id === userId);
-      const items = (data.items ?? []).map((line: any) => {
-        const accepted = Number(line.acceptedQty || 0);
-        const rejected = Number(line.rejectedQty ?? 0);
-        const received = Number(line.receivedQty || accepted + rejected);
-        if (Number((accepted + rejected).toFixed(4)) !== Number(received.toFixed(4))) {
-          throw new Error('Aceito + rejeitado deve ser igual ao recebido.');
-        }
-        return {
-          id: uid('recit'),
-          purchaseOrderItemId: line.purchaseOrderItemId,
-          receivedQty: received.toFixed(4),
-          acceptedQty: accepted.toFixed(4),
-          rejectedQty: rejected.toFixed(4),
-          rejectionReason: line.rejectionReason ?? null,
-        };
-      });
+      const items = sanitized.map((line) => ({
+        id: uid('recit'),
+        purchaseOrderItemId: line.purchaseOrderItemId,
+        receivedQty: line.receivedQty.toFixed(4),
+        acceptedQty: line.acceptedQty.toFixed(4),
+        rejectedQty: line.rejectedQty.toFixed(4),
+        rejectionReason: line.rejectionReason ?? null,
+      }));
       const rec: any = {
         id: uid('rec'),
         number: nextNumber('REC'),
