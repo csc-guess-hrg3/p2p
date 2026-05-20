@@ -156,10 +156,15 @@ export function RequisitionDetailPage() {
             </Button>
           </div>
         )}
-        {canClassify && !myPendingStep && (
+        {/*
+          Botão no header só aparece quando a classificação já foi feita
+          (caso de revisão). Quando ainda está pendente, o CTA fica no
+          banner amarelo abaixo — evita duplicar a mesma ação.
+        */}
+        {canClassify && !myPendingStep && fiscalReady && (
           <Button variant="outline" onClick={() => setFiscalOpen(true)}>
             <ClipboardList className="size-4" />
-            {fiscalReady ? 'Revisar classificação fiscal' : 'Classificar fiscalmente'}
+            Revisar classificação fiscal
           </Button>
         )}
         {canConvert && (
