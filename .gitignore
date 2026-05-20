@@ -39,7 +39,14 @@ Thumbs.db
 *.bak
 
 # Documentos de trabalho (não versionados)
-/P2P_Especificacao_Tecnica.pdf
-/P2P_Especificacao_Tecnica.docx
-/PRD_Procure_to_Pay.docx
+# PDFs/docx de especificacao, briefings, analises criticas, caderno de bordo
+# e notas internas vivem apenas na maquina do dev — nada disso vai pro repo.
+/P2P_Especificacao_Tecnica*.pdf
+/P2P_Especificacao_Tecnica*.docx
+/PRD_Procure_to_Pay*.docx
+/Analise_Critica_P2P_HRG3*.docx
+/ANALISE_PROJETO.md
+/DECISIONS.md
+/SPEC*.md
 /CLAUDE.md
+*.pdf
