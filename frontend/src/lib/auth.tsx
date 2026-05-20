@@ -14,6 +14,7 @@ import {
   SESSION_EXPIRED_EVENT,
 } from './api';
 import { setDemoMode, isDemoMode } from './demo/state';
+import { queryClient } from './queryClient';
 import type { AuthUser } from './types';
 
 const REFRESH_KEY = 'p2p_refresh';
@@ -67,6 +68,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {
+    // Zera a cache do React Query antes de logar pra não herdar dados de
+    // outro usuário/perfil (ex.: pendingApprovals do gestor vindo do operador).
+    queryClient.clear();
     const { data } = await api.post<{
       accessToken: string;
       refreshToken: string;
@@ -84,6 +88,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * mockados de localStorage). Não envia request real ao backend.
    */
   const loginDemo = useCallback(async (username: string) => {
+    // Limpa a cache pra não herdar dados de outro perfil demo.
+    queryClient.clear();
     setDemoMode(true);
     // /auth/demo-login agora é interceptado pelo demo adapter (handlers.ts).
     const { data } = await api.post<{
@@ -111,6 +117,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // backend real (que não está acessível aqui — mas é o comportamento certo).
     if (isDemoMode()) setDemoMode(false);
     setUser(null);
+    // Limpa toda a cache para o próximo login não herdar nada.
+    queryClient.clear();
   }, []);
 
   const acknowledgeSessionExpired = useCallback(() => {
