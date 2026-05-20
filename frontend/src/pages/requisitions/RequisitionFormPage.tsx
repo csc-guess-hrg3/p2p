@@ -58,6 +58,12 @@ const schema = z
     recurring: z.boolean(),
     recurrenceMonths: z.string().optional(),
     contractRef: z.string().optional(),
+    // RN-REQ-02 — informa quantas cotações foram anexadas. O backend valida
+    // contra os parâmetros (threshold + mínimo) configurados pelo Admin.
+    quotationsCount: z
+      .number({ message: 'Informe um número' })
+      .int()
+      .min(0),
     justification: z
       .string()
       .min(15, 'A justificativa deve ter ao menos 15 caracteres'),
@@ -117,6 +123,7 @@ export function RequisitionFormPage() {
       recurring: false,
       recurrenceMonths: '',
       contractRef: '',
+      quotationsCount: 0,
       justification: '',
     },
   });
@@ -139,6 +146,7 @@ export function RequisitionFormPage() {
         ? String(r.recurrenceMonths)
         : '',
       contractRef: r.contractRef ?? '',
+      quotationsCount: r.quotationsCount ?? 0,
       justification: r.justification ?? '',
     });
     setSupplierName(r.supplierName);
@@ -204,6 +212,7 @@ export function RequisitionFormPage() {
         ? Number(values.recurrenceMonths)
         : undefined,
       contractRef: values.contractRef || undefined,
+      quotationsCount: values.quotationsCount ?? 0,
       items: items.map((it) => ({
         itemErpCode: it.itemErpCode ?? undefined,
         itemDescription: it.itemDescription,
@@ -421,6 +430,27 @@ export function RequisitionFormPage() {
               placeholder="Nº ou referência do contrato"
               {...register('contractRef')}
             />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="quotationsCount">
+              Cotações anexadas{' '}
+              <span className="text-muted-foreground">
+                (obrigatório acima do valor parametrizado)
+              </span>
+            </Label>
+            <Input
+              id="quotationsCount"
+              type="number"
+              min={0}
+              max={20}
+              {...register('quotationsCount', { valueAsNumber: true })}
+            />
+            <p className="text-xs text-muted-foreground">
+              RN-REQ-02 — o Admin configura o valor a partir do qual cotações
+              são exigidas e quantas no mínimo (padrão: 3 acima de R$ 10.000).
+            </p>
+            <FieldError msg={errors.quotationsCount?.message} />
           </div>
 
           <div className="space-y-1.5">

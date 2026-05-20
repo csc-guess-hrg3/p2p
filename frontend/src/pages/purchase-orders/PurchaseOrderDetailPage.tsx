@@ -11,6 +11,8 @@ import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useToast } from '@/components/ui/use-toast';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -36,11 +38,18 @@ export function PurchaseOrderDetailPage() {
   const { data: po, isLoading } = usePurchaseOrder(id);
   const { activeCompany } = useCompany();
   const sendMut = useSendToSupplier();
+  const { toast } = useToast();
   const [sendOpen, setSendOpen] = useState(false);
   const [resendOpen, setResendOpen] = useState(false);
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">Carregando…</p>;
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-4 w-72" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
   }
   if (!po) {
     return (
@@ -62,8 +71,20 @@ export function PurchaseOrderDetailPage() {
     if (shouldSkipSendPreview()) {
       try {
         await sendMut.mutateAsync({ id: po.id });
-      } catch {
-        alert('Não foi possível enviar o pedido ao fornecedor.');
+        toast({
+          title: 'Pedido enviado',
+          description: `PC ${po.number} enviado ao fornecedor.`,
+          variant: 'success',
+        });
+      } catch (err) {
+        const detail =
+          (err as { response?: { data?: { message?: string } } })?.response
+            ?.data?.message ?? 'Não foi possível enviar o pedido ao fornecedor.';
+        toast({
+          title: 'Falha no envio',
+          description: detail,
+          variant: 'destructive',
+        });
       }
     } else {
       setSendOpen(true);

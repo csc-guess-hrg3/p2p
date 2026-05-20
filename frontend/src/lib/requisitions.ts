@@ -62,6 +62,7 @@ export interface Requisition {
   recurring: boolean;
   recurrenceMonths: number | null;
   contractRef: string | null;
+  quotationsCount: number;
   tipoCompra: string | null;
   ctbTipoOperacao: number | null;
   naturezaEntrada: string | null;
@@ -124,6 +125,7 @@ export interface RequisitionInput {
   recurring?: boolean;
   recurrenceMonths?: number;
   contractRef?: string;
+  quotationsCount?: number;
   tipoCompra?: string;
   items: RequisitionItemInput[];
 }
