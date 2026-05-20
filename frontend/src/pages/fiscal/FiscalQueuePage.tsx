@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { isAxiosError } from 'axios';
+import { ClipboardList, FileText, Package } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { useItems } from '@/lib/integration';
 import {
@@ -7,7 +9,8 @@ import {
   useApproveFiscalItemRequest,
   type FiscalItemRequest,
 } from '@/lib/fiscal';
-import { formatDate } from '@/lib/format';
+import { useRequisitions } from '@/lib/requisitions';
+import { formatCurrency, formatDate } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
 import { ItemCombobox } from '@/pages/requisitions/ItemCombobox';
 import { Button } from '@/components/ui/button';
@@ -27,6 +30,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@/components/ui/tabs';
 import {
   Dialog,
   DialogContent,
@@ -120,11 +129,10 @@ function ApproveDialog({
   );
 }
 
-export function FiscalQueuePage() {
-  const { activeCompany } = useCompany();
+/** Aba "Itens" — pendências de vínculo de item (modelo antigo). */
+function ItensTab({ companyCode }: { companyCode?: string }) {
   const [status, setStatus] = useState('PENDING');
   const [approving, setApproving] = useState<FiscalItemRequest | null>(null);
-
   const { data, isLoading } = useFiscalItemRequests({ status });
   const rows = data?.data ?? [];
   const isFiscal = data?.isFiscalUser ?? false;
@@ -214,10 +222,160 @@ export function FiscalQueuePage() {
       {approving && (
         <ApproveDialog
           request={approving}
-          company={activeCompany?.code}
+          company={companyCode}
           onClose={() => setApproving(null)}
         />
       )}
     </div>
   );
 }
+
+/**
+ * Aba "Requisições" — requisições APROVADAS que não viram pedido enquanto
+ * não tiverem operação contábil + natureza de entrada preenchidas.
+ * Pré-requisito da gravação no ERP.
+ */
+function RequisicoesTab() {
+  const { activeCompany } = useCompany();
+  const navigate = useNavigate();
+  const { data, isLoading } = useRequisitions({
+    companyId: activeCompany?.id,
+    status: 'APPROVED',
+  });
+  const pending = useMemo(() => {
+    return (data?.data ?? []).filter(
+      (r) =>
+        r.tipoNotaFiscal !== 'SEM_NF' &&
+        (r.ctbTipoOperacao == null || !r.naturezaEntrada),
+    );
+  }, [data?.data]);
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Requisições aprovadas que ainda não tiveram a classificação fiscal e
+        contábil preenchida — pré-requisito para virarem pedido.
+      </p>
+
+      <div className="rounded-lg border bg-card">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Número</TableHead>
+              <TableHead>Título</TableHead>
+              <TableHead>Fornecedor</TableHead>
+              <TableHead>Solicitante</TableHead>
+              <TableHead className="text-right">Valor</TableHead>
+              <TableHead>Aprovada em</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading && (
+              <TableRow>
+                <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                  Carregando…
+                </TableCell>
+              </TableRow>
+            )}
+            {!isLoading && pending.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                  Nenhuma requisição aguardando classificação.
+                </TableCell>
+              </TableRow>
+            )}
+            {pending.map((r) => (
+              <TableRow
+                key={r.id}
+                className="cursor-pointer"
+                onClick={() => navigate(`/requisicoes/${r.id}`)}
+              >
+                <TableCell className="font-medium">{r.number}</TableCell>
+                <TableCell>{r.title}</TableCell>
+                <TableCell className="text-muted-foreground">
+                  {r.supplierName}
+                </TableCell>
+                <TableCell className="text-muted-foreground">
+                  {r.requester?.name ?? '—'}
+                </TableCell>
+                <TableCell className="text-right">
+                  {formatCurrency(r.totalAmount)}
+                </TableCell>
+                <TableCell className="text-muted-foreground">
+                  {formatDate(r.approvedAt)}
+                </TableCell>
+                <TableCell>
+                  <Button
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/requisicoes/${r.id}`);
+                    }}
+                  >
+                    Classificar
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
+export function FiscalQueuePage() {
+  const { activeCompany } = useCompany();
+  const [tab, setTab] = useState<'itens' | 'requisicoes'>('requisicoes');
+
+  // Carrega prévia das requisições para mostrar contagem nas tabs (mesma query
+  // que a RequisicoesTab vai usar — React Query reaproveita a cache).
+  const reqsQ = useRequisitions({
+    companyId: activeCompany?.id,
+    status: 'APPROVED',
+  });
+  const pendingReqsCount = (reqsQ.data?.data ?? []).filter(
+    (r) =>
+      r.tipoNotaFiscal !== 'SEM_NF' &&
+      (r.ctbTipoOperacao == null || !r.naturezaEntrada),
+  ).length;
+
+  const itemsQ = useFiscalItemRequests({ status: 'PENDING' });
+  const pendingItemsCount = itemsQ.data?.data?.length ?? 0;
+
+  return (
+    <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
+      <TabsList>
+        <TabsTrigger value="requisicoes" className="gap-2">
+          <FileText className="size-4" />
+          Requisições a classificar
+          {pendingReqsCount > 0 && (
+            <span className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-warning/20 px-1.5 text-xs font-semibold text-warning">
+              {pendingReqsCount}
+            </span>
+          )}
+        </TabsTrigger>
+        <TabsTrigger value="itens" className="gap-2">
+          <Package className="size-4" />
+          Itens a vincular
+          {pendingItemsCount > 0 && (
+            <span className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-warning/20 px-1.5 text-xs font-semibold text-warning">
+              {pendingItemsCount}
+            </span>
+          )}
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent value="requisicoes">
+        <RequisicoesTab />
+      </TabsContent>
+      <TabsContent value="itens">
+        <ItensTab companyCode={activeCompany?.code} />
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+// `ClipboardList` importado pra manter consistência com o resto do app
+// caso futuras seções queiram reaproveitar (ex.: anexos / auditoria fiscal).
+void ClipboardList;
