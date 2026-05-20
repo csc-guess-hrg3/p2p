@@ -27,8 +27,9 @@ import {
 type Json = Record<string, unknown> | unknown[] | null | undefined | string | number | boolean;
 
 export interface DemoResponse {
+  // `unknown` em vez de Json para suportar Blob (download de anexo demo).
   status: number;
-  data: Json;
+  data: Json | Blob;
 }
 
 function ok(data: Json): DemoResponse {
@@ -706,12 +707,130 @@ function handlePurchaseOrders(method: string, segments: string[], query: URLSear
   if (method === 'POST' && id && action === 'resend') {
     return ok({ ok: true, recipient: data?.recipientEmail ?? null });
   }
+  if (method === 'POST' && id && action === 'cancel') {
+    const reason = String(data?.cancellationReason ?? '').trim();
+    if (reason.length < 10) {
+      return badRequest('O motivo deve ter ao menos 10 caracteres.');
+    }
+    return mutateDemoState((s) => {
+      const po = s.purchaseOrders.find((p: any) => p.id === id);
+      if (!po) return notFound();
+      if (po.status === 'CANCELLED') {
+        return badRequest('Pedido já está cancelado.');
+      }
+      if (po.status === 'FULLY_RECEIVED') {
+        return badRequest('Pedido totalmente recebido — não pode ser cancelado, apenas estornado.');
+      }
+      const anyReceived = (po.items ?? []).some(
+        (it: any) => Number(it.receivedQty) > 0,
+      );
+      if (anyReceived) {
+        return badRequest(
+          'Já há itens recebidos. Cancelamento de itens individuais ainda não está disponível.',
+        );
+      }
+      po.status = 'CANCELLED';
+      po.cancelledAt = todayIso();
+      po.cancellationReason = reason;
+      po.updatedAt = todayIso();
+      return ok(po);
+    });
+  }
   return null;
 }
 
 // ───────────────────────────────────────────────────────────────
 // FUND REQUESTS
 // ───────────────────────────────────────────────────────────────
+
+// ───────────────────────────────────────────────────────────────
+// ATTACHMENTS — modo demo simula sem armazenar bytes reais
+// ───────────────────────────────────────────────────────────────
+
+function handleAttachments(
+  method: string,
+  segments: string[],
+  _query: URLSearchParams,
+  data?: any,
+): DemoResponse | null {
+  const state = getDemoState() as any;
+  state.attachments = state.attachments ?? [];
+  // /attachments/:kind/:parentId  (GET = list, POST = upload)
+  if (segments.length === 3 && (method === 'GET' || method === 'POST')) {
+    const [, kind, parentId] = segments;
+    const field =
+      kind === 'requisition'
+        ? 'requisitionId'
+        : kind === 'purchaseOrder'
+          ? 'purchaseOrderId'
+          : kind === 'receiving'
+            ? 'receivingId'
+            : kind === 'fundRequest'
+              ? 'fundRequestId'
+              : null;
+    if (!field) return badRequest('Tipo de anexo inválido.');
+    if (method === 'GET') {
+      return ok(
+        state.attachments
+          .filter((a: any) => a[field] === parentId)
+          .sort((a: any, b: any) => (a.createdAt < b.createdAt ? 1 : -1)),
+      );
+    }
+    if (method === 'POST') {
+      // Em demo o axios envia FormData; o adapter passa o objeto direto.
+      // Pegamos só o nome do arquivo como mock.
+      const userId = getDemoSessionUserId();
+      const f: File | undefined =
+        (data as any)?.get?.('file') ?? (data as any)?.file;
+      const fname = f?.name ?? `demo-${Date.now()}.pdf`;
+      const fsize = f?.size ?? 1024;
+      const fmime = f?.type ?? 'application/pdf';
+      return mutateDemoState((s: any) => {
+        s.attachments = s.attachments ?? [];
+        const att = {
+          id: uid('att'),
+          [field]: parentId,
+          filename: fname,
+          storageKey: `demo/${parentId}/${fname}`,
+          sizeBytes: fsize,
+          mimeType: fmime,
+          uploadedById: userId,
+          createdAt: todayIso(),
+        };
+        s.attachments.push(att);
+        return ok({
+          id: att.id,
+          filename: att.filename,
+          sizeBytes: att.sizeBytes,
+          mimeType: att.mimeType,
+          createdAt: att.createdAt,
+        });
+      });
+    }
+  }
+  // /attachments/:id/download
+  if (segments.length === 3 && segments[2] === 'download' && method === 'GET') {
+    // Em demo não há arquivo real — devolve um PDF "vazio" só pra UI não quebrar.
+    const id = segments[1];
+    const att = state.attachments.find((a: any) => a.id === id);
+    if (!att) return notFound();
+    // Blob de texto curto, suficiente pra o browser oferecer download.
+    const blob = new Blob(
+      [`Anexo demo: ${att.filename}\n\nSem conteúdo real no modo demonstração.`],
+      { type: 'text/plain' },
+    );
+    return { status: 200, data: blob };
+  }
+  // /attachments/:id  (DELETE)
+  if (segments.length === 2 && method === 'DELETE') {
+    const id = segments[1];
+    return mutateDemoState((s: any) => {
+      s.attachments = (s.attachments ?? []).filter((a: any) => a.id !== id);
+      return ok({ ok: true });
+    });
+  }
+  return null;
+}
 
 // ───────────────────────────────────────────────────────────────
 // DASHBOARD (F7) — derivado dos PCs do demo
@@ -1003,6 +1122,7 @@ export function routeDemoRequest(
     'fund-requests': () => handleFundRequests(m, segments, query),
     receiving: () => handleReceiving(m, segments, query, data),
     dashboard: () => handleDashboard(m, segments, query),
+    attachments: () => handleAttachments(m, segments, query, data),
     'fiscal-item-requests': () => handleFiscalItemRequests(m, segments, query, data),
   };
 

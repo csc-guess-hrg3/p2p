@@ -27,6 +27,7 @@ import { FinancialModule } from './financial/financial.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { ReportsModule } from './reports/reports.module';
 import { IntegrationModule } from './integration/integration.module';
+import { AttachmentsModule } from './attachments/attachments.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { IntegrationModule } from './integration/integration.module';
     DashboardModule,
     ReportsModule,
     IntegrationModule,
+    AttachmentsModule,
   ],
   controllers: [AppController],
   providers: [

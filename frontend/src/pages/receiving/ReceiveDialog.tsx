@@ -66,6 +66,12 @@ export function ReceiveDialog({ open, onOpenChange, po }: Props) {
     ),
   );
   const [notes, setNotes] = useState('');
+  // Campos de medição (PRD § 9.2 RN-REC-02): obrigatórios quando se trata
+  // de serviço — exibidos sempre, mas só validados quando o operador marcar.
+  const [isService, setIsService] = useState(false);
+  const [measurementStart, setMeasurementStart] = useState('');
+  const [measurementEnd, setMeasurementEnd] = useState('');
+  const [completionPct, setCompletionPct] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   function update(id: string, patch: Partial<LineState>) {
@@ -104,12 +110,36 @@ export function ReceiveDialog({ open, onOpenChange, po }: Props) {
         return;
       }
     }
+    // RN-REC-02: para serviços, período medido + % conclusão obrigatórios.
+    if (isService) {
+      if (!measurementStart || !measurementEnd) {
+        setError('Informe a data de início e a data de fim da medição.');
+        return;
+      }
+      if (new Date(measurementEnd) < new Date(measurementStart)) {
+        setError('Data de fim não pode ser anterior à de início.');
+        return;
+      }
+      const pct = Number(completionPct);
+      if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+        setError('Informe o % de conclusão entre 0 e 100.');
+        return;
+      }
+    }
 
     try {
       const created = await createMut.mutateAsync({
         purchaseOrderId: po.id,
         notes: notes.trim() || undefined,
         items,
+        measurementStart: isService
+          ? new Date(measurementStart).toISOString()
+          : undefined,
+        measurementEnd: isService
+          ? new Date(measurementEnd).toISOString()
+          : undefined,
+        completionPct:
+          isService && completionPct ? Number(completionPct) : undefined,
       });
       toast({
         title: 'Recebimento registrado',
@@ -221,6 +251,58 @@ export function ReceiveDialog({ open, onOpenChange, po }: Props) {
                 })}
               </TableBody>
             </Table>
+          </div>
+
+          <div className="space-y-3 rounded-lg border p-3">
+            <label className="flex items-center justify-between text-sm">
+              <div>
+                <p className="font-medium">Este recebimento é uma medição de serviço</p>
+                <p className="text-xs text-muted-foreground">
+                  Marque quando estiver registrando a execução de um serviço
+                  com período e % concluído (em vez de entrega física).
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                checked={isService}
+                onChange={(e) => setIsService(e.target.checked)}
+              />
+            </label>
+            {isService && (
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="meas-start">Início do período</Label>
+                  <Input
+                    id="meas-start"
+                    type="date"
+                    value={measurementStart}
+                    onChange={(e) => setMeasurementStart(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="meas-end">Fim do período</Label>
+                  <Input
+                    id="meas-end"
+                    type="date"
+                    value={measurementEnd}
+                    onChange={(e) => setMeasurementEnd(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="meas-pct">% concluído</Label>
+                  <Input
+                    id="meas-pct"
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="0.01"
+                    value={completionPct}
+                    onChange={(e) => setCompletionPct(e.target.value)}
+                    placeholder="0–100"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="space-y-1.5">

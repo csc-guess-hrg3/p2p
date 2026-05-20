@@ -156,3 +156,25 @@ export function useResendToSupplier() {
       (await api.post(`/purchase-orders/${id}/resend`, dto)).data,
   });
 }
+
+export function useCancelPurchaseOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      cancellationReason,
+    }: {
+      id: string;
+      cancellationReason: string;
+    }) =>
+      (
+        await api.post<PurchaseOrder>(`/purchase-orders/${id}/cancel`, {
+          cancellationReason,
+        })
+      ).data,
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['purchase-orders'] });
+      qc.invalidateQueries({ queryKey: ['purchase-order', data.id] });
+    },
+  });
+}

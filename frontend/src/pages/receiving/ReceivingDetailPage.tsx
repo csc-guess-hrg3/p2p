@@ -4,6 +4,7 @@ import { useReceiving, useConfirmReceiving } from '@/lib/receiving';
 import { usePurchaseOrder } from '@/lib/purchase-orders';
 import { formatDate, formatNumber } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
+import { AttachmentsSection } from '@/components/AttachmentsSection';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
@@ -187,6 +188,17 @@ export function ReceivingDetailPage() {
               })}
             </TableBody>
           </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="pt-6">
+          <AttachmentsSection
+            kind="receiving"
+            parentId={receiving.id}
+            readOnly={receiving.status !== 'DRAFT'}
+            hint="Canhoto, foto da entrega, ata de medição ou checklist (PDF, DOCX, XLSX, JPG, PNG — até 10 MB cada, máx. 10 arquivos)."
+          />
         </CardContent>
       </Card>
     </div>

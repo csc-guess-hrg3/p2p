@@ -375,6 +375,51 @@ export class PurchaseOrdersService {
   }
 
   /**
+   * Cancela o pedido (RN-OC-02 / RN-OC-03). Por enquanto, **lean**:
+   *  - Pedido com qualquer item já recebido (`receivedQty > 0`) é
+   *    bloqueado — PRD diz que só os itens não recebidos podem ser
+   *    cancelados. Cancelar item-a-item exige modelagem extra
+   *    (`PurchaseOrderItem.cancelledQty`) e fica para a próxima rodada.
+   *  - Cancelamento sempre exige motivo (validado pelo DTO).
+   *  - Auditoria fica em `cancellationReason` + `cancelledAt`.
+   *  - Não toca no Linx por enquanto (item da Rodada 4 — STATUS_COMPRA).
+   */
+  async cancel(
+    user: AuthenticatedUser,
+    id: string,
+    cancellationReason: string,
+  ) {
+    if (user.profile === UserProfile.REVIEWER) {
+      throw new ForbiddenException('Revisor não cancela pedido de compra.');
+    }
+    const po = await this.findOne(user, id);
+    if (po.status === PurchaseOrderStatus.CANCELLED) {
+      throw new BadRequestException('Pedido já está cancelado.');
+    }
+    if (po.status === PurchaseOrderStatus.FULLY_RECEIVED) {
+      throw new BadRequestException(
+        'Pedido totalmente recebido — não pode ser cancelado, apenas estornado.',
+      );
+    }
+    const anyReceived = po.items.some((it) => Number(it.receivedQty) > 0);
+    if (anyReceived) {
+      throw new BadRequestException(
+        'Já há itens recebidos neste pedido. Cancelamento de itens não recebidos ' +
+          'individualmente ainda não está disponível — entre em contato com o admin.',
+      );
+    }
+    await this.prisma.purchaseOrder.update({
+      where: { id },
+      data: {
+        status: PurchaseOrderStatus.CANCELLED,
+        cancelledAt: new Date(),
+        cancellationReason,
+      },
+    });
+    return this.findOne(user, id);
+  }
+
+  /**
    * Reenvia o e-mail do pedido ao fornecedor. Não regrava no ERP — o
    * pedido já está lá (`erpPedido` setado). Útil quando o comprador
    * percebe que o e-mail anterior não chegou ou caiu em spam.

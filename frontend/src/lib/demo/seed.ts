@@ -33,9 +33,10 @@ export interface DemoState {
   notifications: any[];
   integrationLogs: any[];
   receivings: any[];
+  attachments: any[];
 }
 
-export const DEMO_STATE_VERSION = 2;
+export const DEMO_STATE_VERSION = 3;
 
 function uid(prefix = ''): string {
   // crypto.randomUUID em browsers modernos. Fallback simples se faltar.
@@ -490,5 +491,6 @@ export function buildSeed(): DemoState {
     notifications: [],
     integrationLogs: [],
     receivings: [],
+    attachments: [],
   };
 }

@@ -12,6 +12,7 @@ import { PurchaseOrdersService } from './purchase-orders.service';
 import { ConvertToPurchaseOrderDto } from './dto/convert-to-po.dto';
 import { QueryPurchaseOrdersDto } from './dto/query-purchase-orders.dto';
 import { SendToSupplierDto } from './dto/send-to-supplier.dto';
+import { CancelPurchaseOrderDto } from './dto/cancel-po.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
@@ -69,5 +70,15 @@ export class PurchaseOrdersController {
     @Body() dto: SendToSupplierDto,
   ) {
     return this.purchaseOrders.resendToSupplier(user, id, dto);
+  }
+
+  @Post(':id/cancel')
+  @ApiOperation({ summary: 'Cancela o pedido de compra (com justificativa)' })
+  cancel(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: CancelPurchaseOrderDto,
+  ) {
+    return this.purchaseOrders.cancel(user, id, dto.cancellationReason);
   }
 }

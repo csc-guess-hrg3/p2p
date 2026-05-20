@@ -7,8 +7,13 @@ import {
   PackageCheck,
   RotateCw,
   Send,
+  XCircle,
 } from 'lucide-react';
-import { usePurchaseOrder, useSendToSupplier } from '@/lib/purchase-orders';
+import {
+  useCancelPurchaseOrder,
+  usePurchaseOrder,
+  useSendToSupplier,
+} from '@/lib/purchase-orders';
 import { useCompany } from '@/lib/company';
 import {
   SendToSupplierDialog,
@@ -50,6 +55,7 @@ export function PurchaseOrderDetailPage() {
   const [sendOpen, setSendOpen] = useState(false);
   const [resendOpen, setResendOpen] = useState(false);
   const [receiveOpen, setReceiveOpen] = useState(false);
+  const cancelMut = useCancelPurchaseOrder();
 
   if (isLoading) {
     return (
@@ -79,6 +85,45 @@ export function PurchaseOrderDetailPage() {
     po.status === 'SENT_TO_SUPPLIER' ||
     po.status === 'PARTIALLY_RECEIVED' ||
     po.status === 'APPROVED';
+  // Cancelamento permitido em estados não finais. O backend ainda bloqueia
+  // se houver item já recebido (RN-OC-03), mas o botão fica visível pra
+  // o usuário ver a mensagem clara em vez de "sumir sem explicação".
+  const canCancel = !['CANCELLED', 'FULLY_RECEIVED', 'INTEGRATED'].includes(
+    po.status,
+  );
+
+  async function handleCancel() {
+    if (!po) return;
+    const reason = prompt(
+      'Motivo do cancelamento (mín. 10 caracteres):',
+    )?.trim();
+    if (!reason) return;
+    if (reason.length < 10) {
+      toast({
+        title: 'Motivo muito curto',
+        description: 'Informe ao menos 10 caracteres.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    try {
+      await cancelMut.mutateAsync({ id: po.id, cancellationReason: reason });
+      toast({
+        title: 'Pedido cancelado',
+        description: po.number,
+        variant: 'success',
+      });
+    } catch (err) {
+      const detail =
+        (err as { response?: { data?: { message?: string } } })?.response?.data
+          ?.message ?? 'Não foi possível cancelar.';
+      toast({
+        title: 'Falha ao cancelar',
+        description: detail,
+        variant: 'destructive',
+      });
+    }
+  }
 
   async function handleSend() {
     if (!po) return;
@@ -116,6 +161,16 @@ export function PurchaseOrderDetailPage() {
           </Link>
         </Button>
         <div className="flex flex-wrap items-center gap-2">
+          {canCancel && (
+            <Button
+              variant="outline"
+              onClick={handleCancel}
+              disabled={cancelMut.isPending}
+            >
+              <XCircle className="size-4 text-destructive" />
+              Cancelar pedido
+            </Button>
+          )}
           {canResend && (
             <Button variant="outline" onClick={() => setResendOpen(true)}>
               <RotateCw className="size-4" />

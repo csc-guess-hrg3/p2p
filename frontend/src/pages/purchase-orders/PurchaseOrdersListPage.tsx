@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search } from 'lucide-react';
+import { AlertTriangle, Search } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { usePurchaseOrders } from '@/lib/purchase-orders';
 import { formatCurrency, formatDate } from '@/lib/format';
@@ -45,7 +45,43 @@ export function PurchaseOrdersListPage() {
     search: search || undefined,
   });
 
-  const rows = data?.data ?? [];
+  // Sinalização visual (PRD § 8.5): atrasados em vermelho, vencimento ≤ 7d
+  // em amarelo, no prazo em verde. Atrasados sobem para o topo (US-OC-01).
+  const FINALIZED = ['FULLY_RECEIVED', 'CANCELLED', 'INTEGRATED'];
+  const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+  const rows = useMemo(() => {
+    const raw = data?.data ?? [];
+    const now = Date.now();
+    const enriched = raw.map((po) => {
+      const due = po.expectedDelivery
+        ? new Date(po.expectedDelivery).getTime()
+        : null;
+      const isOpen = !FINALIZED.includes(po.status);
+      let deliveryFlag: 'overdue' | 'soon' | 'ok' | 'none' = 'none';
+      if (due != null && isOpen) {
+        if (due < now) deliveryFlag = 'overdue';
+        else if (due - now <= SEVEN_DAYS_MS) deliveryFlag = 'soon';
+        else deliveryFlag = 'ok';
+      }
+      return { ...po, deliveryFlag };
+    });
+    // Atrasados primeiro (mais antigos no topo), depois "vencendo logo",
+    // depois o restante por createdAt desc (já vem ordenado do backend).
+    enriched.sort((a, b) => {
+      const order = { overdue: 0, soon: 1, ok: 2, none: 3 } as const;
+      const oa = order[a.deliveryFlag];
+      const ob = order[b.deliveryFlag];
+      if (oa !== ob) return oa - ob;
+      if (a.deliveryFlag === 'overdue' && a.expectedDelivery && b.expectedDelivery) {
+        return (
+          new Date(a.expectedDelivery).getTime() -
+          new Date(b.expectedDelivery).getTime()
+        );
+      }
+      return 0;
+    });
+    return enriched;
+  }, [data?.data]);
 
   return (
     <div className="space-y-4">
@@ -87,6 +123,7 @@ export function PurchaseOrdersListPage() {
               <TableHead>Comprador</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Valor</TableHead>
+              <TableHead>Entrega prevista</TableHead>
               <TableHead>Criado em</TableHead>
             </TableRow>
           </TableHeader>
@@ -94,7 +131,7 @@ export function PurchaseOrdersListPage() {
             {isLoading && (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={8}
                   className="py-8 text-center text-muted-foreground"
                 >
                   Carregando…
@@ -104,38 +141,58 @@ export function PurchaseOrdersListPage() {
             {!isLoading && rows.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={8}
                   className="py-8 text-center text-muted-foreground"
                 >
                   Nenhum pedido de compra encontrado.
                 </TableCell>
               </TableRow>
             )}
-            {rows.map((po) => (
-              <TableRow
-                key={po.id}
-                className="cursor-pointer"
-                onClick={() => navigate(`/pedidos/${po.id}`)}
-              >
-                <TableCell className="font-medium">{po.number}</TableCell>
-                <TableCell>{po.supplierName}</TableCell>
-                <TableCell className="text-muted-foreground">
-                  {po.branchName}
-                </TableCell>
-                <TableCell className="text-muted-foreground">
-                  {po.buyer?.name ?? '—'}
-                </TableCell>
-                <TableCell>
-                  <StatusBadge status={po.status} />
-                </TableCell>
-                <TableCell className="text-right">
-                  {formatCurrency(po.totalAmount)}
-                </TableCell>
-                <TableCell className="text-muted-foreground">
-                  {formatDate(po.createdAt)}
-                </TableCell>
-              </TableRow>
-            ))}
+            {rows.map((po) => {
+              const deliveryClass =
+                po.deliveryFlag === 'overdue'
+                  ? 'font-medium text-destructive'
+                  : po.deliveryFlag === 'soon'
+                    ? 'font-medium text-warning'
+                    : po.deliveryFlag === 'ok'
+                      ? 'text-emerald-600'
+                      : 'text-muted-foreground';
+              return (
+                <TableRow
+                  key={po.id}
+                  className={`cursor-pointer ${po.deliveryFlag === 'overdue' ? 'bg-destructive/5 hover:bg-destructive/10' : ''}`}
+                  onClick={() => navigate(`/pedidos/${po.id}`)}
+                >
+                  <TableCell className="font-medium">
+                    <div className="flex items-center gap-2">
+                      {po.deliveryFlag === 'overdue' && (
+                        <AlertTriangle className="size-4 text-destructive" />
+                      )}
+                      {po.number}
+                    </div>
+                  </TableCell>
+                  <TableCell>{po.supplierName}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {po.branchName}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {po.buyer?.name ?? '—'}
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge status={po.status} />
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {formatCurrency(po.totalAmount)}
+                  </TableCell>
+                  <TableCell className={deliveryClass}>
+                    {formatDate(po.expectedDelivery)}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {formatDate(po.createdAt)}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </div>
