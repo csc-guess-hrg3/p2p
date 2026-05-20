@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { isAxiosError } from 'axios';
-import { ClipboardList, FileText, Package } from 'lucide-react';
+import { AlertTriangle, ClipboardList, FileText, Package } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { useItems } from '@/lib/integration';
 import {
@@ -242,9 +242,13 @@ function RequisicoesTab() {
     companyId: activeCompany?.id,
     status: 'APPROVED',
   });
+  // Aqui SÓ entram requisições APROVADAS e ainda não classificadas. Por
+  // segurança filtramos status no cliente também — qualquer requisição
+  // rejeitada/cancelada/em rascunho/convertida sai fora explicitamente.
   const pending = useMemo(() => {
     return (data?.data ?? []).filter(
       (r) =>
+        r.status === 'APPROVED' &&
         r.tipoNotaFiscal !== 'SEM_NF' &&
         (r.ctbTipoOperacao == null || !r.naturezaEntrada),
     );
@@ -254,7 +258,8 @@ function RequisicoesTab() {
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
         Requisições aprovadas que ainda não tiveram a classificação fiscal e
-        contábil preenchida — pré-requisito para virarem pedido.
+        contábil preenchida — pré-requisito para virarem pedido. Clique na
+        linha para abrir e preencher.
       </p>
 
       <div className="rounded-lg border bg-card">
@@ -267,7 +272,7 @@ function RequisicoesTab() {
               <TableHead>Solicitante</TableHead>
               <TableHead className="text-right">Valor</TableHead>
               <TableHead>Aprovada em</TableHead>
-              <TableHead />
+              <TableHead>Pendência</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -306,15 +311,13 @@ function RequisicoesTab() {
                   {formatDate(r.approvedAt)}
                 </TableCell>
                 <TableCell>
-                  <Button
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigate(`/requisicoes/${r.id}`);
-                    }}
+                  <span
+                    title="Classificação fiscal pendente — preencher antes de virar pedido"
+                    className="inline-flex items-center gap-1 rounded-md border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning"
                   >
-                    Classificar
-                  </Button>
+                    <AlertTriangle className="size-3" />
+                    Não classificada
+                  </span>
                 </TableCell>
               </TableRow>
             ))}
@@ -337,6 +340,7 @@ export function FiscalQueuePage() {
   });
   const pendingReqsCount = (reqsQ.data?.data ?? []).filter(
     (r) =>
+      r.status === 'APPROVED' &&
       r.tipoNotaFiscal !== 'SEM_NF' &&
       (r.ctbTipoOperacao == null || !r.naturezaEntrada),
   ).length;
