@@ -4,7 +4,6 @@ import { CompanyProvider } from '@/lib/company';
 import { RequireAuth } from '@/components/auth/RequireAuth';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { LoginPage } from '@/pages/LoginPage';
-import { Placeholder } from '@/pages/Placeholder';
 import { RequisitionsListPage } from '@/pages/requisitions/RequisitionsListPage';
 import { RequisitionFormPage } from '@/pages/requisitions/RequisitionFormPage';
 import { RequisitionDetailPage } from '@/pages/requisitions/RequisitionDetailPage';
@@ -17,6 +16,9 @@ import { FundRequestDetailPage } from '@/pages/fund-requests/FundRequestDetailPa
 import { ReceivingsListPage } from '@/pages/receiving/ReceivingsListPage';
 import { ReceivingDetailPage } from '@/pages/receiving/ReceivingDetailPage';
 import { DashboardPage } from '@/pages/DashboardPage';
+import { AdminPage } from '@/pages/admin/AdminPage';
+import { ErpConfigPage } from '@/pages/admin/ErpConfigPage';
+import { SettingsPage } from '@/pages/admin/SettingsPage';
 import { Toaster } from '@/components/ui/toaster';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
@@ -67,12 +69,12 @@ function App() {
                     path="pendencias-fiscais"
                     element={<FiscalQueuePage />}
                   />
+                  <Route path="admin" element={<AdminPage />} />
                   <Route
-                    path="admin"
-                    element={
-                      <Placeholder title="Administração" etapa="Etapa F8" />
-                    }
+                    path="admin/integracao-erp"
+                    element={<ErpConfigPage />}
                   />
+                  <Route path="admin/parametros" element={<SettingsPage />} />
                 </Route>
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />

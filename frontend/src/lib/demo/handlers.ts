@@ -142,9 +142,103 @@ function handleAuth(method: string, segments: string[], data?: any): DemoRespons
 // COMPANIES
 // ───────────────────────────────────────────────────────────────
 
-function handleCompanies(method: string, _segments: string[]): DemoResponse | null {
-  if (method === 'GET') {
+function handleCompanies(
+  method: string,
+  segments: string[],
+  data?: any,
+): DemoResponse | null {
+  // /companies (lista)
+  if (method === 'GET' && segments.length === 1) {
     return ok(getDemoState().companies);
+  }
+  // /companies/:id/erp-config
+  const id = segments[1];
+  if (segments[2] === 'erp-config') {
+    const state = getDemoState();
+    const company = state.companies.find((c: any) => c.id === id);
+    if (!company) return notFound();
+    if (method === 'GET') {
+      const cfg = company.erpConfig ?? null;
+      return ok({
+        companyId: company.id,
+        companyCode: company.code,
+        companyName: company.name,
+        config: cfg
+          ? { ...cfg, hasSmtpPassword: !!cfg.smtpPassword, smtpPassword: undefined }
+          : null,
+      });
+    }
+    if (method === 'PUT') {
+      return mutateDemoState((s) => {
+        const c = s.companies.find((x: any) => x.id === id);
+        if (!c) return notFound();
+        const cur = c.erpConfig ?? {};
+        const next = { ...cur, ...data };
+        // Senha em branco/undefined preserva atual
+        if (data?.smtpPassword === undefined) next.smtpPassword = cur.smtpPassword;
+        c.erpConfig = next;
+        return ok({ ...next, hasSmtpPassword: !!next.smtpPassword, smtpPassword: undefined });
+      });
+    }
+  }
+  return null;
+}
+
+// /settings — list + update por chave
+function handleSettings(
+  method: string,
+  segments: string[],
+  query: URLSearchParams,
+  data?: any,
+): DemoResponse | null {
+  const companyId = query.get('companyId') ?? data?.companyId;
+  if (method === 'GET') {
+    const defs: any[] = [
+      {
+        key: 'requisitions.min_quotations_threshold_amount',
+        label: 'Valor mínimo para exigir cotações',
+        description: 'A partir deste total, a requisição exige número mínimo de cotações.',
+        type: 'number',
+        value: '10000',
+        isDefault: true,
+        updatedAt: null,
+      },
+      {
+        key: 'requisitions.min_quotations_required',
+        label: 'Cotações mínimas obrigatórias',
+        description: 'Quantidade mínima de cotações exigida quando o valor atinge o limite.',
+        type: 'number',
+        value: '3',
+        isDefault: true,
+        updatedAt: null,
+      },
+      {
+        key: 'receiving.divergence_tolerance_pct',
+        label: 'Tolerância de divergência no recebimento',
+        description: 'Percentual aceito antes de marcar o recebimento como divergente.',
+        type: 'number',
+        value: '2',
+        isDefault: true,
+        updatedAt: null,
+      },
+    ];
+    const state = getDemoState();
+    const overrides = (state as any).systemSettings?.[companyId ?? ''] ?? {};
+    const merged = defs.map((d) =>
+      overrides[d.key] != null
+        ? { ...d, value: overrides[d.key], isDefault: false, updatedAt: new Date().toISOString() }
+        : d,
+    );
+    return ok(merged);
+  }
+  if (method === 'PUT') {
+    const key = segments[1];
+    return mutateDemoState((s: any) => {
+      s.systemSettings = s.systemSettings ?? {};
+      s.systemSettings[companyId] = s.systemSettings[companyId] ?? {};
+      s.systemSettings[companyId][key] = String(data?.value ?? '');
+      return ok({ key, value: s.systemSettings[companyId][key] });
+    });
   }
   return null;
 }
@@ -875,7 +969,8 @@ export function routeDemoRequest(
 
   const handlers: Record<string, () => DemoResponse | null> = {
     auth: () => handleAuth(m, segments, data),
-    companies: () => handleCompanies(m, segments),
+    companies: () => handleCompanies(m, segments, data),
+    settings: () => handleSettings(m, segments, query, data),
     integration: () => handleIntegration(m, segments, query),
     requisitions: () => handleRequisitions(m, segments, query, data),
     approvals: () => handleApprovals(m, segments, data),
