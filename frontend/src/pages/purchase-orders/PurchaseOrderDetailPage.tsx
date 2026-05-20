@@ -20,6 +20,7 @@ import {
   shouldSkipSendPreview,
 } from './SendToSupplierDialog';
 import { ReceiveDialog } from '@/pages/receiving/ReceiveDialog';
+import { AttachmentsSection } from '@/components/AttachmentsSection';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
@@ -333,6 +334,17 @@ export function PurchaseOrderDetailPage() {
               ))}
             </TableBody>
           </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="pt-6">
+          <AttachmentsSection
+            kind="purchaseOrder"
+            parentId={po.id}
+            readOnly={['CANCELLED'].includes(po.status)}
+            hint="Cotações, contrato com o fornecedor, anexos da negociação (PDF/DOCX/XLSX/imagens — até 10 MB cada, máx. 10)."
+          />
         </CardContent>
       </Card>
     </div>

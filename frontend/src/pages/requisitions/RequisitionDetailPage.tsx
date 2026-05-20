@@ -22,6 +22,7 @@ import { useCompany } from '@/lib/company';
 import { ConvertToPoDialog } from '@/pages/purchase-orders/ConvertToPoDialog';
 import { FiscalClassifyDialog } from './FiscalClassifyDialog';
 import { DecideDialog } from '@/pages/approvals/DecideDialog';
+import { AttachmentsSection } from '@/components/AttachmentsSection';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
@@ -332,6 +333,17 @@ export function RequisitionDetailPage() {
               ))}
             </TableBody>
           </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="pt-6">
+          <AttachmentsSection
+            kind="requisition"
+            parentId={req.id}
+            readOnly={['CONVERTED', 'CANCELLED'].includes(req.status)}
+            hint="Cotações, contratos e documentos de apoio (PDF/DOCX/XLSX/imagens — até 10 MB cada, máx. 10)."
+          />
         </CardContent>
       </Card>
 

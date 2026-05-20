@@ -5,6 +5,7 @@ import { formatCurrency, formatDate } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { AttachmentsSection } from '@/components/AttachmentsSection';
 import {
   Table,
   TableBody,
@@ -140,6 +141,17 @@ export function FundRequestDetailPage() {
               ))}
             </TableBody>
           </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="pt-6">
+          <AttachmentsSection
+            kind="fundRequest"
+            parentId={sv.id}
+            readOnly={['CANCELLED'].includes(sv.status)}
+            hint="Documentos de apoio para o adiantamento (PDF/DOCX/XLSX/imagens — até 10 MB cada, máx. 10)."
+          />
         </CardContent>
       </Card>
     </div>
