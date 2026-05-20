@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import {
   Building2,
   ChevronRight,
+  Repeat,
   Settings,
   Users,
   Workflow,
@@ -73,15 +74,19 @@ export function AdminPage() {
           to="/admin/usuarios"
           icon={Users}
           title="Usuários"
-          description="Aprovar primeiros acessos, definir perfil e empresas, ativar/desativar."
-          available={false}
+          description="Definir perfil, equipe, empresas e status. Novos usuários nascem no primeiro login pelo AD."
         />
         <AdminCard
-          to="/admin/alcadas"
+          to="/admin/equipes"
           icon={Workflow}
-          title="Alçadas e equipes"
-          description="Cadeia de aprovação por equipe e níveis de alçada."
-          available={false}
+          title="Equipes e cadeias de aprovação"
+          description="Cadastro de equipes e definição da cadeia de aprovação (níveis + alçada em R$ por nível)."
+        />
+        <AdminCard
+          to="/admin/delegacoes"
+          icon={Repeat}
+          title="Delegações"
+          description="Delegar a própria alçada para outra pessoa por um período (férias, ausência)."
         />
       </div>
     </div>

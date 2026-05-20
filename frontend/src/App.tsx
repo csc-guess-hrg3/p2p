@@ -19,6 +19,9 @@ import { DashboardPage } from '@/pages/DashboardPage';
 import { AdminPage } from '@/pages/admin/AdminPage';
 import { ErpConfigPage } from '@/pages/admin/ErpConfigPage';
 import { SettingsPage } from '@/pages/admin/SettingsPage';
+import { UsersPage } from '@/pages/admin/UsersPage';
+import { TeamsPage } from '@/pages/admin/TeamsPage';
+import { DelegationsPage } from '@/pages/admin/DelegationsPage';
 import { Toaster } from '@/components/ui/toaster';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
@@ -75,6 +78,12 @@ function App() {
                     element={<ErpConfigPage />}
                   />
                   <Route path="admin/parametros" element={<SettingsPage />} />
+                  <Route path="admin/usuarios" element={<UsersPage />} />
+                  <Route path="admin/equipes" element={<TeamsPage />} />
+                  <Route
+                    path="admin/delegacoes"
+                    element={<DelegationsPage />}
+                  />
                 </Route>
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />

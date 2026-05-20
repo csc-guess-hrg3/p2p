@@ -744,6 +744,242 @@ function handlePurchaseOrders(method: string, segments: string[], query: URLSear
 // ───────────────────────────────────────────────────────────────
 
 // ───────────────────────────────────────────────────────────────
+// USERS — CRUD admin
+// ───────────────────────────────────────────────────────────────
+
+function handleUsers(
+  method: string,
+  segments: string[],
+  query: URLSearchParams,
+  data?: any,
+): DemoResponse | null {
+  const state = getDemoState() as any;
+  const id = segments[1];
+  const action = segments[2];
+  // GET /users — lista com filtros
+  if (method === 'GET' && !id) {
+    const statusFilter = query.get('status');
+    const search = query.get('search')?.toLowerCase();
+    let rows = state.users as any[];
+    if (statusFilter) rows = rows.filter((u) => u.status === statusFilter);
+    if (search) {
+      rows = rows.filter(
+        (u) =>
+          u.name.toLowerCase().includes(search) ||
+          u.adUsername.toLowerCase().includes(search),
+      );
+    }
+    return ok(paginate(rows, query));
+  }
+  if (method === 'GET' && id && !action) {
+    const u = state.users.find((x: any) => x.id === id);
+    return u ? ok(u) : notFound();
+  }
+  if (method === 'PATCH' && id && !action) {
+    return mutateDemoState((s: any) => {
+      const u = s.users.find((x: any) => x.id === id);
+      if (!u) return notFound();
+      if (data?.name !== undefined) u.name = data.name;
+      if (data?.profile !== undefined) u.profile = data.profile;
+      if (data?.status !== undefined) u.status = data.status;
+      if (data?.teamId !== undefined) u.teamId = data.teamId;
+      u.updatedAt = todayIso();
+      return ok(u);
+    });
+  }
+  if (method === 'PUT' && id && action === 'companies') {
+    return mutateDemoState((s: any) => {
+      const u = s.users.find((x: any) => x.id === id);
+      if (!u) return notFound();
+      u.companyIds = data?.companyIds ?? [];
+      u.companies = (data?.companyIds ?? []).map((cid: string) => ({
+        companyId: cid,
+      }));
+      u.updatedAt = todayIso();
+      return ok(u);
+    });
+  }
+  if (method === 'DELETE' && id && !action) {
+    return mutateDemoState((s: any) => {
+      const u = s.users.find((x: any) => x.id === id);
+      if (!u) return notFound();
+      u.status = 'INACTIVE';
+      u.deletedAt = todayIso();
+      return ok(u);
+    });
+  }
+  return null;
+}
+
+// ───────────────────────────────────────────────────────────────
+// TEAMS — CRUD admin + cadeia de aprovação
+// ───────────────────────────────────────────────────────────────
+
+function handleTeams(
+  method: string,
+  segments: string[],
+  data?: any,
+): DemoResponse | null {
+  const state = getDemoState() as any;
+  const id = segments[1];
+  const action = segments[2];
+  // Inicializa array de teams se ainda só existir o objeto único `team`.
+  state.teamsList = state.teamsList ?? (state.team ? [state.team] : []);
+
+  if (method === 'GET' && !id) {
+    return ok(
+      state.teamsList.map((t: any) => ({
+        ...t,
+        approvalLevels: (state.approvalLevels ?? []).filter(
+          (l: any) => l.teamId === t.id,
+        ),
+      })),
+    );
+  }
+  if (method === 'GET' && id && !action) {
+    const t = state.teamsList.find((x: any) => x.id === id);
+    if (!t) return notFound();
+    return ok({
+      ...t,
+      approvalLevels: (state.approvalLevels ?? [])
+        .filter((l: any) => l.teamId === id)
+        .map((l: any) => {
+          const approver = state.users.find((u: any) => u.id === l.approverId);
+          return { ...l, approver: approver ? { id: approver.id, name: approver.name } : null };
+        }),
+    });
+  }
+  if (method === 'POST' && !id) {
+    return mutateDemoState((s: any) => {
+      const t = {
+        id: uid('team'),
+        name: String(data?.name ?? '').trim(),
+        managerId: null,
+        isFiscal: false,
+        active: true,
+        createdAt: todayIso(),
+        updatedAt: todayIso(),
+      };
+      s.teamsList = s.teamsList ?? (s.team ? [s.team] : []);
+      s.teamsList.push(t);
+      return ok(t);
+    });
+  }
+  if (method === 'PATCH' && id && !action) {
+    return mutateDemoState((s: any) => {
+      s.teamsList = s.teamsList ?? (s.team ? [s.team] : []);
+      const t = s.teamsList.find((x: any) => x.id === id);
+      if (!t) return notFound();
+      if (data?.name !== undefined) t.name = data.name;
+      if (data?.active !== undefined) t.active = data.active;
+      t.updatedAt = todayIso();
+      return ok(t);
+    });
+  }
+  if (method === 'DELETE' && id && !action) {
+    return mutateDemoState((s: any) => {
+      s.teamsList = s.teamsList ?? (s.team ? [s.team] : []);
+      const t = s.teamsList.find((x: any) => x.id === id);
+      if (!t) return notFound();
+      t.active = false;
+      t.updatedAt = todayIso();
+      return ok(t);
+    });
+  }
+  if (method === 'PUT' && id && action === 'approval-levels') {
+    return mutateDemoState((s: any) => {
+      s.approvalLevels = (s.approvalLevels ?? []).filter(
+        (l: any) => l.teamId !== id,
+      );
+      for (const l of data?.levels ?? []) {
+        s.approvalLevels.push({
+          id: uid('lvl'),
+          teamId: id,
+          level: l.level,
+          name: l.name,
+          approverId: l.approverId,
+          maxAmount: l.maxAmount != null ? String(l.maxAmount) : null,
+        });
+      }
+      const t = (s.teamsList ?? []).find((x: any) => x.id === id) ?? s.team;
+      return ok(t ?? { id });
+    });
+  }
+  return null;
+}
+
+// ───────────────────────────────────────────────────────────────
+// DELEGATIONS — concedidas/recebidas
+// ───────────────────────────────────────────────────────────────
+
+function handleDelegations(
+  method: string,
+  segments: string[],
+  query: URLSearchParams,
+  data?: any,
+): DemoResponse | null {
+  const state = getDemoState() as any;
+  state.delegations = state.delegations ?? [];
+  const id = segments[1];
+  const userId = getDemoSessionUserId();
+  if (method === 'GET' && !id) {
+    const type = query.get('type') === 'received' ? 'received' : 'given';
+    const rows = (state.delegations as any[]).filter((d) =>
+      type === 'given' ? d.delegatorId === userId : d.delegateId === userId,
+    );
+    // Enrichment com nomes
+    const enriched = rows.map((d) => ({
+      ...d,
+      delegator: {
+        id: d.delegatorId,
+        name: state.users.find((u: any) => u.id === d.delegatorId)?.name,
+      },
+      delegate: {
+        id: d.delegateId,
+        name: state.users.find((u: any) => u.id === d.delegateId)?.name,
+      },
+    }));
+    return ok(enriched);
+  }
+  if (method === 'POST' && !id) {
+    return mutateDemoState((s: any) => {
+      s.delegations = s.delegations ?? [];
+      if (data?.delegateId === userId) {
+        return badRequest('Você não pode delegar para si mesmo.');
+      }
+      if (new Date(data?.endsAt) <= new Date(data?.startsAt)) {
+        return badRequest('Fim deve ser após o início.');
+      }
+      const d = {
+        id: uid('del'),
+        delegatorId: userId,
+        delegateId: data.delegateId,
+        startsAt: data.startsAt,
+        endsAt: data.endsAt,
+        reason: data.reason ?? null,
+        cancelledAt: null,
+        createdAt: todayIso(),
+      };
+      s.delegations.push(d);
+      return ok(d);
+    });
+  }
+  if (method === 'DELETE' && id) {
+    return mutateDemoState((s: any) => {
+      s.delegations = s.delegations ?? [];
+      const d = s.delegations.find((x: any) => x.id === id);
+      if (!d) return notFound();
+      if (d.delegatorId !== userId) {
+        return badRequest('Só o autor da delegação pode cancelar.');
+      }
+      d.cancelledAt = todayIso();
+      return ok(d);
+    });
+  }
+  return null;
+}
+
+// ───────────────────────────────────────────────────────────────
 // ATTACHMENTS — modo demo simula sem armazenar bytes reais
 // ───────────────────────────────────────────────────────────────
 
@@ -1124,6 +1360,9 @@ export function routeDemoRequest(
     dashboard: () => handleDashboard(m, segments, query),
     attachments: () => handleAttachments(m, segments, query, data),
     'fiscal-item-requests': () => handleFiscalItemRequests(m, segments, query, data),
+    users: () => handleUsers(m, segments, query, data),
+    teams: () => handleTeams(m, segments, data),
+    delegations: () => handleDelegations(m, segments, query, data),
   };
 
   const handler = handlers[root];
