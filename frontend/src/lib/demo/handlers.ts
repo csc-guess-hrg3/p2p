@@ -619,6 +619,78 @@ function handlePurchaseOrders(method: string, segments: string[], query: URLSear
 // ───────────────────────────────────────────────────────────────
 
 // ───────────────────────────────────────────────────────────────
+// DASHBOARD (F7) — derivado dos PCs do demo
+// ───────────────────────────────────────────────────────────────
+
+const FINALIZED_DEMO_PO: string[] = [
+  'FULLY_RECEIVED',
+  'CANCELLED',
+  'INTEGRATED',
+];
+
+function dashboardOpen(state: any) {
+  return state.purchaseOrders.filter(
+    (p: any) => !FINALIZED_DEMO_PO.includes(p.status),
+  );
+}
+function dashboardOverdue(state: any) {
+  const now = Date.now();
+  return dashboardOpen(state).filter(
+    (p: any) => p.expectedDelivery && new Date(p.expectedDelivery).getTime() < now,
+  );
+}
+function sum(rows: any[], key: string): number {
+  return rows.reduce((s, r) => s + Number(r[key] ?? 0), 0);
+}
+
+function handleDashboard(
+  method: string,
+  segments: string[],
+  _query: URLSearchParams,
+): DemoResponse | null {
+  if (method !== 'GET') return null;
+  const state = getDemoState();
+  const action = segments[1];
+
+  if (!action) {
+    const open = dashboardOpen(state);
+    const overdue = dashboardOverdue(state);
+    const openAmount = sum(open, 'totalAmount');
+    const overdueAmount = sum(overdue, 'totalAmount');
+    return ok({
+      openOrders: { count: open.length, totalAmount: openAmount },
+      overdueOrders: {
+        count: overdue.length,
+        totalAmount: overdueAmount,
+        pctOfOpenVolume:
+          openAmount > 0 ? Number(((overdueAmount / openAmount) * 100).toFixed(2)) : 0,
+      },
+      budgetConsumption: {
+        budgeted: 0,
+        committed: 0,
+        consumed: 0,
+        pctConsumed: 0,
+      },
+    });
+  }
+  if (action === 'open-orders') {
+    return ok(dashboardOpen(state));
+  }
+  if (action === 'overdue-orders') {
+    return ok(dashboardOverdue(state));
+  }
+  if (action === 'budget-consumption') {
+    const now = new Date();
+    return ok({
+      period: { year: now.getFullYear(), month: now.getMonth() + 1 },
+      totals: { budgeted: 0, committed: 0, consumed: 0, pctConsumed: 0 },
+      byCostCenter: [],
+    });
+  }
+  return null;
+}
+
+// ───────────────────────────────────────────────────────────────
 // RECEIVING (F6)
 // ───────────────────────────────────────────────────────────────
 
@@ -810,6 +882,7 @@ export function routeDemoRequest(
     'purchase-orders': () => handlePurchaseOrders(m, segments, query, data),
     'fund-requests': () => handleFundRequests(m, segments, query),
     receiving: () => handleReceiving(m, segments, query, data),
+    dashboard: () => handleDashboard(m, segments, query),
     'fiscal-item-requests': () => handleFiscalItemRequests(m, segments, query, data),
   };
 

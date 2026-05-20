@@ -16,6 +16,7 @@ import { FundRequestsListPage } from '@/pages/fund-requests/FundRequestsListPage
 import { FundRequestDetailPage } from '@/pages/fund-requests/FundRequestDetailPage';
 import { ReceivingsListPage } from '@/pages/receiving/ReceivingsListPage';
 import { ReceivingDetailPage } from '@/pages/receiving/ReceivingDetailPage';
+import { DashboardPage } from '@/pages/DashboardPage';
 import { Toaster } from '@/components/ui/toaster';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
@@ -29,10 +30,7 @@ function App() {
               <Route path="/login" element={<LoginPage />} />
               <Route element={<RequireAuth />}>
                 <Route element={<AppLayout />}>
-                  <Route
-                    index
-                    element={<Placeholder title="Dashboard" etapa="Etapa F7" />}
-                  />
+                  <Route index element={<DashboardPage />} />
                   <Route path="requisicoes" element={<RequisitionsListPage />} />
                   <Route
                     path="requisicoes/nova"
