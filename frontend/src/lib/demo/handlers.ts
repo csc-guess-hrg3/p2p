@@ -1035,7 +1035,13 @@ function handleProductOrdersPa(
     let rows = (state.paOrders ?? []) as any[];
     const status = query.get('status');
     if (status && status !== 'ALL') {
-      rows = rows.filter((r) => (r.status_compra ?? '').trim() === status);
+      // Filtra por status_efetivo (derivado do cancelamento por item) —
+      // se o pedido tem header 'A' mas todos os itens cancelados, ele
+      // sai de "Aprovados" e aparece em "Cancelados", como esperado.
+      rows = rows.filter(
+        (r) =>
+          ((r.status_efetivo ?? r.status_compra) ?? '').trim() === status,
+      );
     }
     const search = query.get('search')?.toLowerCase();
     if (search) {
