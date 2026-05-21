@@ -5,20 +5,12 @@ import {
   Banknote,
   FileText,
   PackageCheck,
-  RotateCw,
-  Send,
   XCircle,
 } from 'lucide-react';
 import {
   useCancelPurchaseOrder,
   usePurchaseOrder,
-  useSendToSupplier,
 } from '@/lib/purchase-orders';
-import { useCompany } from '@/lib/company';
-import {
-  SendToSupplierDialog,
-  shouldSkipSendPreview,
-} from './SendToSupplierDialog';
 import { ReceiveDialog } from '@/pages/receiving/ReceiveDialog';
 import { AttachmentsSection } from '@/components/AttachmentsSection';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
@@ -50,11 +42,7 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 export function PurchaseOrderDetailPage() {
   const { id } = useParams();
   const { data: po, isLoading } = usePurchaseOrder(id);
-  const { activeCompany } = useCompany();
-  const sendMut = useSendToSupplier();
   const { toast } = useToast();
-  const [sendOpen, setSendOpen] = useState(false);
-  const [resendOpen, setResendOpen] = useState(false);
   const [receiveOpen, setReceiveOpen] = useState(false);
   const cancelMut = useCancelPurchaseOrder();
 
@@ -75,17 +63,14 @@ export function PurchaseOrderDetailPage() {
     );
   }
 
-  const canSend = po.status === 'APPROVED';
-  const canResend =
-    po.status === 'SENT_TO_SUPPLIER' ||
-    po.status === 'PARTIALLY_RECEIVED' ||
-    po.status === 'FULLY_RECEIVED';
-  // Recebimento aceito a partir do envio ao fornecedor, e bloqueado quando
-  // o pedido já foi totalmente recebido ou cancelado.
+  // Recebimento aceito enquanto o pedido está aberto. APPROVED é raro
+  // hoje (a gravação no Linx é automática ao converter, status já vira
+  // INTEGRATED), mas mantemos compatibilidade.
   const canReceive =
+    po.status === 'APPROVED' ||
+    po.status === 'INTEGRATED' ||
     po.status === 'SENT_TO_SUPPLIER' ||
-    po.status === 'PARTIALLY_RECEIVED' ||
-    po.status === 'APPROVED';
+    po.status === 'PARTIALLY_RECEIVED';
   // Cancelamento permitido em estados não finais. O backend ainda bloqueia
   // se houver item já recebido (RN-OC-03), mas o botão fica visível pra
   // o usuário ver a mensagem clara em vez de "sumir sem explicação".
@@ -126,32 +111,6 @@ export function PurchaseOrderDetailPage() {
     }
   }
 
-  async function handleSend() {
-    if (!po) return;
-    // Se o usuário marcou "não exibir de novo", envia direto sem dialog.
-    if (shouldSkipSendPreview()) {
-      try {
-        await sendMut.mutateAsync({ id: po.id });
-        toast({
-          title: 'Pedido enviado',
-          description: `PC ${po.number} enviado ao fornecedor.`,
-          variant: 'success',
-        });
-      } catch (err) {
-        const detail =
-          (err as { response?: { data?: { message?: string } } })?.response
-            ?.data?.message ?? 'Não foi possível enviar o pedido ao fornecedor.';
-        toast({
-          title: 'Falha no envio',
-          description: detail,
-          variant: 'destructive',
-        });
-      }
-    } else {
-      setSendOpen(true);
-    }
-  }
-
   return (
     <div className="space-y-4 pb-10">
       <div className="flex items-center justify-between gap-2">
@@ -172,45 +131,15 @@ export function PurchaseOrderDetailPage() {
               Cancelar pedido
             </Button>
           )}
-          {canResend && (
-            <Button variant="outline" onClick={() => setResendOpen(true)}>
-              <RotateCw className="size-4" />
-              Reenviar e-mail
-            </Button>
-          )}
           {canReceive && (
-            <Button variant="outline" onClick={() => setReceiveOpen(true)}>
+            <Button onClick={() => setReceiveOpen(true)}>
               <PackageCheck className="size-4" />
               Registrar recebimento
-            </Button>
-          )}
-          {canSend && (
-            <Button onClick={handleSend} disabled={sendMut.isPending}>
-              <Send className="size-4" />
-              {sendMut.isPending ? 'Enviando…' : 'Enviar ao fornecedor'}
             </Button>
           )}
         </div>
       </div>
 
-      {sendOpen && activeCompany && (
-        <SendToSupplierDialog
-          open={sendOpen}
-          onOpenChange={setSendOpen}
-          po={po}
-          mode="send"
-          companyCode={activeCompany.code}
-        />
-      )}
-      {resendOpen && activeCompany && (
-        <SendToSupplierDialog
-          open={resendOpen}
-          onOpenChange={setResendOpen}
-          po={po}
-          mode="resend"
-          companyCode={activeCompany.code}
-        />
-      )}
       {receiveOpen && (
         <ReceiveDialog
           open={receiveOpen}
@@ -247,8 +176,8 @@ export function PurchaseOrderDetailPage() {
             value={po.deliveryAddress || '—'}
           />
           <Field
-            label="Enviado ao fornecedor"
-            value={formatDate(po.sentToSupplierAt)}
+            label="Oficializado no ERP"
+            value={formatDate(po.integratedAt ?? po.sentToSupplierAt)}
           />
           <Field
             label="Valor total"

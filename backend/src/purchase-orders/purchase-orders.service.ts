@@ -76,7 +76,85 @@ export class PurchaseOrdersService {
     return out;
   }
 
-  /** Converte uma requisição aprovada em Pedido de Compra. */
+  /**
+   * Valida os dados antes de criar o PC e tentar gravar no Linx.
+   * Erro aqui é amigável — agrupa todos os problemas em uma única
+   * mensagem em vez de deixar o ERP estourar um "não aceita NULL"
+   * críptico depois.
+   */
+  private validateForConvert(
+    req: any,
+    company: any,
+    expectedDelivery: Date | null,
+  ): void {
+    const problems: string[] = [];
+    if (!expectedDelivery) {
+      problems.push('Data de entrega prevista é obrigatória.');
+    }
+    if (!req.tipoCompra) problems.push('Tipo de compra não preenchido.');
+    if (req.ctbTipoOperacao == null)
+      problems.push('Operação contábil (fiscal) não preenchida.');
+    if (!req.naturezaEntrada)
+      problems.push('Natureza de entrada (fiscal) não preenchida.');
+    if (!req.paymentConditionCode)
+      problems.push('Condição de pagamento não preenchida.');
+    if (!company.erpConfig) {
+      problems.push(
+        `Empresa ${company.code} sem configuração de integração com o ERP.`,
+      );
+    }
+    for (const it of req.items) {
+      const tag = `item "${it.itemDescription}"`;
+      if (!it.itemErpCode) problems.push(`${tag}: código do item ausente.`);
+      if (!it.accountingAccount) problems.push(`${tag}: conta contábil ausente.`);
+      if (!it.branchRateioCode) problems.push(`${tag}: rateio de filial ausente.`);
+      if (!it.costCenterRateioCode)
+        problems.push(`${tag}: rateio de centro de custo ausente.`);
+      if (!it.unit) problems.push(`${tag}: unidade ausente.`);
+      if (Number(it.quantity) <= 0) problems.push(`${tag}: quantidade <= 0.`);
+    }
+    if (problems.length > 0) {
+      throw new BadRequestException(problems.join(' '));
+    }
+  }
+
+  /**
+   * Bucketiza os itens em grupos sem conflito de PK do Linx
+   * (CONSUMIVEL, ENTREGA, PEDIDO). Cada bucket vira um PC separado.
+   * Como PEDIDO é único por PC, a colisão real é em (itemErpCode,
+   * ENTREGA) — que tipicamente é o `expectedDelivery` do PC inteiro.
+   * Se a requisição tem duas linhas do mesmo item com rateios diferentes,
+   * elas precisam ir para PCs diferentes pra não colidirem.
+   */
+  private bucketizeForPk(items: any[]): any[][] {
+    const buckets: any[][] = [];
+    for (const it of items) {
+      const key = it.itemErpCode ?? `livre:${it.itemDescription}`;
+      let placed = false;
+      for (const b of buckets) {
+        if (!b.some((x) => (x.itemErpCode ?? `livre:${x.itemDescription}`) === key)) {
+          b.push(it);
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) buckets.push([it]);
+    }
+    return buckets;
+  }
+
+  /**
+   * Converte uma requisição aprovada em Pedido(s) de Compra.
+   *
+   * Mudança importante (decisão (b) do time): a gravação no Linx é
+   * automática, sem botão "Enviar ao fornecedor". Em consumíveis o
+   * fluxo de e-mail foi descontinuado. Cada PC nasce APPROVED e vai
+   * direto para INTEGRATED após a gravação no Linx.
+   *
+   * Quando a requisição tem linhas que colidiriam na PK do Linx
+   * (mesmo CONSUMIVEL + mesma ENTREGA), os itens são desmembrados em
+   * múltiplos PCs (ver `bucketizeForPk`).
+   */
   async convert(user: AuthenticatedUser, dto: ConvertToPurchaseOrderDto) {
     if (user.profile === UserProfile.REVIEWER) {
       throw new ForbiddenException('Revisor não cria pedidos de compra.');
@@ -113,17 +191,22 @@ export class PurchaseOrdersService {
 
     const company = await this.prisma.company.findUniqueOrThrow({
       where: { id: req.companyId },
+      include: { erpConfig: true },
     });
+
+    const expectedDelivery = dto.expectedDelivery
+      ? new Date(dto.expectedDelivery)
+      : null;
+    this.validateForConvert(req, company, expectedDelivery);
+
     const priceOverride = new Map(
       (dto.items ?? []).map((i) => [i.requisitionItemId, i.unitPrice]),
     );
 
-    // Monta os itens do pedido a partir dos itens da requisição.
-    let totalAmount = 0;
-    const poItems = req.items.map((it) => {
+    // Monta os itens enriquecidos a partir dos itens da requisição.
+    const enrichedItems = req.items.map((it) => {
       const unitPrice = priceOverride.get(it.id) ?? Number(it.estimatedPrice);
       const totalPrice = Number((Number(it.quantity) * unitPrice).toFixed(2));
-      totalAmount += totalPrice;
       return {
         requisitionItemId: it.id,
         itemErpCode: it.itemErpCode,
@@ -139,99 +222,151 @@ export class PurchaseOrdersService {
         costCenterRateioCode: it.costCenterRateioCode,
         costCenterRateioDesc: it.costCenterRateioDesc,
         notes: it.notes,
-        rateios: {
-          create: this.recomputeRateios(it.rateios, totalPrice),
-        },
+        rateios: it.rateios,
       };
     });
 
-    const number = await this.numbering.next(company.code, 'OC');
-    // NF_FUTURA gera, além do PC, uma SV de adiantamento (pagar antes da NF).
+    // Divide em buckets — cada bucket vira um PC sem colisão de PK Linx.
+    const buckets = this.bucketizeForPk(enrichedItems);
     const isAdvance = req.tipoNotaFiscal === RequisitionNfType.NF_FUTURA;
-    const svNumber = isAdvance
-      ? await this.numbering.next(company.code, 'SV')
-      : null;
     const svDueDate = dto.fundRequestDueDate
       ? new Date(dto.fundRequestDueDate)
-      : dto.expectedDelivery
-        ? new Date(dto.expectedDelivery)
-        : new Date();
+      : expectedDelivery ?? new Date();
     const now = new Date();
+    const created: any[] = [];
 
-    const po = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.purchaseOrder.create({
-        data: {
-          number,
-          requisitionId: req.id,
-          companyId: req.companyId,
-          branchErpCode: req.branchErpCode,
-          branchName: req.branchName,
-          supplierErpCode: req.supplierErpCode,
-          supplierName: req.supplierName,
-          buyerId: user.id,
-          // PC nasce aprovado — a aprovação da requisição já basta (Opção A).
-          status: PurchaseOrderStatus.APPROVED,
-          approvedAt: now,
-          paymentCondition: dto.paymentCondition ?? null,
-          deliveryAddress: dto.deliveryAddress ?? null,
-          expectedDelivery: dto.expectedDelivery
-            ? new Date(dto.expectedDelivery)
-            : null,
-          totalAmount: Number(totalAmount.toFixed(2)),
-          items: { create: poItems },
+    // Cria cada PC do bucket em uma transação separada — bucket pequeno
+    // (1..N) e isolado por requisição, então segurança é OK.
+    for (const bucket of buckets) {
+      const number = await this.numbering.next(company.code, 'OC');
+      const svNumber = isAdvance
+        ? await this.numbering.next(company.code, 'SV')
+        : null;
+      const bucketTotal = bucket.reduce((s, x) => s + Number(x.totalPrice), 0);
+      const poItems = bucket.map((it) => ({
+        requisitionItemId: it.requisitionItemId,
+        itemErpCode: it.itemErpCode,
+        itemDescription: it.itemDescription,
+        quantity: it.quantity,
+        unit: it.unit,
+        unitPrice: it.unitPrice,
+        totalPrice: it.totalPrice,
+        accountingAccount: it.accountingAccount,
+        accountName: it.accountName,
+        branchRateioCode: it.branchRateioCode,
+        branchRateioDesc: it.branchRateioDesc,
+        costCenterRateioCode: it.costCenterRateioCode,
+        costCenterRateioDesc: it.costCenterRateioDesc,
+        notes: it.notes,
+        rateios: {
+          create: this.recomputeRateios(it.rateios, it.totalPrice),
         },
-        include: { items: true },
-      });
-      await tx.requisition.update({
-        where: { id: req.id },
-        data: { status: RequisitionStatus.CONVERTED },
-      });
-      // SV de adiantamento: espelha os itens do PC, nasce aprovada
-      // (segue a aprovação da requisição) e pronta para virar título no ERP.
-      if (isAdvance) {
-        await tx.fundRequest.create({
-          data: {
-            number: svNumber as string,
-            companyId: req.companyId,
-            requisitionId: req.id,
-            purchaseOrderId: created.id,
-            requesterId: user.id,
-            title: req.title,
-            status: FundRequestStatus.APPROVED,
-            approvedAt: now,
-            totalAmount: created.totalAmount,
-            items: {
-              create: created.items.map((it) => ({
-                itemErpCode: it.itemErpCode,
-                description: it.itemDescription,
-                beneficiaryName: req.supplierName,
-                accountingAccount: it.accountingAccount,
-                accountName: it.accountName,
-                branchRateioCode: it.branchRateioCode,
-                branchRateioDesc: it.branchRateioDesc,
-                costCenterRateioCode: it.costCenterRateioCode,
-                costCenterRateioDesc: it.costCenterRateioDesc,
-                amount: it.totalPrice,
-                dueDate: svDueDate,
-              })),
+      }));
+
+      const po = await this.prisma.$transaction(
+        async (tx) => {
+          const c = await tx.purchaseOrder.create({
+            data: {
+              number,
+              requisitionId: req.id,
+              companyId: req.companyId,
+              branchErpCode: req.branchErpCode,
+              branchName: req.branchName,
+              supplierErpCode: req.supplierErpCode,
+              supplierName: req.supplierName,
+              buyerId: user.id,
+              status: PurchaseOrderStatus.APPROVED,
+              approvedAt: now,
+              paymentCondition: dto.paymentCondition ?? null,
+              deliveryAddress: dto.deliveryAddress ?? null,
+              expectedDelivery,
+              totalAmount: Number(bucketTotal.toFixed(2)),
+              items: { create: poItems },
             },
+            include: { items: true },
+          });
+          if (isAdvance) {
+            await tx.fundRequest.create({
+              data: {
+                number: svNumber as string,
+                companyId: req.companyId,
+                requisitionId: req.id,
+                purchaseOrderId: c.id,
+                requesterId: user.id,
+                title: req.title,
+                status: FundRequestStatus.APPROVED,
+                approvedAt: now,
+                totalAmount: c.totalAmount,
+                items: {
+                  create: c.items.map((it) => ({
+                    itemErpCode: it.itemErpCode,
+                    description: it.itemDescription,
+                    beneficiaryName: req.supplierName,
+                    accountingAccount: it.accountingAccount,
+                    accountName: it.accountName,
+                    branchRateioCode: it.branchRateioCode,
+                    branchRateioDesc: it.branchRateioDesc,
+                    costCenterRateioCode: it.costCenterRateioCode,
+                    costCenterRateioDesc: it.costCenterRateioDesc,
+                    amount: it.totalPrice,
+                    dueDate: svDueDate,
+                  })),
+                },
+              },
+            });
+          }
+          return tx.purchaseOrder.findUniqueOrThrow({
+            where: { id: c.id },
+            include: {
+              items: { include: { rateios: true } },
+              fundRequest: true,
+            },
+          });
+        },
+        { maxWait: 15000, timeout: 30000 },
+      );
+
+      // Gravação automática no Linx — sem botão, sem e-mail.
+      // Falha aqui aborta o convert inteiro (rollback do PC criado).
+      try {
+        const { pedido } = await this.linx.gravarPedidoCompra(po, user);
+        await this.prisma.purchaseOrder.update({
+          where: { id: po.id },
+          data: {
+            status: PurchaseOrderStatus.INTEGRATED,
+            integratedAt: new Date(),
+            erpPedido: pedido,
           },
         });
+        created.push({ ...po, status: PurchaseOrderStatus.INTEGRATED, erpPedido: pedido });
+      } catch (err) {
+        // Rollback dos PCs já criados — soft delete pra preservar histórico.
+        for (const c of created) {
+          await this.prisma.purchaseOrder.update({
+            where: { id: c.id },
+            data: { deletedAt: new Date() },
+          });
+        }
+        await this.prisma.purchaseOrder.update({
+          where: { id: po.id },
+          data: { deletedAt: new Date() },
+        });
+        throw err;
       }
-      return tx.purchaseOrder.findUniqueOrThrow({
-        where: { id: created.id },
-        include: {
-          items: { include: { rateios: true } },
-          fundRequest: true,
-        },
-      });
-    }, {
-      // SQL Server remoto: o default de 5s é apertado para a criação
-      // aninhada (PC + itens + rateios + SV).
-      maxWait: 15000,
-      timeout: 30000,
+    }
+
+    await this.prisma.requisition.update({
+      where: { id: req.id },
+      data: { status: RequisitionStatus.CONVERTED },
     });
-    return po;
+
+    // Devolve o primeiro PC (compatível com o frontend que navega
+    // pra /pedidos/:id após converter). Anexa `siblings` quando houver
+    // mais de um, pra UI exibir "também foram criados PCs X e Y".
+    const [first, ...rest] = created;
+    return rest.length > 0
+      ? { ...first, siblings: rest.map((p) => ({ id: p.id, number: p.number })) }
+      : first;
   }
 
   /** Lista pedidos de compra do escopo do usuário. */

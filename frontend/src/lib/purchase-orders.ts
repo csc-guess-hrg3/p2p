@@ -55,6 +55,7 @@ export interface PurchaseOrder {
   submittedAt: string | null;
   approvedAt: string | null;
   sentToSupplierAt: string | null;
+  integratedAt: string | null;
   cancelledAt: string | null;
   cancellationReason: string | null;
   createdAt: string;
@@ -120,42 +121,9 @@ export function useConvertToPurchaseOrder() {
   });
 }
 
-export interface SendToSupplierInput {
-  recipientEmail?: string;
-  skipEmail?: boolean;
-  subject?: string;
-  bodyText?: string;
-}
-
-export function useSendToSupplier() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      id,
-      ...dto
-    }: { id: string } & SendToSupplierInput) =>
-      (
-        await api.post<PurchaseOrder>(
-          `/purchase-orders/${id}/send-to-supplier`,
-          dto,
-        )
-      ).data,
-    onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ['purchase-orders'] });
-      qc.invalidateQueries({ queryKey: ['purchase-order', data.id] });
-    },
-  });
-}
-
-export function useResendToSupplier() {
-  return useMutation({
-    mutationFn: async ({
-      id,
-      ...dto
-    }: { id: string } & SendToSupplierInput) =>
-      (await api.post(`/purchase-orders/${id}/resend`, dto)).data,
-  });
-}
+// Os hooks de envio ao fornecedor foram removidos: a gravação no Linx
+// agora é automática no `useConvertToPurchaseOrder` (decisão de
+// processo — consumíveis não emitem mais e-mail ao fornecedor).
 
 export function useCancelPurchaseOrder() {
   const qc = useQueryClient();

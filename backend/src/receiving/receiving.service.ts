@@ -17,10 +17,14 @@ import { SettingsService } from '../settings/settings.service';
 import { CreateReceivingDto } from './dto/create-receiving.dto';
 import { QueryReceivingsDto } from './dto/query-receivings.dto';
 
-// Status do PC que ainda admitem recebimento.
+// Status do PC que ainda admitem recebimento. INTEGRATED é o novo estado
+// "oficializado no Linx" — substitui o SENT_TO_SUPPLIER do antigo fluxo
+// de envio por e-mail (consumível não envia mais e-mail; a gravação no
+// ERP acontece automaticamente na conversão).
 const RECEIVABLE_PO_STATUS: string[] = [
   PurchaseOrderStatus.APPROVED,
   PurchaseOrderStatus.SENT_TO_SUPPLIER,
+  PurchaseOrderStatus.INTEGRATED,
   PurchaseOrderStatus.PARTIALLY_RECEIVED,
 ];
 

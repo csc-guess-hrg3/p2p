@@ -611,6 +611,8 @@ function handlePurchaseOrders(method: string, segments: string[], query: URLSear
         };
       });
       const totalAmount = poItems.reduce((acc: number, x: any) => acc + Number(x.totalPrice), 0);
+      // Demo: simula a gravação automática no Linx — PC já nasce INTEGRATED.
+      const fakeErpPedido = `DEMO${Date.now().toString().slice(-5)}`;
       const po: any = {
         id: uid('po'),
         number: nextNumber('OC'),
@@ -621,16 +623,16 @@ function handlePurchaseOrders(method: string, segments: string[], query: URLSear
         supplierErpCode: req.supplierErpCode,
         supplierName: req.supplierName,
         buyerId: buyer?.id ?? null,
-        status: 'APPROVED',
+        status: 'INTEGRATED',
         paymentCondition: data.paymentCondition ?? req.paymentConditionDesc ?? null,
         deliveryAddress: data.deliveryAddress ?? null,
         expectedDelivery: data.expectedDelivery ?? null,
         totalAmount: totalAmount.toFixed(2),
         notes: null,
         currentTierLevel: null,
-        erpPedido: null,
+        erpPedido: fakeErpPedido,
         erpStagingId: null,
-        integratedAt: null,
+        integratedAt: todayIso(),
         submittedAt: todayIso(),
         approvedAt: todayIso(),
         sentToSupplierAt: null,
