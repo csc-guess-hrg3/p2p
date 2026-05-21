@@ -32,6 +32,7 @@ const STATUS_MAP: Record<
   A: { label: 'Aprovado', variant: 'success' },
   R: { label: 'Reprovado', variant: 'destructive' },
   C: { label: 'Cancelado', variant: 'neutral' },
+  CP: { label: 'Cancelado parcial', variant: 'warning' },
   M: { label: 'Microvix', variant: 'default' },
 };
 
@@ -49,6 +50,7 @@ const STATUS_OPTIONS = [
   { value: 'A', label: 'Aprovados' },
   { value: 'R', label: 'Reprovados' },
   { value: 'C', label: 'Cancelados' },
+  { value: 'CP', label: 'Cancelados parcialmente' },
   { value: 'ALL', label: 'Todos' },
 ];
 
@@ -140,7 +142,7 @@ export function PaOrdersListPage() {
                 <TableCell>{r.fornecedor}</TableCell>
                 <TableCell className="text-muted-foreground">{r.filial}</TableCell>
                 <TableCell>
-                  <PaStatusBadge status={r.status_compra} />
+                  <PaStatusBadge status={r.status_efetivo ?? r.status_compra} />
                 </TableCell>
                 <TableCell className="text-right">
                   {r.tot_qtde_original ?? '—'}

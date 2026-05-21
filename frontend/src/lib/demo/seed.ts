@@ -40,7 +40,7 @@ export interface DemoState {
   paTamanhos: any[];
 }
 
-export const DEMO_STATE_VERSION = 5;
+export const DEMO_STATE_VERSION = 6;
 
 function uid(prefix = ''): string {
   // crypto.randomUUID em browsers modernos. Fallback simples se faltar.
@@ -1016,7 +1016,25 @@ export function buildSeed(): DemoState {
   const paOrders: any[] = [];
   const paItems: any[] = [];
   const paGrade: any[] = [];
-  const paOrderSeeds = [
+  interface PaSeedItem {
+    produto: string;
+    cor: string;
+    grade: string;
+    dist: number[];
+    custo: string;
+    cancelDist?: number[];
+  }
+  interface PaSeed {
+    pedido: string;
+    fornecedor: string;
+    filial: string;
+    status: string;
+    total: string;
+    qtde: number;
+    emissaoDays: number;
+    items: PaSeedItem[];
+  }
+  const paOrderSeeds: PaSeed[] = [
     {
       pedido: '60290',
       fornecedor: 'SCARF ME',
@@ -1091,12 +1109,49 @@ export function buildSeed(): DemoState {
         { produto: 'W261TOPKE52E', cor: 'WNSLM', grade: '36-44', dist: [15, 25, 25, 25, 10], custo: '120.00' },
       ],
     },
+    {
+      pedido: '60220',
+      fornecedor: 'SCARF ME',
+      filial: 'CD SÃO PAULO',
+      status: 'A',
+      total: '6000.00',
+      qtde: 100,
+      emissaoDays: 18,
+      items: [
+        // Header 'A' mas com cancelamento parcial dos itens
+        { produto: 'MB0RPOKS002', cor: 'BLK', grade: 'PMG', dist: [20, 30, 30, 20], custo: '60.00', cancelDist: [5, 10, 10, 5] },
+      ],
+    },
+    {
+      pedido: '60200',
+      fornecedor: 'K2 INDUSTRIA',
+      filial: 'CD SÃO PAULO',
+      status: 'A',
+      total: '4500.00',
+      qtde: 75,
+      emissaoDays: 22,
+      items: [
+        // Header 'A' mas com TODOS os itens totalmente cancelados → status efetivo 'C'
+        { produto: 'MB0RPOKS002', cor: 'WHT', grade: 'PMG', dist: [15, 20, 25, 15], custo: '60.00', cancelDist: [15, 20, 25, 15] },
+      ],
+    },
   ];
   for (const seed of paOrderSeeds) {
     const totalQtde = seed.items.reduce(
       (s, it) => s + it.dist.reduce((a, b) => a + b, 0),
       0,
     );
+    const totalCancelada = seed.items.reduce(
+      (s, it) =>
+        s + (it.cancelDist ?? []).reduce((a, b) => a + b, 0),
+      0,
+    );
+    // Status efetivo (mesma lógica da view SQL):
+    let statusEfetivo: string = seed.status;
+    if (seed.status !== 'C' && seed.status !== 'R') {
+      if (totalQtde > 0 && totalCancelada >= totalQtde) statusEfetivo = 'C';
+      else if (totalCancelada > 0) statusEfetivo = 'CP';
+    }
     paOrders.push({
       empresa: 'DEMO',
       pedido: seed.pedido,
@@ -1107,6 +1162,7 @@ export function buildSeed(): DemoState {
       status_compra: seed.status,
       status_aprovacao:
         seed.status === 'A' ? 'A' : seed.status === 'R' ? 'R' : 'P',
+      status_efetivo: statusEfetivo,
       lx_status_compra: seed.status === 'A' ? 1 : null,
       tipo_compra: 'PRODUTO ACABADO',
       natureza_entrada: '200.01',
@@ -1116,7 +1172,8 @@ export function buildSeed(): DemoState {
       aprovado_por: seed.status === 'A' ? manager.name : null,
       requerido_por: operator.name,
       tot_qtde_original: totalQtde,
-      tot_qtde_entregar: seed.status === 'A' ? totalQtde : 0,
+      tot_qtde_cancelada: totalCancelada,
+      tot_qtde_entregar: seed.status === 'A' ? totalQtde - totalCancelada : 0,
       tot_valor_original: seed.total,
       tot_valor_entregar: seed.status === 'A' ? seed.total : '0.00',
       obs:
@@ -1128,6 +1185,8 @@ export function buildSeed(): DemoState {
     });
     for (const it of seed.items) {
       const qty = it.dist.reduce((a, b) => a + b, 0);
+      const qtyCancel =
+        (it.cancelDist ?? []).reduce((a, b) => a + b, 0);
       const valor = (qty * Number(it.custo)).toFixed(2);
       const entrega = nowIso(-seed.emissaoDays + 30);
       paItems.push({
@@ -1140,12 +1199,12 @@ export function buildSeed(): DemoState {
         chegada_prevista: null,
         data_confirmacao: null,
         qtde_original: qty,
-        qtde_cancelada: 0,
+        qtde_cancelada: qtyCancel,
         qtde_entregue: 0,
-        qtde_entregar: qty,
+        qtde_entregar: qty - qtyCancel,
         valor_original: valor,
         valor_entregue: '0.00',
-        valor_entregar: valor,
+        valor_entregar: ((qty - qtyCancel) * Number(it.custo)).toFixed(2),
         custo_unit: it.custo,
         ipi_pct: '0.00',
         desconto_item: '0.00',

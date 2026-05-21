@@ -42,6 +42,7 @@ const STATUS_MAP: Record<
   A: { label: 'Aprovado', variant: 'success' },
   R: { label: 'Reprovado', variant: 'destructive' },
   C: { label: 'Cancelado', variant: 'neutral' },
+  CP: { label: 'Cancelado parcial', variant: 'warning' },
   M: { label: 'Microvix', variant: 'default' },
 };
 
@@ -224,8 +225,12 @@ export function PaOrderDetailPage() {
     return <p className="text-sm text-muted-foreground">Pedido não encontrado.</p>;
   }
 
+  // Aprovar/Reprovar só faz sentido enquanto o pedido está em estudo no
+  // ERP. Se foi cancelado (parcial ou totalmente), trava.
   const isPending = (data.status_compra ?? '').trim() === 'E';
-  const canDecide = data.canApprovePa && isPending;
+  const efetivo = (data.status_efetivo ?? data.status_compra ?? '').trim();
+  const isCancelled = efetivo === 'C' || efetivo === 'CP';
+  const canDecide = data.canApprovePa && isPending && !isCancelled;
 
   async function handleApprove() {
     if (!data || !activeCompany) return;
@@ -287,7 +292,7 @@ export function PaOrderDetailPage() {
             <CardTitle className="text-xl">Pedido {data.pedido}</CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">{data.fornecedor}</p>
           </div>
-          <PaStatusBadge status={data.status_compra} />
+          <PaStatusBadge status={efetivo} />
         </CardHeader>
         <CardContent className="grid grid-cols-3 gap-4">
           <Field label="Filial" value={data.filial} />
@@ -306,6 +311,21 @@ export function PaOrderDetailPage() {
           <Field
             label="Qtde original"
             value={String(data.tot_qtde_original ?? '—')}
+          />
+          <Field
+            label="Qtde cancelada"
+            value={
+              data.tot_qtde_cancelada && data.tot_qtde_cancelada > 0 ? (
+                <span className="font-medium text-warning">
+                  {data.tot_qtde_cancelada}
+                  {data.tot_qtde_original
+                    ? ` de ${data.tot_qtde_original}`
+                    : ''}
+                </span>
+              ) : (
+                '—'
+              )
+            }
           />
           <Field
             label="Valor total"
@@ -339,6 +359,7 @@ export function PaOrderDetailPage() {
                 <TableHead>Cor</TableHead>
                 <TableHead>Entrega</TableHead>
                 <TableHead className="text-right">Qtde</TableHead>
+                <TableHead className="text-right">Cancelada</TableHead>
                 <TableHead className="text-right">Entregue</TableHead>
                 <TableHead className="text-right">Custo unit.</TableHead>
                 <TableHead className="text-right">Valor</TableHead>
@@ -355,6 +376,15 @@ export function PaOrderDetailPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     {it.qtde_original ?? '—'}
+                  </TableCell>
+                  <TableCell
+                    className={
+                      it.qtde_cancelada && it.qtde_cancelada > 0
+                        ? 'text-right font-medium text-warning'
+                        : 'text-right text-muted-foreground'
+                    }
+                  >
+                    {it.qtde_cancelada ?? 0}
                   </TableCell>
                   <TableCell className="text-right text-muted-foreground">
                     {it.qtde_entregue ?? 0}

@@ -237,9 +237,10 @@ export class ProductOrdersPaService {
     const { status, search } = options;
     const filters: Prisma.Sql[] = [Prisma.sql`empresa = ${c}`];
     if (status && status !== 'ALL') {
-      // Status no Linx vem com padding ('A ', 'P '). Aqui usamos LIKE
-      // pra cobrir variações de espaços sem precisar fixar formato.
-      filters.push(Prisma.sql`RTRIM(status_compra) = ${status.trim()}`);
+      // Usa `status_efetivo` (derivado do cancelamento por item) — o
+      // status do header sozinho não basta porque cancelamento de PA
+      // é por item em COMPRAS_PRODUTO.QTDE_CANCELADA.
+      filters.push(Prisma.sql`status_efetivo = ${status.trim()}`);
     }
     if (search) {
       const term = `%${search}%`;

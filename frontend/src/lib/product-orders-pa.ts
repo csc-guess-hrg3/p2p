@@ -12,6 +12,14 @@ export interface PaOrder {
   moeda: string;
   status_compra: string;
   status_aprovacao: string;
+  /**
+   * Status efetivo derivado do header + cancelamento por item:
+   *   - 'CP' (cancelado parcial) quando há itens parcialmente cancelados
+   *   - 'C' quando todos os itens estão totalmente cancelados
+   *   - caso contrário, o próprio status_compra
+   */
+  status_efetivo: string;
+  tot_qtde_cancelada: number | null;
   lx_status_compra: number | null;
   tipo_compra: string;
   natureza_entrada: string | null;

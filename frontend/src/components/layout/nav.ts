@@ -23,7 +23,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/requisicoes', label: 'Requisições', icon: FileText },
   { to: '/aprovacoes', label: 'Aprovações', icon: CheckSquare },
   { to: '/pedidos', label: 'Pedidos de Compra', icon: ShoppingCart },
-  { to: '/pedidos-pa', label: 'Pedidos de Produto', icon: Shirt },
+  { to: '/pedidos-pa', label: 'Compra de Produto Acabado', icon: Shirt },
   { to: '/solicitacoes-verba', label: 'Solicitações de Verba', icon: Banknote },
   { to: '/recebimentos', label: 'Recebimentos', icon: PackageCheck },
   {

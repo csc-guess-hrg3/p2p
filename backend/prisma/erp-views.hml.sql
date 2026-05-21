@@ -130,8 +130,14 @@ WHERE INATIVO = 0;
 GO
 
 -- ---------- PEDIDO DE COMPRA DE PRODUTO ACABADO (cabeçalho) ----------
--- Apenas pedidos com TABELA_FILHA='COMPRAS_PRODUTO'. Não inclui
--- agregação dos itens — quem chama agrupa se quiser.
+-- Apenas pedidos com TABELA_FILHA='COMPRAS_PRODUTO'. Linx não materializa
+-- o cancelamento no header (é por item em COMPRAS_PRODUTO.QTDE_CANCELADA),
+-- então aqui agregamos QTDE_ORIGINAL/QTDE_CANCELADA por pedido e derivamos
+-- um `status_efetivo`:
+--   - header 'C' ou 'R' → mantém
+--   - todos os itens totalmente cancelados (cancelada >= original) → 'C'
+--   - há cancelamento parcial → 'CP' (cancelado parcial — código P2P)
+--   - caso contrário → status do header
 CREATE OR ALTER VIEW dbo.v_p2p_product_orders AS
 SELECT 'GUESS' AS empresa,
        RTRIM(c.PEDIDO) AS pedido,
@@ -151,10 +157,26 @@ SELECT 'GUESS' AS empresa,
        RTRIM(c.REQUERIDO_POR) AS requerido_por,
        c.TOT_QTDE_ORIGINAL AS tot_qtde_original,
        c.TOT_QTDE_ENTREGAR AS tot_qtde_entregar,
+       ISNULL(agg.qtde_cancelada, 0) AS tot_qtde_cancelada,
        c.TOT_VALOR_ORIGINAL AS tot_valor_original,
        c.TOT_VALOR_ENTREGAR AS tot_valor_entregar,
-       CAST(c.OBS AS NVARCHAR(MAX)) AS obs
+       CAST(c.OBS AS NVARCHAR(MAX)) AS obs,
+       CASE
+         WHEN RTRIM(c.STATUS_COMPRA) IN ('C', 'R') THEN RTRIM(c.STATUS_COMPRA)
+         WHEN ISNULL(agg.qtde_original, 0) > 0
+              AND ISNULL(agg.qtde_cancelada, 0) >= ISNULL(agg.qtde_original, 0)
+              THEN 'C'
+         WHEN ISNULL(agg.qtde_cancelada, 0) > 0 THEN 'CP'
+         ELSE RTRIM(c.STATUS_COMPRA)
+       END AS status_efetivo
 FROM HML_GUESS.dbo.COMPRAS c
+LEFT JOIN (
+  SELECT PEDIDO,
+         SUM(ISNULL(QTDE_ORIGINAL, 0)) AS qtde_original,
+         SUM(ISNULL(QTDE_CANCELADA, 0)) AS qtde_cancelada
+  FROM HML_GUESS.dbo.COMPRAS_PRODUTO
+  GROUP BY PEDIDO
+) agg ON agg.PEDIDO = c.PEDIDO
 WHERE RTRIM(c.TABELA_FILHA) = 'COMPRAS_PRODUTO';
 GO
 
