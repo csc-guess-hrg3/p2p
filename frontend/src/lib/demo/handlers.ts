@@ -980,6 +980,79 @@ function handleDelegations(
 }
 
 // ───────────────────────────────────────────────────────────────
+// PEDIDOS DE PRODUTO ACABADO (PA) — leitura simulada do "ERP"
+// ───────────────────────────────────────────────────────────────
+
+function handleProductOrdersPa(
+  method: string,
+  segments: string[],
+  query: URLSearchParams,
+): DemoResponse | null {
+  if (method !== 'GET') return null;
+  const state = getDemoState() as any;
+  // /product-orders-pa/:company/:pedido?/grade?
+  const pedido = segments[2];
+  const sub = segments[3];
+
+  if (!pedido) {
+    let rows = (state.paOrders ?? []) as any[];
+    const status = query.get('status');
+    if (status && status !== 'ALL') {
+      rows = rows.filter((r) => (r.status_compra ?? '').trim() === status);
+    }
+    const search = query.get('search')?.toLowerCase();
+    if (search) {
+      rows = rows.filter(
+        (r) =>
+          r.pedido.toLowerCase().includes(search) ||
+          (r.fornecedor ?? '').toLowerCase().includes(search),
+      );
+    }
+    rows = rows
+      .slice()
+      .sort((a, b) => (a.emissao < b.emissao ? 1 : -1));
+    return ok(rows);
+  }
+  if (pedido && sub === 'grade') {
+    const produto = query.get('produto');
+    const cor = query.get('cor');
+    const entrega = query.get('entrega');
+    const rows = ((state.paGrade ?? []) as any[]).filter(
+      (g) =>
+        g.pedido === pedido &&
+        g.produto === produto &&
+        g.cor === cor &&
+        (!entrega || g.entrega === entrega),
+    );
+    const grade = rows[0]?.grade ?? null;
+    const tamanhos: Record<number, string> = {};
+    for (const t of (state.paTamanhos ?? []) as any[]) {
+      if (t.grade === grade) tamanhos[t.posicao] = t.tamanho;
+    }
+    return ok({
+      grade,
+      rows: rows.map((r) => ({
+        posicao: r.posicao,
+        qtdeOriginal: r.qtde_original,
+        qtdeEntregue: r.qtde_entregue,
+        tamanho: tamanhos[r.posicao] ?? null,
+      })),
+    });
+  }
+  if (pedido && !sub) {
+    const header = ((state.paOrders ?? []) as any[]).find(
+      (r) => r.pedido === pedido,
+    );
+    if (!header) return notFound();
+    const items = ((state.paItems ?? []) as any[]).filter(
+      (i) => i.pedido === pedido,
+    );
+    return ok({ ...header, items });
+  }
+  return null;
+}
+
+// ───────────────────────────────────────────────────────────────
 // ATTACHMENTS — modo demo simula sem armazenar bytes reais
 // ───────────────────────────────────────────────────────────────
 
@@ -1359,6 +1432,7 @@ export function routeDemoRequest(
     receiving: () => handleReceiving(m, segments, query, data),
     dashboard: () => handleDashboard(m, segments, query),
     attachments: () => handleAttachments(m, segments, query, data),
+    'product-orders-pa': () => handleProductOrdersPa(m, segments, query),
     'fiscal-item-requests': () => handleFiscalItemRequests(m, segments, query, data),
     users: () => handleUsers(m, segments, query, data),
     teams: () => handleTeams(m, segments, data),

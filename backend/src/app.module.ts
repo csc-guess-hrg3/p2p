@@ -28,6 +28,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { ReportsModule } from './reports/reports.module';
 import { IntegrationModule } from './integration/integration.module';
 import { AttachmentsModule } from './attachments/attachments.module';
+import { ProductOrdersPaModule } from './product-orders-pa/product-orders-pa.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { AttachmentsModule } from './attachments/attachments.module';
     ReportsModule,
     IntegrationModule,
     AttachmentsModule,
+    ProductOrdersPaModule,
   ],
   controllers: [AppController],
   providers: [

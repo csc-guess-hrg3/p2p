@@ -15,6 +15,8 @@ import { FundRequestsListPage } from '@/pages/fund-requests/FundRequestsListPage
 import { FundRequestDetailPage } from '@/pages/fund-requests/FundRequestDetailPage';
 import { ReceivingsListPage } from '@/pages/receiving/ReceivingsListPage';
 import { ReceivingDetailPage } from '@/pages/receiving/ReceivingDetailPage';
+import { PaOrdersListPage } from '@/pages/product-orders-pa/PaOrdersListPage';
+import { PaOrderDetailPage } from '@/pages/product-orders-pa/PaOrderDetailPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { AdminPage } from '@/pages/admin/AdminPage';
 import { ErpConfigPage } from '@/pages/admin/ErpConfigPage';
@@ -54,6 +56,11 @@ function App() {
                   <Route
                     path="pedidos/:id"
                     element={<PurchaseOrderDetailPage />}
+                  />
+                  <Route path="pedidos-pa" element={<PaOrdersListPage />} />
+                  <Route
+                    path="pedidos-pa/:pedido"
+                    element={<PaOrderDetailPage />}
                   />
                   <Route
                     path="solicitacoes-verba"

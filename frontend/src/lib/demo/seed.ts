@@ -34,9 +34,13 @@ export interface DemoState {
   integrationLogs: any[];
   receivings: any[];
   attachments: any[];
+  paOrders: any[];
+  paItems: any[];
+  paGrade: any[];
+  paTamanhos: any[];
 }
 
-export const DEMO_STATE_VERSION = 4;
+export const DEMO_STATE_VERSION = 5;
 
 function uid(prefix = ''): string {
   // crypto.randomUUID em browsers modernos. Fallback simples se faltar.
@@ -995,6 +999,177 @@ export function buildSeed(): DemoState {
     });
   });
 
+  // ── Pedidos de Produto Acabado (PA) — vêm do "ERP" no demo ─────
+  // Estrutura espelha as views v_p2p_product_orders /
+  // v_p2p_product_order_items / v_p2p_product_order_grade.
+  const paTamanhos = [
+    { grade: 'PMG', posicao: 1, tamanho: 'P' },
+    { grade: 'PMG', posicao: 2, tamanho: 'M' },
+    { grade: 'PMG', posicao: 3, tamanho: 'G' },
+    { grade: 'PMG', posicao: 4, tamanho: 'GG' },
+    { grade: '36-44', posicao: 1, tamanho: '36' },
+    { grade: '36-44', posicao: 2, tamanho: '38' },
+    { grade: '36-44', posicao: 3, tamanho: '40' },
+    { grade: '36-44', posicao: 4, tamanho: '42' },
+    { grade: '36-44', posicao: 5, tamanho: '44' },
+  ];
+  const paOrders: any[] = [];
+  const paItems: any[] = [];
+  const paGrade: any[] = [];
+  const paOrderSeeds = [
+    {
+      pedido: '60290',
+      fornecedor: 'SCARF ME',
+      filial: 'CD SÃO PAULO',
+      status: 'P',
+      total: '4980.00',
+      qtde: 60,
+      emissaoDays: 1,
+      items: [
+        { produto: 'MB0RPOKS002', cor: 'DTSK', grade: 'PMG', dist: [10, 20, 20, 10], custo: '83.00' },
+      ],
+    },
+    {
+      pedido: '60291',
+      fornecedor: 'K2 INDUSTRIA',
+      filial: 'CD SÃO PAULO',
+      status: 'P',
+      total: '27180.00',
+      qtde: 300,
+      emissaoDays: 2,
+      items: [
+        { produto: 'MB0RPOKS002', cor: 'BLK', grade: 'PMG', dist: [30, 70, 70, 30], custo: '45.30' },
+        { produto: 'MB0RPOKS002', cor: 'WHT', grade: 'PMG', dist: [30, 70, 70, 30], custo: '45.30' },
+      ],
+    },
+    {
+      pedido: '60292',
+      fornecedor: 'ARTAR',
+      filial: 'CD CAMPINAS',
+      status: 'P',
+      total: '7400.00',
+      qtde: 80,
+      emissaoDays: 3,
+      items: [
+        { produto: 'W261TOPKE52E', cor: 'WNSLM', grade: '36-44', dist: [10, 20, 20, 20, 10], custo: '92.50' },
+      ],
+    },
+    {
+      pedido: '60275',
+      fornecedor: 'SCARF ME',
+      filial: 'CD SÃO PAULO',
+      status: 'E',
+      total: '3000.00',
+      qtde: 50,
+      emissaoDays: 5,
+      items: [
+        { produto: 'MB0RPOKS002', cor: 'SQSE', grade: 'PMG', dist: [10, 15, 15, 10], custo: '60.00' },
+      ],
+    },
+    {
+      pedido: '60260',
+      fornecedor: 'K2 INDUSTRIA',
+      filial: 'CD SÃO PAULO',
+      status: 'A',
+      total: '13590.00',
+      qtde: 150,
+      emissaoDays: 10,
+      items: [
+        { produto: 'MB0RPOKS002', cor: 'DTSK', grade: 'PMG', dist: [15, 42, 48, 30], custo: '90.60' },
+        { produto: 'MB0RPOKS002', cor: 'SQSE', grade: 'PMG', dist: [15, 42, 48, 30], custo: '90.60' },
+      ],
+    },
+    {
+      pedido: '60240',
+      fornecedor: 'ARTAR',
+      filial: 'CD CAMPINAS',
+      status: 'R',
+      total: '12000.00',
+      qtde: 100,
+      emissaoDays: 12,
+      items: [
+        { produto: 'W261TOPKE52E', cor: 'WNSLM', grade: '36-44', dist: [15, 25, 25, 25, 10], custo: '120.00' },
+      ],
+    },
+  ];
+  for (const seed of paOrderSeeds) {
+    const totalQtde = seed.items.reduce(
+      (s, it) => s + it.dist.reduce((a, b) => a + b, 0),
+      0,
+    );
+    paOrders.push({
+      empresa: 'DEMO',
+      pedido: seed.pedido,
+      fornecedor: seed.fornecedor,
+      filial: seed.filial,
+      condicao_pgto: '030',
+      moeda: 'R$',
+      status_compra: seed.status,
+      status_aprovacao:
+        seed.status === 'A' ? 'A' : seed.status === 'R' ? 'R' : 'P',
+      lx_status_compra: seed.status === 'A' ? 1 : null,
+      tipo_compra: 'PRODUTO ACABADO',
+      natureza_entrada: '200.01',
+      emissao: nowIso(-seed.emissaoDays),
+      cadastramento: nowIso(-seed.emissaoDays),
+      data_aprovacao: seed.status === 'A' ? nowIso(-seed.emissaoDays + 2) : null,
+      aprovado_por: seed.status === 'A' ? manager.name : null,
+      requerido_por: operator.name,
+      tot_qtde_original: totalQtde,
+      tot_qtde_entregar: seed.status === 'A' ? totalQtde : 0,
+      tot_valor_original: seed.total,
+      tot_valor_entregar: seed.status === 'A' ? seed.total : '0.00',
+      obs:
+        seed.status === 'P'
+          ? 'Aguardando aprovação do diretor da marca.'
+          : seed.status === 'E'
+            ? 'Em estudo pela equipe de compras.'
+            : null,
+    });
+    for (const it of seed.items) {
+      const qty = it.dist.reduce((a, b) => a + b, 0);
+      const valor = (qty * Number(it.custo)).toFixed(2);
+      const entrega = nowIso(-seed.emissaoDays + 30);
+      paItems.push({
+        empresa: 'DEMO',
+        pedido: seed.pedido,
+        produto: it.produto,
+        cor: it.cor,
+        entrega,
+        limite_entrega: entrega,
+        chegada_prevista: null,
+        data_confirmacao: null,
+        qtde_original: qty,
+        qtde_cancelada: 0,
+        qtde_entregue: 0,
+        qtde_entregar: qty,
+        valor_original: valor,
+        valor_entregue: '0.00',
+        valor_entregar: valor,
+        custo_unit: it.custo,
+        ipi_pct: '0.00',
+        desconto_item: '0.00',
+        obs_item: null,
+        _grade: it.grade,
+      });
+      it.dist.forEach((q, idx) => {
+        if (q > 0) {
+          paGrade.push({
+            empresa: 'DEMO',
+            pedido: seed.pedido,
+            produto: it.produto,
+            cor: it.cor,
+            entrega,
+            posicao: idx + 1,
+            qtde_original: q,
+            qtde_entregue: 0,
+            grade: it.grade,
+          });
+        }
+      });
+    }
+  }
+
   return {
     version: DEMO_STATE_VERSION,
     companies: [
@@ -1035,5 +1210,9 @@ export function buildSeed(): DemoState {
     integrationLogs,
     receivings,
     attachments: attachmentsList,
+    paOrders,
+    paItems,
+    paGrade,
+    paTamanhos,
   };
 }
