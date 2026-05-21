@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -23,6 +24,8 @@ import { AuthenticatedUser } from '../auth/auth.types';
  */
 @Injectable()
 export class ProductOrdersPaService {
+  private readonly logger = new Logger(ProductOrdersPaService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   private assertCompany(company: string): string {
@@ -41,6 +44,179 @@ export class ProductOrdersPaService {
     // confiamos que o frontend sempre passa um code válido para o usuário.
     void user;
     void companyCode;
+  }
+
+  /** Resolve o nome do banco do ERP a partir do code da empresa. */
+  private async resolveErpDb(companyCode: string): Promise<string> {
+    const company = await this.prisma.company.findFirst({
+      where: { code: companyCode, deletedAt: null },
+      select: { erpDbName: true },
+    });
+    if (!company) {
+      throw new BadRequestException(`Empresa "${companyCode}" não cadastrada.`);
+    }
+    return company.erpDbName;
+  }
+
+  /** Resolve a CompanyErpConfig de uma empresa por code. */
+  private async resolveConfig(companyCode: string) {
+    const company = await this.prisma.company.findFirst({
+      where: { code: companyCode, deletedAt: null },
+      include: { erpConfig: true },
+    });
+    if (!company) {
+      throw new BadRequestException(`Empresa "${companyCode}" não cadastrada.`);
+    }
+    return { company, config: company.erpConfig };
+  }
+
+  /**
+   * Aprova um pedido PA. Verifica:
+   *  - usuário é o `paApproverUserId` configurado na empresa
+   *  - pedido está em status 'E' (em estudo)
+   * Escreve no Linx: COMPRAS.STATUS_COMPRA='A ', STATUS_APROVACAO='A',
+   * LX_STATUS_COMPRA=1, DATA_APROVACAO, APROVADO_POR; e insere uma linha
+   * em COMPRAS_STATUS_LOG.
+   */
+  async approve(user: AuthenticatedUser, company: string, pedido: string) {
+    const c = this.assertCompany(company);
+    this.assertUserHasCompany(user, c);
+    const { company: comp, config } = await this.resolveConfig(c);
+    if (!config?.paApproverUserId) {
+      throw new BadRequestException(
+        `Empresa ${comp.code} não tem aprovador de PA configurado em company_erp_configs.paApproverUserId.`,
+      );
+    }
+    if (config.paApproverUserId !== user.id) {
+      throw new ForbiddenException(
+        'Apenas o diretor da marca configurado pode aprovar pedidos PA.',
+      );
+    }
+    const erpDb = comp.erpDbName;
+    const numero = pedido.trim();
+
+    const headerRows = await this.prisma.$queryRawUnsafe<
+      { status_compra: string }[]
+    >(
+      `SELECT TOP 1 RTRIM(STATUS_COMPRA) AS status_compra
+         FROM [${erpDb}].dbo.COMPRAS
+        WHERE PEDIDO = @P1
+          AND RTRIM(TABELA_FILHA) = 'COMPRAS_PRODUTO'`,
+      numero,
+    );
+    if (headerRows.length === 0) {
+      throw new NotFoundException(`Pedido ${numero} não encontrado no ERP.`);
+    }
+    const current = (headerRows[0].status_compra ?? '').trim();
+    if (current !== 'E') {
+      throw new BadRequestException(
+        `Pedido ${numero} está em status "${current}" — só pedidos em estudo (E) podem ser aprovados.`,
+      );
+    }
+
+    const aprovador = (user.name ?? user.adUsername ?? '').slice(0, 25);
+    await this.prisma.$transaction(async () => {
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE [${erpDb}].dbo.COMPRAS
+            SET STATUS_COMPRA = 'A ',
+                STATUS_APROVACAO = 'A',
+                LX_STATUS_COMPRA = 1,
+                DATA_APROVACAO = GETDATE(),
+                APROVADO_POR = @P2,
+                APROVADOR_POR = @P2
+          WHERE PEDIDO = @P1
+            AND RTRIM(TABELA_FILHA) = 'COMPRAS_PRODUTO'`,
+        numero,
+        aprovador,
+      );
+      await this.prisma.$executeRawUnsafe(
+        `INSERT INTO [${erpDb}].dbo.COMPRAS_STATUS_LOG
+           (PEDIDO, DATA_ALTERACAO_STATUS, STATUS_COMPRA, USUARIO)
+         VALUES (@P1, GETDATE(), N'A ', @P2)`,
+        numero,
+        aprovador,
+      );
+    });
+    this.logger.log(`PA ${numero} aprovado por ${aprovador} (${user.id})`);
+    return this.findOne(user, company, numero);
+  }
+
+  /**
+   * Reprova um pedido PA — exige motivo (mínimo 10 caracteres),
+   * concatenado em COMPRAS.OBS para preservar histórico.
+   */
+  async reject(
+    user: AuthenticatedUser,
+    company: string,
+    pedido: string,
+    reason: string,
+  ) {
+    const c = this.assertCompany(company);
+    this.assertUserHasCompany(user, c);
+    if (!reason || reason.trim().length < 10) {
+      throw new BadRequestException(
+        'Motivo da reprovação obrigatório (mínimo 10 caracteres).',
+      );
+    }
+    const { company: comp, config } = await this.resolveConfig(c);
+    if (!config?.paApproverUserId || config.paApproverUserId !== user.id) {
+      throw new ForbiddenException(
+        'Apenas o diretor da marca configurado pode reprovar pedidos PA.',
+      );
+    }
+    const erpDb = comp.erpDbName;
+    const numero = pedido.trim();
+
+    const headerRows = await this.prisma.$queryRawUnsafe<
+      { status_compra: string; obs: string | null }[]
+    >(
+      `SELECT TOP 1 RTRIM(STATUS_COMPRA) AS status_compra,
+              CAST(OBS AS NVARCHAR(MAX)) AS obs
+         FROM [${erpDb}].dbo.COMPRAS
+        WHERE PEDIDO = @P1
+          AND RTRIM(TABELA_FILHA) = 'COMPRAS_PRODUTO'`,
+      numero,
+    );
+    if (headerRows.length === 0) {
+      throw new NotFoundException(`Pedido ${numero} não encontrado no ERP.`);
+    }
+    const current = (headerRows[0].status_compra ?? '').trim();
+    if (current !== 'E') {
+      throw new BadRequestException(
+        `Pedido ${numero} está em status "${current}" — só pedidos em estudo (E) podem ser reprovados.`,
+      );
+    }
+
+    const aprovador = (user.name ?? user.adUsername ?? '').slice(0, 25);
+    const prevObs = headerRows[0].obs ?? '';
+    const stamp = new Date()
+      .toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+      .replace(',', '');
+    const note = `REPROVADO POR ${aprovador} EM ${stamp}: ${reason.trim()}`;
+    const newObs = prevObs ? `${prevObs}\n\n${note}` : note;
+
+    await this.prisma.$transaction(async () => {
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE [${erpDb}].dbo.COMPRAS
+            SET STATUS_COMPRA = 'R ',
+                STATUS_APROVACAO = 'R',
+                OBS = @P3
+          WHERE PEDIDO = @P1
+            AND RTRIM(TABELA_FILHA) = 'COMPRAS_PRODUTO'`,
+        numero,
+        aprovador,
+        newObs,
+      );
+      await this.prisma.$executeRawUnsafe(
+        `INSERT INTO [${erpDb}].dbo.COMPRAS_STATUS_LOG
+           (PEDIDO, DATA_ALTERACAO_STATUS, STATUS_COMPRA, USUARIO)
+         VALUES (@P1, GETDATE(), N'R ', @P2)`,
+        numero,
+        aprovador,
+      );
+    });
+    this.logger.log(`PA ${numero} reprovado por ${aprovador} (${user.id})`);
+    return this.findOne(user, company, numero);
   }
 
   /**
@@ -80,7 +256,11 @@ export class ProductOrdersPaService {
       ORDER BY emissao DESC`;
   }
 
-  /** Detalhe de um pedido PA: cabeçalho + lista de itens. */
+  /**
+   * Detalhe de um pedido PA: cabeçalho + lista de itens + flag
+   * `canApprovePa` (UI usa pra mostrar Aprovar/Reprovar quando o usuário
+   * logado é o aprovador configurado para a empresa).
+   */
   async findOne(user: AuthenticatedUser, company: string, pedido: string) {
     const c = this.assertCompany(company);
     this.assertUserHasCompany(user, c);
@@ -97,7 +277,11 @@ export class ProductOrdersPaService {
       WHERE empresa = ${c} AND pedido = ${numero}
       ORDER BY produto, cor, entrega`;
 
-    return { ...headerRows[0], items };
+    const cfg = await this.resolveConfig(c).catch(() => null);
+    const canApprovePa =
+      !!cfg?.config?.paApproverUserId &&
+      cfg.config.paApproverUserId === user.id;
+    return { ...headerRows[0], items, canApprovePa };
   }
 
   /**
@@ -120,7 +304,7 @@ export class ProductOrdersPaService {
     // Resolve o produto-grade a partir do mestre PRODUTOS. O cliente
     // poderia ter mandado o `grade` direto, mas resolver no backend
     // mantém a UI burra (sem cross-table).
-    const erpDb = c === 'GUESS' ? 'HML_GUESS' : 'HML_HERING';
+    const erpDb = await this.resolveErpDb(c);
     const gradeRow = await this.prisma.$queryRawUnsafe<{ grade: string | null }[]>(
       `SELECT TOP 1 RTRIM(GRADE) AS grade FROM [${erpDb}].dbo.PRODUTOS WHERE PRODUTO = @P1`,
       produto,

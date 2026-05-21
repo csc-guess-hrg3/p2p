@@ -22,6 +22,8 @@ export interface ErpConfigPayload {
   emailSubjectTemplate: string | null;
   emailBodyTemplate: string | null;
   hasSmtpPassword: boolean;
+  /** Aprovador de Pedidos de Produto Acabado (diretor da marca). */
+  paApproverUserId: string | null;
 }
 
 export interface CompanyErpConfigResponse {

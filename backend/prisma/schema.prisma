@@ -94,10 +94,16 @@ model CompanyErpConfig {
   smtpFromName                String?  @db.NVarChar(255)
   emailSubjectTemplate        String?  @db.NVarChar(255)
   emailBodyTemplate           String?  @db.NVarChar(Max)
+  // Pedidos de Produto Acabado (PA) — fluxo paralelo. O diretor da marca
+  // é o aprovador único por empresa. Quando o negócio evoluir para
+  // alçada por valor (cadeia), substituir esta coluna por um vínculo
+  // com TeamApprovalLevel com escopo PA (ver Rodada 8 / dívida 6.2).
+  paApproverUserId            String?  @db.UniqueIdentifier
   createdAt                   DateTime @default(now())
   updatedAt                   DateTime @updatedAt
 
-  company Company @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  company     Company @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  paApprover  User?   @relation("PaApprover", fields: [paApproverUserId], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
   @@map("company_erp_configs")
 }
@@ -271,6 +277,7 @@ model User {
   updatedSettings     SystemSetting[]
   fiscalRequests      FiscalItemRequest[] @relation("fiscalRequester")
   fiscalResolutions   FiscalItemRequest[] @relation("fiscalResolver")
+  paApproverFor       CompanyErpConfig[] @relation("PaApprover")
 
   @@map("users")
 }

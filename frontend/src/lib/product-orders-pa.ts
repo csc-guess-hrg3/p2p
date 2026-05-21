@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 
 /* Tipos espelham as views v_p2p_product_orders / v_p2p_product_order_items. */
@@ -51,6 +51,7 @@ export interface PaItem {
 
 export interface PaOrderDetail extends PaOrder {
   items: PaItem[];
+  canApprovePa: boolean;
 }
 
 export interface PaGradeRow {
@@ -91,6 +92,47 @@ export function usePaOrder(company?: string, pedido?: string) {
         )
       ).data,
     enabled: !!company && !!pedido,
+  });
+}
+
+export function useApprovePaOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ company, pedido }: { company: string; pedido: string }) =>
+      (
+        await api.post<PaOrderDetail>(
+          `/product-orders-pa/${company}/${pedido}/approve`,
+        )
+      ).data,
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['pa-orders', vars.company] });
+      qc.invalidateQueries({ queryKey: ['pa-order', vars.company, vars.pedido] });
+    },
+  });
+}
+
+export function useRejectPaOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      company,
+      pedido,
+      reason,
+    }: {
+      company: string;
+      pedido: string;
+      reason: string;
+    }) =>
+      (
+        await api.post<PaOrderDetail>(
+          `/product-orders-pa/${company}/${pedido}/reject`,
+          { reason },
+        )
+      ).data,
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['pa-orders', vars.company] });
+      qc.invalidateQueries({ queryKey: ['pa-order', vars.company, vars.pedido] });
+    },
   });
 }
 

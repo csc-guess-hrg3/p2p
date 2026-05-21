@@ -30,4 +30,12 @@ export class UpdateErpConfigDto {
   @ApiPropertyOptional() @IsOptional() @IsString() smtpFromName?: string | null;
   @ApiPropertyOptional() @IsOptional() @IsString() emailSubjectTemplate?: string | null;
   @ApiPropertyOptional() @IsOptional() @IsString() emailBodyTemplate?: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      'ID do usuário que aprova Pedidos de Produto Acabado (diretor da marca).',
+  })
+  @IsOptional()
+  @IsString()
+  paApproverUserId?: string | null;
 }

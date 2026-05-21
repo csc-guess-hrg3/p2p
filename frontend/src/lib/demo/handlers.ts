@@ -987,12 +987,47 @@ function handleProductOrdersPa(
   method: string,
   segments: string[],
   query: URLSearchParams,
+  data?: any,
 ): DemoResponse | null {
-  if (method !== 'GET') return null;
   const state = getDemoState() as any;
-  // /product-orders-pa/:company/:pedido?/grade?
+  // /product-orders-pa/:company/:pedido?/(grade|approve|reject)?
   const pedido = segments[2];
   const sub = segments[3];
+
+  if (method === 'POST' && pedido && (sub === 'approve' || sub === 'reject')) {
+    return mutateDemoState((s: any) => {
+      const po = (s.paOrders ?? []).find((r: any) => r.pedido === pedido);
+      if (!po) return notFound();
+      const cur = (po.status_compra ?? '').trim();
+      if (cur !== 'E') {
+        return badRequest(
+          `Pedido em status "${cur}" — só pedidos em estudo podem ser decididos.`,
+        );
+      }
+      const userId = getDemoSessionUserId();
+      const user = s.users.find((u: any) => u.id === userId);
+      const name = user?.name ?? 'Demo';
+      if (sub === 'approve') {
+        po.status_compra = 'A';
+        po.status_aprovacao = 'A';
+        po.lx_status_compra = 1;
+        po.data_aprovacao = todayIso();
+        po.aprovado_por = name;
+      } else {
+        const reason = String(data?.reason ?? '').trim();
+        if (reason.length < 10) {
+          return badRequest('Motivo precisa ter no mínimo 10 caracteres.');
+        }
+        po.status_compra = 'R';
+        po.status_aprovacao = 'R';
+        po.obs = `${po.obs ?? ''}\n\nREPROVADO POR ${name}: ${reason}`.trim();
+      }
+      const items = (s.paItems ?? []).filter((i: any) => i.pedido === pedido);
+      return ok({ ...po, items, canApprovePa: true });
+    });
+  }
+
+  if (method !== 'GET') return null;
 
   if (!pedido) {
     let rows = (state.paOrders ?? []) as any[];
@@ -1047,7 +1082,9 @@ function handleProductOrdersPa(
     const items = ((state.paItems ?? []) as any[]).filter(
       (i) => i.pedido === pedido,
     );
-    return ok({ ...header, items });
+    // No demo, qualquer usuário logado é o "diretor da marca" — simplifica
+    // a navegação sem precisar de tela admin de paApproverUserId.
+    return ok({ ...header, items, canApprovePa: true });
   }
   return null;
 }
@@ -1432,7 +1469,7 @@ export function routeDemoRequest(
     receiving: () => handleReceiving(m, segments, query, data),
     dashboard: () => handleDashboard(m, segments, query),
     attachments: () => handleAttachments(m, segments, query, data),
-    'product-orders-pa': () => handleProductOrdersPa(m, segments, query),
+    'product-orders-pa': () => handleProductOrdersPa(m, segments, query, data),
     'fiscal-item-requests': () => handleFiscalItemRequests(m, segments, query, data),
     users: () => handleUsers(m, segments, query, data),
     teams: () => handleTeams(m, segments, data),

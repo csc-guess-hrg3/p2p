@@ -1,6 +1,15 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ProductOrdersPaService } from './product-orders-pa.service';
+import { RejectPaDto } from './dto/reject-pa.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
@@ -57,5 +66,26 @@ export class ProductOrdersPaController {
       cor,
       entrega,
     );
+  }
+
+  @Post(':pedido/approve')
+  @ApiOperation({ summary: 'Aprova um pedido PA (status E → A)' })
+  approve(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('company') company: string,
+    @Param('pedido') pedido: string,
+  ) {
+    return this.service.approve(user, company, pedido);
+  }
+
+  @Post(':pedido/reject')
+  @ApiOperation({ summary: 'Reprova um pedido PA (status E → R)' })
+  reject(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('company') company: string,
+    @Param('pedido') pedido: string,
+    @Body() dto: RejectPaDto,
+  ) {
+    return this.service.reject(user, company, pedido, dto.reason);
   }
 }

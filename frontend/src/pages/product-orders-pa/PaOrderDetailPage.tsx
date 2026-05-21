@@ -1,12 +1,18 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Grid3x3 } from 'lucide-react';
+import { isAxiosError } from 'axios';
+import { ArrowLeft, Check, Grid3x3, X } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import {
+  useApprovePaOrder,
   usePaOrder,
   usePaItemGrade,
+  useRejectPaOrder,
   type PaItem,
 } from '@/lib/product-orders-pa';
+import { useToast } from '@/components/ui/use-toast';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -32,7 +38,7 @@ const STATUS_MAP: Record<
   { label: string; variant: 'default' | 'success' | 'destructive' | 'warning' | 'neutral' }
 > = {
   P: { label: 'Pendente aprovação', variant: 'warning' },
-  E: { label: 'Em estudo', variant: 'neutral' },
+  E: { label: 'Aguardando aprovação', variant: 'warning' },
   A: { label: 'Aprovado', variant: 'success' },
   R: { label: 'Reprovado', variant: 'destructive' },
   C: { label: 'Cancelado', variant: 'neutral' },
@@ -130,27 +136,150 @@ function ItemGradeDialog({
   );
 }
 
+function RejectDialog({
+  open,
+  onOpenChange,
+  company,
+  pedido,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  company: string;
+  pedido: string;
+}) {
+  const { toast } = useToast();
+  const rejectMut = useRejectPaOrder();
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleConfirm() {
+    if (reason.trim().length < 10) {
+      setError('O motivo precisa ter no mínimo 10 caracteres.');
+      return;
+    }
+    setError(null);
+    try {
+      await rejectMut.mutateAsync({ company, pedido, reason });
+      toast({ title: 'Pedido reprovado', description: pedido, variant: 'default' });
+      onOpenChange(false);
+    } catch (err) {
+      const msg = isAxiosError(err)
+        ? (err.response?.data as { message?: string })?.message
+        : null;
+      setError(msg || 'Não foi possível reprovar.');
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Reprovar pedido {pedido}</DialogTitle>
+          <DialogDescription>
+            Informe o motivo. Ele fica gravado no ERP em &quot;Observações&quot;
+            para o histórico.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1.5">
+          <Label htmlFor="reason">Motivo</Label>
+          <Textarea
+            id="reason"
+            rows={4}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            autoFocus
+          />
+        </div>
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancelar
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={handleConfirm}
+            disabled={rejectMut.isPending}
+          >
+            {rejectMut.isPending ? 'Reprovando…' : 'Confirmar reprovação'}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function PaOrderDetailPage() {
   const { pedido } = useParams();
   const { activeCompany } = useCompany();
+  const { toast } = useToast();
   const [gradeFor, setGradeFor] = useState<PaItem | null>(null);
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const approveMut = useApprovePaOrder();
   const { data, isLoading } = usePaOrder(activeCompany?.code, pedido);
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Carregando…</p>;
   }
-  if (!data) {
+  if (!data || !activeCompany) {
     return <p className="text-sm text-muted-foreground">Pedido não encontrado.</p>;
+  }
+
+  const isPending = (data.status_compra ?? '').trim() === 'E';
+  const canDecide = data.canApprovePa && isPending;
+
+  async function handleApprove() {
+    if (!data || !activeCompany) return;
+    if (!confirm(`Aprovar o pedido ${data.pedido}?`)) return;
+    try {
+      await approveMut.mutateAsync({
+        company: activeCompany.code,
+        pedido: data.pedido,
+      });
+      toast({
+        title: 'Pedido aprovado',
+        description: data.pedido,
+        variant: 'success',
+      });
+    } catch (err) {
+      const msg = isAxiosError(err)
+        ? (err.response?.data as { message?: string })?.message
+        : null;
+      toast({
+        title: 'Falha ao aprovar',
+        description: msg || 'Tente novamente.',
+        variant: 'destructive',
+      });
+    }
   }
 
   return (
     <div className="space-y-4 pb-10">
-      <Button variant="ghost" size="sm" asChild>
-        <Link to="/pedidos-pa">
-          <ArrowLeft className="size-4" />
-          Pedidos PA
-        </Link>
-      </Button>
+      <div className="flex items-center justify-between">
+        <Button variant="ghost" size="sm" asChild>
+          <Link to="/pedidos-pa">
+            <ArrowLeft className="size-4" />
+            Pedidos PA
+          </Link>
+        </Button>
+        {canDecide && (
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setRejectOpen(true)}
+            >
+              <X className="size-4 text-destructive" />
+              Reprovar
+            </Button>
+            <Button
+              onClick={handleApprove}
+              disabled={approveMut.isPending}
+            >
+              <Check className="size-4" />
+              {approveMut.isPending ? 'Aprovando…' : 'Aprovar'}
+            </Button>
+          </div>
+        )}
+      </div>
 
       <Card>
         <CardHeader className="flex-row items-start justify-between">
@@ -260,6 +389,14 @@ export function PaOrderDetailPage() {
           company={activeCompany.code}
           pedido={data.pedido}
           item={gradeFor}
+        />
+      )}
+      {rejectOpen && activeCompany && (
+        <RejectDialog
+          open={rejectOpen}
+          onOpenChange={setRejectOpen}
+          company={activeCompany.code}
+          pedido={data.pedido}
         />
       )}
     </div>

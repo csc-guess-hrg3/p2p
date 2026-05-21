@@ -28,7 +28,7 @@ const STATUS_MAP: Record<
   { label: string; variant: 'default' | 'success' | 'destructive' | 'warning' | 'neutral' }
 > = {
   P: { label: 'Pendente aprovação', variant: 'warning' },
-  E: { label: 'Em estudo', variant: 'neutral' },
+  E: { label: 'Aguardando aprovação', variant: 'warning' },
   A: { label: 'Aprovado', variant: 'success' },
   R: { label: 'Reprovado', variant: 'destructive' },
   C: { label: 'Cancelado', variant: 'neutral' },
@@ -41,9 +41,11 @@ function PaStatusBadge({ status }: { status: string }) {
   return <Badge variant={meta.variant}>{meta.label}</Badge>;
 }
 
+// O fluxo de PA passa direto de 'E' (em estudo, criado por Compras no
+// ERP) para 'A' (aprovado pelo diretor da marca). Status 'P' não é
+// usado neste cliente — mantido aqui só pelo label caso apareça.
 const STATUS_OPTIONS = [
-  { value: 'P', label: 'Pendentes aprovação' },
-  { value: 'E', label: 'Em estudo' },
+  { value: 'E', label: 'Aguardando aprovação' },
   { value: 'A', label: 'Aprovados' },
   { value: 'R', label: 'Reprovados' },
   { value: 'C', label: 'Cancelados' },
@@ -53,7 +55,7 @@ const STATUS_OPTIONS = [
 export function PaOrdersListPage() {
   const { activeCompany } = useCompany();
   const navigate = useNavigate();
-  const [status, setStatus] = useState('P');
+  const [status, setStatus] = useState('E');
   const [search, setSearch] = useState('');
 
   const { data: rows = [], isLoading } = usePaOrders(activeCompany?.code, {

@@ -38,6 +38,7 @@ export interface CompanyErpConfigPatch {
   smtpFromName?: string | null;
   emailSubjectTemplate?: string | null;
   emailBodyTemplate?: string | null;
+  paApproverUserId?: string | null;
 }
 
 @Injectable()
@@ -120,6 +121,8 @@ export class CompaniesService {
         patch.emailSubjectTemplate ?? current?.emailSubjectTemplate ?? null,
       emailBodyTemplate:
         patch.emailBodyTemplate ?? current?.emailBodyTemplate ?? null,
+      paApproverUserId:
+        patch.paApproverUserId ?? current?.paApproverUserId ?? null,
     };
 
     const saved = await this.prisma.companyErpConfig.upsert({
