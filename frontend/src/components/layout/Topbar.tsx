@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Building2, ChevronDown, LogOut, User as UserIcon } from 'lucide-react';
+import { Building2, ChevronDown, LogOut, Menu, User as UserIcon } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { useCompany } from '@/lib/company';
 import {
@@ -28,7 +28,11 @@ function currentTitle(pathname: string): string {
   return match?.label ?? 'P2P';
 }
 
-export function Topbar() {
+interface TopbarProps {
+  onMenuClick: () => void;
+}
+
+export function Topbar({ onMenuClick }: TopbarProps) {
   const { pathname } = useLocation();
   const { user, logout } = useAuth();
   const { companies, activeCompany, setActiveCompany } = useCompany();
@@ -40,21 +44,32 @@ export function Topbar() {
   }
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b bg-background px-6">
-      <h1 className="text-lg font-semibold text-foreground">
-        {currentTitle(pathname)}
-      </h1>
+    <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b bg-background px-4 md:px-6">
+      <div className="flex min-w-0 items-center gap-2">
+        <button
+          onClick={onMenuClick}
+          className="rounded-md p-2 hover:bg-accent lg:hidden"
+          aria-label="Abrir menu"
+        >
+          <Menu className="size-5" />
+        </button>
+        <h1 className="truncate text-base font-semibold text-foreground md:text-lg">
+          {currentTitle(pathname)}
+        </h1>
+      </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 md:gap-3">
         {/* Ambiente: produção / homologação */}
         <EnvironmentSwitch />
 
         {/* Seletor de empresa */}
         {companies.length > 1 ? (
           <DropdownMenu>
-            <DropdownMenuTrigger className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm hover:bg-accent">
+            <DropdownMenuTrigger className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-sm hover:bg-accent md:px-3">
               <Building2 className="size-4 text-muted-foreground" />
-              {activeCompany?.name ?? 'Empresa'}
+              <span className="hidden max-w-[8rem] truncate sm:inline">
+                {activeCompany?.name ?? 'Empresa'}
+              </span>
               <ChevronDown className="size-4 text-muted-foreground" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -72,7 +87,7 @@ export function Topbar() {
           </DropdownMenu>
         ) : (
           activeCompany && (
-            <span className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span className="hidden items-center gap-2 text-sm text-muted-foreground sm:flex">
               <Building2 className="size-4" />
               {activeCompany.name}
             </span>
@@ -83,8 +98,10 @@ export function Topbar() {
         <DropdownMenu>
           <DropdownMenuTrigger className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent">
             <UserIcon className="size-5 text-muted-foreground" />
-            <span className="font-medium text-foreground">{user?.name}</span>
-            <ChevronDown className="size-4 text-muted-foreground" />
+            <span className="hidden max-w-[10rem] truncate font-medium text-foreground sm:inline">
+              {user?.name}
+            </span>
+            <ChevronDown className="hidden size-4 text-muted-foreground sm:inline" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-[12rem]">
             <DropdownMenuLabel>

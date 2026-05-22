@@ -44,6 +44,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Pagination } from '@/components/ui/pagination';
+import { usePagination } from '@/lib/use-pagination';
 
 const STATUS_OPTIONS = [
   { value: 'PENDING', label: 'Pendentes' },
@@ -136,6 +138,7 @@ function ItensTab({ companyCode }: { companyCode?: string }) {
   const { data, isLoading } = useFiscalItemRequests({ status });
   const rows = data?.data ?? [];
   const isFiscal = data?.isFiscalUser ?? false;
+  const pag = usePagination(rows);
 
   return (
     <div className="space-y-4">
@@ -160,6 +163,7 @@ function ItensTab({ companyCode }: { companyCode?: string }) {
       </div>
 
       <div className="rounded-lg border bg-card">
+        <div className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
@@ -186,7 +190,7 @@ function ItensTab({ companyCode }: { companyCode?: string }) {
                 </TableCell>
               </TableRow>
             )}
-            {rows.map((r) => (
+            {pag.pageRows.map((r) => (
               <TableRow key={r.id}>
                 <TableCell>
                   <div>{r.itemDescription}</div>
@@ -217,6 +221,15 @@ function ItensTab({ companyCode }: { companyCode?: string }) {
             ))}
           </TableBody>
         </Table>
+        </div>
+        <Pagination
+          page={pag.page}
+          pageSize={pag.pageSize}
+          total={pag.total}
+          totalPages={pag.totalPages}
+          onPageChange={pag.setPage}
+          onPageSizeChange={pag.setPageSize}
+        />
       </div>
 
       {approving && (
@@ -253,6 +266,7 @@ function RequisicoesTab() {
         (r.ctbTipoOperacao == null || !r.naturezaEntrada),
     );
   }, [data?.data]);
+  const pag = usePagination(pending);
 
   return (
     <div className="space-y-4">
@@ -263,6 +277,7 @@ function RequisicoesTab() {
       </p>
 
       <div className="rounded-lg border bg-card">
+        <div className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
@@ -290,7 +305,7 @@ function RequisicoesTab() {
                 </TableCell>
               </TableRow>
             )}
-            {pending.map((r) => (
+            {pag.pageRows.map((r) => (
               <TableRow
                 key={r.id}
                 className="cursor-pointer"
@@ -323,6 +338,15 @@ function RequisicoesTab() {
             ))}
           </TableBody>
         </Table>
+        </div>
+        <Pagination
+          page={pag.page}
+          pageSize={pag.pageSize}
+          total={pag.total}
+          totalPages={pag.totalPages}
+          onPageChange={pag.setPage}
+          onPageSizeChange={pag.setPageSize}
+        />
       </div>
     </div>
   );

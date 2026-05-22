@@ -102,7 +102,7 @@ export function ReceivingDetailPage() {
           </div>
           <StatusBadge status={receiving.status} />
         </CardHeader>
-        <CardContent className="grid grid-cols-3 gap-4">
+        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Recebido por" value={receiving.receivedBy?.name ?? '—'} />
           <Field label="Recebido em" value={formatDate(receiving.receivedAt)} />
           <Field label="Confirmado em" value={formatDate(receiving.confirmedAt)} />

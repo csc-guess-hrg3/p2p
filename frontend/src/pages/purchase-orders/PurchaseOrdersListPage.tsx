@@ -21,6 +21,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { Pagination } from '@/components/ui/pagination';
+import { usePagination } from '@/lib/use-pagination';
 
 const STATUS_OPTIONS = [
   { value: 'ALL', label: 'Todos os status' },
@@ -82,6 +84,7 @@ export function PurchaseOrdersListPage() {
     });
     return enriched;
   }, [data?.data]);
+  const pag = usePagination(rows);
 
   return (
     <div className="space-y-4">
@@ -89,8 +92,8 @@ export function PurchaseOrdersListPage() {
         {data ? `${data.total} pedido(s) de compra` : 'Carregando…'}
       </p>
 
-      <div className="flex gap-3">
-        <div className="relative max-w-sm flex-1">
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <div className="relative flex-1 sm:max-w-sm">
           <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
           <Input
             className="pl-8"
@@ -100,7 +103,7 @@ export function PurchaseOrdersListPage() {
           />
         </div>
         <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger className="w-56">
+          <SelectTrigger className="w-full sm:w-56">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -114,6 +117,7 @@ export function PurchaseOrdersListPage() {
       </div>
 
       <div className="rounded-lg border bg-card">
+        <div className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
@@ -148,7 +152,7 @@ export function PurchaseOrdersListPage() {
                 </TableCell>
               </TableRow>
             )}
-            {rows.map((po) => {
+            {pag.pageRows.map((po) => {
               const deliveryClass =
                 po.deliveryFlag === 'overdue'
                   ? 'font-medium text-destructive'
@@ -195,6 +199,15 @@ export function PurchaseOrdersListPage() {
             })}
           </TableBody>
         </Table>
+        </div>
+        <Pagination
+          page={pag.page}
+          pageSize={pag.pageSize}
+          total={pag.total}
+          totalPages={pag.totalPages}
+          onPageChange={pag.setPage}
+          onPageSizeChange={pag.setPageSize}
+        />
       </div>
     </div>
   );

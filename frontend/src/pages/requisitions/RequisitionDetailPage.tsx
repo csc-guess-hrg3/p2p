@@ -239,7 +239,7 @@ export function RequisitionDetailPage() {
           </div>
           <StatusBadge status={req.status} />
         </CardHeader>
-        <CardContent className="grid grid-cols-3 gap-4">
+        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Filial" value={req.branchName} />
           <Field label="Fornecedor" value={req.supplierName} />
           <Field

@@ -15,11 +15,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { Pagination } from '@/components/ui/pagination';
+import { usePagination } from '@/lib/use-pagination';
 import { DecideDialog } from './DecideDialog';
 
 export function ApprovalsPage() {
   const navigate = useNavigate();
   const { data: steps = [], isLoading } = usePendingApprovals();
+  const pag = usePagination(steps);
   const [decision, setDecision] = useState<{
     step: PendingApproval;
     approved: boolean;
@@ -34,6 +37,7 @@ export function ApprovalsPage() {
       </p>
 
       <div className="rounded-lg border bg-card">
+        <div className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
@@ -56,7 +60,7 @@ export function ApprovalsPage() {
                 </TableCell>
               </TableRow>
             )}
-            {steps.map((s) => (
+            {pag.pageRows.map((s) => (
               <TableRow key={s.id}>
                 <TableCell
                   className="cursor-pointer font-medium"
@@ -111,6 +115,15 @@ export function ApprovalsPage() {
             ))}
           </TableBody>
         </Table>
+        </div>
+        <Pagination
+          page={pag.page}
+          pageSize={pag.pageSize}
+          total={pag.total}
+          totalPages={pag.totalPages}
+          onPageChange={pag.setPage}
+          onPageSizeChange={pag.setPageSize}
+        />
       </div>
 
       {decision && (

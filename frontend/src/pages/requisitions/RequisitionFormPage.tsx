@@ -310,7 +310,7 @@ export function RequisitionFormPage() {
         <CardHeader>
           <CardTitle>Dados gerais</CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-4">
+        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label>Filial</Label>
             <Controller

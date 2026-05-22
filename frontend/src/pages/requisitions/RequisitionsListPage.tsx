@@ -22,6 +22,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { Pagination } from '@/components/ui/pagination';
+import { usePagination } from '@/lib/use-pagination';
 
 const STATUS_OPTIONS = [
   { value: 'ALL', label: 'Todos os status' },
@@ -47,6 +49,7 @@ export function RequisitionsListPage() {
   });
 
   const rows = data?.data ?? [];
+  const pag = usePagination(rows);
 
   return (
     <div className="space-y-4">
@@ -62,8 +65,8 @@ export function RequisitionsListPage() {
         </Button>
       </div>
 
-      <div className="flex gap-3">
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <div className="relative flex-1 sm:max-w-sm">
           <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
           <Input
             className="pl-8"
@@ -73,7 +76,7 @@ export function RequisitionsListPage() {
           />
         </div>
         <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger className="w-56">
+          <SelectTrigger className="w-full sm:w-56">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -87,6 +90,7 @@ export function RequisitionsListPage() {
       </div>
 
       <div className="rounded-lg border bg-card">
+        <div className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
@@ -114,7 +118,7 @@ export function RequisitionsListPage() {
                 </TableCell>
               </TableRow>
             )}
-            {rows.map((r) => (
+            {pag.pageRows.map((r) => (
               <TableRow
                 key={r.id}
                 className="cursor-pointer"
@@ -154,6 +158,15 @@ export function RequisitionsListPage() {
             ))}
           </TableBody>
         </Table>
+        </div>
+        <Pagination
+          page={pag.page}
+          pageSize={pag.pageSize}
+          total={pag.total}
+          totalPages={pag.totalPages}
+          onPageChange={pag.setPage}
+          onPageSizeChange={pag.setPageSize}
+        />
       </div>
     </div>
   );

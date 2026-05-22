@@ -60,7 +60,7 @@ export function FundRequestDetailPage() {
           </div>
           <StatusBadge status={sv.status} />
         </CardHeader>
-        <CardContent className="grid grid-cols-3 gap-4">
+        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Solicitante" value={sv.requester?.name ?? '—'} />
           <Field label="Criada em" value={formatDate(sv.createdAt)} />
           <Field label="Aprovada em" value={formatDate(sv.approvedAt)} />
