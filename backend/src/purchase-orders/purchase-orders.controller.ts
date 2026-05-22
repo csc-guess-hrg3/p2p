@@ -14,6 +14,7 @@ import { QueryPurchaseOrdersDto } from './dto/query-purchase-orders.dto';
 import { SendToSupplierDto } from './dto/send-to-supplier.dto';
 import { CancelPurchaseOrderDto } from './dto/cancel-po.dto';
 import { CancelPurchaseOrderItemsDto } from './dto/cancel-po-items.dto';
+import { EditPurchaseOrderDto } from './dto/edit-po.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
@@ -81,6 +82,28 @@ export class PurchaseOrdersController {
     @Body() dto: CancelPurchaseOrderDto,
   ) {
     return this.purchaseOrders.cancel(user, id, dto.cancellationReason);
+  }
+
+  @Post(':id/edit')
+  @ApiOperation({
+    summary:
+      'Edita o pedido (volta pra fluxo de aprovação e Linx em "em estudo")',
+  })
+  edit(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: EditPurchaseOrderDto,
+  ) {
+    return this.purchaseOrders.edit(user, id, dto);
+  }
+
+  @Get(':id/history')
+  @ApiOperation({ summary: 'Histórico de alterações do pedido (timeline)' })
+  history(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.purchaseOrders.history(user, id);
   }
 
   @Post(':id/cancel-items')

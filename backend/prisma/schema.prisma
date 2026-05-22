@@ -400,6 +400,18 @@ model Requisition {
   approvedAt       DateTime?
   rejectedAt       DateTime?
   rejectionReason  String?   @db.NVarChar(Max)
+  /**
+   * Revisão: aprovador pode mandar a requisição de volta com motivo.
+   * Status vira REVISION; requisitante edita e re-submete. `lastEditReason`
+   * é preenchido tanto pelo requisitante (auto-edição) quanto pelo aprovador
+   * (request-revision).
+   */
+  revisionReason       String?   @db.NVarChar(Max)
+  revisionRequestedAt  DateTime?
+  revisionRequestedById String?  @db.UniqueIdentifier
+  lastEditReason       String?   @db.NVarChar(Max)
+  lastEditedAt         DateTime?
+  lastEditedById       String?   @db.UniqueIdentifier
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   deletedAt        DateTime?
@@ -508,6 +520,10 @@ model PurchaseOrder {
   sentToSupplierAt DateTime?
   cancelledAt      DateTime?
   cancellationReason String? @db.NVarChar(Max)
+  /** Última edição: motivo + autor + timestamp. Histórico fica no AuditLog. */
+  lastEditReason   String?   @db.NVarChar(Max)
+  lastEditedAt     DateTime?
+  lastEditedById   String?   @db.UniqueIdentifier
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   deletedAt        DateTime?

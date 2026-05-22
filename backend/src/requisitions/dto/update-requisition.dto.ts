@@ -41,6 +41,14 @@ export class UpdateRequisitionDto {
   })
   justification?: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Motivo da edição. Obrigatório quando o próprio requisitante edita.',
+  })
+  @IsOptional()
+  @IsString()
+  editReason?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

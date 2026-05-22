@@ -128,6 +128,42 @@ export class LinxErpService {
   }
 
   /**
+   * Volta um pedido aprovado pra "em estudo" no Linx — usado quando o
+   * comprador edita o PC e o fluxo de aprovação precisa rodar de novo.
+   * Grava entrada em COMPRAS_STATUS_LOG pra rastreio.
+   */
+  async markPedidoEmEstudo(
+    po: { id: string; companyId: string; erpPedido: string | null; number: string },
+    reason: string,
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    if (!po.erpPedido) return;
+    const company = await this.prisma.company.findUniqueOrThrow({
+      where: { id: po.companyId },
+    });
+    const erpDb = company.erpDbName;
+    const usuario = (user.adUsername ?? user.name ?? '').slice(0, 25);
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE [${erpDb}].dbo.COMPRAS
+          SET STATUS_COMPRA = 'E ',
+              STATUS_APROVACAO = 'E',
+              LX_STATUS_COMPRA = 0
+        WHERE PEDIDO = @P1`,
+      po.erpPedido,
+    );
+    await this.prisma.$executeRawUnsafe(
+      `INSERT INTO [${erpDb}].dbo.COMPRAS_STATUS_LOG
+         (PEDIDO, DATA_ALTERACAO_STATUS, STATUS_COMPRA, USUARIO)
+       VALUES (@P1, GETDATE(), N'E ', @P2)`,
+      po.erpPedido,
+      usuario,
+    );
+    this.logger.log(
+      `PC ${po.number} (Linx ${po.erpPedido}) voltou para 'em estudo' — ${reason}`,
+    );
+  }
+
+  /**
    * Grava o PC no Linx. Devolve o número de PEDIDO gerado.
    * Idempotência: se `purchaseOrder.erpPedido` já existir, nada é feito;
    * se o INSERT já ocorreu mas o UPDATE local falhou, recuperamos via OBS.

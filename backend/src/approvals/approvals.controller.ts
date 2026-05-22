@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ApprovalsService } from './approvals.service';
 import { DecideDto } from './dto/decide.dto';
+import { RequestRevisionDto } from './dto/request-revision.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
@@ -27,5 +28,17 @@ export class ApprovalsController {
     @Body() dto: DecideDto,
   ) {
     return this.approvals.decide(user, stepId, dto.approved, dto.comments);
+  }
+
+  @Post(':stepId/request-revision')
+  @ApiOperation({
+    summary: 'Devolve o documento para o solicitante com pedido de revisão',
+  })
+  requestRevision(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('stepId') stepId: string,
+    @Body() dto: RequestRevisionDto,
+  ) {
+    return this.approvals.requestRevision(user, stepId, dto.reason);
   }
 }

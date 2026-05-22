@@ -30,6 +30,8 @@ export const RequisitionStatus = {
   DRAFT: 'DRAFT',
   SUBMITTED: 'SUBMITTED',
   IN_APPROVAL: 'IN_APPROVAL',
+  /** Aprovador pediu ajuste — requisitante edita e ressubmete. */
+  REVISION: 'REVISION',
   APPROVED: 'APPROVED',
   REJECTED: 'REJECTED',
   CONVERTED: 'CONVERTED',
@@ -68,6 +70,8 @@ export const ApprovalStepStatus = {
   PENDING: 'PENDING',
   APPROVED: 'APPROVED',
   REJECTED: 'REJECTED',
+  /** Aprovador pediu ajuste — documento volta pro requisitante editar. */
+  REVISION: 'REVISION',
 } as const;
 export type ApprovalStepStatus =
   (typeof ApprovalStepStatus)[keyof typeof ApprovalStepStatus];

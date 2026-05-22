@@ -414,16 +414,42 @@ export class RequisitionsService {
   ) {
     const req = await this.findOne(user, id);
 
-    if (
-      req.status !== RequisitionStatus.DRAFT &&
-      req.status !== RequisitionStatus.IN_APPROVAL
-    ) {
+    const editableStatuses: string[] = [
+      RequisitionStatus.DRAFT,
+      RequisitionStatus.IN_APPROVAL,
+      RequisitionStatus.REVISION,
+      // APPROVED só edita se ainda não virou PC — checa abaixo.
+      RequisitionStatus.APPROVED,
+    ];
+    if (!editableStatuses.includes(req.status)) {
       throw new BadRequestException(
-        'Só requisições em rascunho ou em aprovação podem ser editadas.',
+        `Requisições em status "${req.status}" não podem ser editadas.`,
       );
+    }
+    if (req.status === RequisitionStatus.APPROVED) {
+      // Bloqueia se já tem PC vivo — o caminho certo é editar o PC ou
+      // cancelar o PC antes (a edição da req invalidaria PC existente).
+      const hasPo = await this.prisma.purchaseOrder.findFirst({
+        where: { requisitionId: req.id, deletedAt: null },
+        select: { id: true, number: true },
+      });
+      if (hasPo) {
+        throw new BadRequestException(
+          `Esta requisição já gerou o pedido ${hasPo.number}. ` +
+            'Edite o pedido diretamente, ou cancele-o antes de editar a requisição.',
+        );
+      }
     }
     if (req.requesterId !== user.id && user.profile !== UserProfile.ADMIN) {
       throw new ForbiddenException('Só o solicitante pode editar.');
+    }
+    // RN: edição feita pelo próprio requisitante exige motivo.
+    const isSelfEdit = req.requesterId === user.id;
+    const reason = (dto.editReason ?? '').trim();
+    if (isSelfEdit && reason.length < 5) {
+      throw new BadRequestException(
+        'Informe o motivo da edição (mínimo 5 caracteres).',
+      );
     }
 
     const company = await this.resolveCompany(user, req.companyId);
@@ -519,10 +545,21 @@ export class RequisitionsService {
       ]);
     }
 
+    // Registra motivo + autor da última edição (visível em /history).
+    if (reason) {
+      data.lastEditReason = reason;
+      data.lastEditedAt = new Date();
+      data.lastEditedById = user.id;
+    }
+
     await this.prisma.requisition.update({ where: { id }, data });
 
-    // RN-REQ-05: edição após o envio reinicia o fluxo de aprovação.
-    if (req.status === RequisitionStatus.IN_APPROVAL) {
+    // RN-REQ-05: edição após envio (ou retorno de revisão) reinicia o
+    // fluxo de aprovação.
+    const reapprove =
+      req.status === RequisitionStatus.IN_APPROVAL ||
+      req.status === RequisitionStatus.REVISION;
+    if (reapprove) {
       await this.approvals.resetForRequisition(id);
       const updated = await this.prisma.requisition.findUniqueOrThrow({
         where: { id },

@@ -150,6 +150,11 @@ export class ApprovalsService {
     await this.prisma.approvalStep.deleteMany({ where: { requisitionId } });
   }
 
+  /** Remove o fluxo de aprovação de um PC (reinício após edição). */
+  async resetForPurchaseOrder(purchaseOrderId: string): Promise<void> {
+    await this.prisma.approvalStep.deleteMany({ where: { purchaseOrderId } });
+  }
+
   /** Lista os steps pendentes que o usuário pode decidir agora. */
   async pendingForUser(user: AuthenticatedUser) {
     const approverIds = await this.getActingApproverIds(user.id);
@@ -274,6 +279,79 @@ export class ApprovalsService {
 
     await this.updateEntityStatus(step, true);
     return { result: 'APPROVED' as const };
+  }
+
+  /**
+   * Aprovador pede ajuste em vez de aprovar/rejeitar. O documento volta
+   * para o solicitante com motivo registrado; cadeia de aprovação é
+   * descartada (steps PENDING são marcados como REVISION). Quando o
+   * solicitante ressubmeter, nova cadeia é iniciada do zero.
+   */
+  async requestRevision(
+    user: AuthenticatedUser,
+    stepId: string,
+    reason: string,
+  ) {
+    const trimmed = (reason ?? '').trim();
+    if (trimmed.length < 5) {
+      throw new BadRequestException(
+        'Motivo da revisão obrigatório (mínimo 5 caracteres).',
+      );
+    }
+    const step = await this.prisma.approvalStep.findUnique({
+      where: { id: stepId },
+    });
+    if (!step) throw new NotFoundException('Etapa de aprovação não encontrada.');
+    if (step.status !== ApprovalStepStatus.PENDING) {
+      throw new BadRequestException('Esta etapa já foi decidida.');
+    }
+    const approverIds = await this.getActingApproverIds(user.id);
+    if (!approverIds.includes(step.assignedApproverId)) {
+      throw new ForbiddenException('Você não é o aprovador desta etapa.');
+    }
+
+    const filter = this.entityFilter(step);
+    const now = new Date();
+
+    await this.prisma.$transaction(async (tx) => {
+      // Marca todos os steps pendentes desse doc como REVISION.
+      await tx.approvalStep.updateMany({
+        where: { ...filter, status: ApprovalStepStatus.PENDING },
+        data: {
+          status: ApprovalStepStatus.REVISION,
+          decidedById: user.id,
+          decidedAt: now,
+          comments: trimmed,
+        },
+      });
+      // Atualiza o documento — só Requisição e PC suportam revisão
+      // (SV não tem ciclo de edição).
+      if (step.entityType === ApprovalEntityType.REQUISITION) {
+        await tx.requisition.update({
+          where: { id: step.requisitionId as string },
+          data: {
+            status: RequisitionStatus.REVISION,
+            revisionReason: trimmed,
+            revisionRequestedAt: now,
+            revisionRequestedById: user.id,
+            currentTierLevel: null,
+          },
+        });
+      } else if (step.entityType === ApprovalEntityType.PURCHASE_ORDER) {
+        await tx.purchaseOrder.update({
+          where: { id: step.purchaseOrderId as string },
+          data: {
+            status: PurchaseOrderStatus.DRAFT,
+            lastEditReason: `REVISÃO: ${trimmed}`,
+          },
+        });
+      } else {
+        throw new BadRequestException(
+          'Solicitação de revisão só vale pra requisição ou pedido de compra.',
+        );
+      }
+    });
+    return { result: 'REVISION' as const };
   }
 
   /** Solicitante/comprador do documento (para RN-ALC-03). */

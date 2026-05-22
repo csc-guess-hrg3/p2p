@@ -11,6 +11,8 @@ import { NumberingService } from '../numbering/numbering.service';
 import { LinxErpService } from '../integration/linx-erp.service';
 import { EmailService } from '../integration/email.service';
 import { IntegrationService } from '../integration/integration.service';
+import { ApprovalsService } from '../approvals/approvals.service';
+import { ApprovalEntityType } from '../common/enums';
 import {
   FundRequestStatus,
   PurchaseOrderStatus,
@@ -39,6 +41,7 @@ export class PurchaseOrdersService {
     private readonly linx: LinxErpService,
     private readonly email: EmailService,
     private readonly integration: IntegrationService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   /**
@@ -642,6 +645,254 @@ export class PurchaseOrdersService {
         });
       }
     });
+    return this.findOne(user, id);
+  }
+
+  /**
+   * Timeline do pedido (similar ao histórico do PA): junta eventos
+   * vindos de audit_logs (qualquer mutação) + marcos próprios do PC
+   * (criação, aprovação, envio, recebimentos, cancelamento, edição).
+   * Ordem decrescente.
+   */
+  async history(user: AuthenticatedUser, id: string) {
+    const po = await this.findOne(user, id);
+    type Evt = {
+      at: string;
+      kind: string;
+      label: string;
+      who?: string | null;
+      detail?: string | null;
+    };
+    const events: Evt[] = [];
+    events.push({
+      at: po.createdAt.toISOString(),
+      kind: 'created',
+      label: `Pedido criado a partir da requisição`,
+      who: po.buyer?.name ?? null,
+    });
+    if (po.approvedAt) {
+      events.push({
+        at: po.approvedAt.toISOString(),
+        kind: 'approved',
+        label: 'Pedido aprovado',
+      });
+    }
+    if (po.sentToSupplierAt) {
+      events.push({
+        at: po.sentToSupplierAt.toISOString(),
+        kind: 'sent',
+        label: 'Enviado ao fornecedor',
+      });
+    }
+    if (po.integratedAt) {
+      events.push({
+        at: po.integratedAt.toISOString(),
+        kind: 'integrated',
+        label: `Integrado ao ERP (${po.erpPedido ?? 'sem número'})`,
+      });
+    }
+    if (po.lastEditedAt) {
+      const editor = po.lastEditedById
+        ? await this.prisma.user.findUnique({
+            where: { id: po.lastEditedById },
+            select: { name: true },
+          })
+        : null;
+      events.push({
+        at: po.lastEditedAt.toISOString(),
+        kind: 'edited',
+        label: 'Pedido editado',
+        who: editor?.name ?? null,
+        detail: po.lastEditReason,
+      });
+    }
+    if (po.cancelledAt) {
+      events.push({
+        at: po.cancelledAt.toISOString(),
+        kind: 'cancelled',
+        label: 'Pedido cancelado',
+        detail: po.cancellationReason,
+      });
+    }
+    // Recebimentos confirmados (já têm o número e quem recebeu).
+    const recs = await this.prisma.receiving.findMany({
+      where: { purchaseOrderId: id, status: 'CONFIRMED' },
+      orderBy: { confirmedAt: 'desc' },
+      include: { receivedBy: { select: { name: true } } },
+    });
+    for (const r of recs) {
+      if (!r.confirmedAt) continue;
+      events.push({
+        at: r.confirmedAt.toISOString(),
+        kind: 'received',
+        label: `Recebimento ${r.number} confirmado`,
+        who: r.receivedBy?.name ?? null,
+      });
+    }
+    // Aprovações step-by-step (decisões dos níveis).
+    const steps = await this.prisma.approvalStep.findMany({
+      where: { purchaseOrderId: id, status: { not: 'PENDING' } },
+      orderBy: { decidedAt: 'desc' },
+      include: { decidedBy: { select: { name: true } } },
+    });
+    for (const s of steps) {
+      if (!s.decidedAt) continue;
+      events.push({
+        at: s.decidedAt.toISOString(),
+        kind: s.status === 'REVISION' ? 'revision' : `step-${s.status.toLowerCase()}`,
+        label:
+          s.status === 'REVISION'
+            ? `${s.levelName}: devolveu para revisão`
+            : `${s.levelName}: ${s.status === 'APPROVED' ? 'aprovou' : 'reprovou'}`,
+        who: s.decidedBy?.name ?? null,
+        detail: s.comments,
+      });
+    }
+    return events.sort(
+      (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime(),
+    );
+  }
+
+  /**
+   * Edição in-place de um Pedido de Compra (RN-OC-01).
+   *
+   * - Bloqueia se já houver recebimento confirmado (use cancelamento
+   *   parcial). Bloqueia se PC está fechado (cancelled/recebido total).
+   * - Aceita ajustes em paymentCondition, transportadora, endereço,
+   *   expectedDelivery e em quantidade/preço unitário de itens.
+   * - Volta status do PC pra DRAFT, atualiza Linx (STATUS_COMPRA='E ')
+   *   e inicia nova cadeia de aprovação. Quando reaprovado, volta a 'A '
+   *   no Linx (igual ao fluxo de criação).
+   * - Exige motivo (mín. 5 chars) — gravado em lastEditReason. Histórico
+   *   granular fica em audit_logs.
+   */
+  async edit(
+    user: AuthenticatedUser,
+    id: string,
+    dto: import('./dto/edit-po.dto').EditPurchaseOrderDto,
+  ) {
+    if (user.profile === UserProfile.REVIEWER) {
+      throw new ForbiddenException('Revisor não edita pedidos de compra.');
+    }
+    const reason = dto.reason.trim();
+
+    const po = await this.findOne(user, id);
+    if (po.deletedAt) throw new NotFoundException('Pedido não encontrado.');
+    const closed: string[] = [
+      PurchaseOrderStatus.CANCELLED,
+      PurchaseOrderStatus.FULLY_RECEIVED,
+    ];
+    if (closed.includes(po.status)) {
+      throw new BadRequestException(
+        `Pedido em status "${po.status}" não pode ser editado.`,
+      );
+    }
+    const anyReceived = po.items.some((it) => Number(it.receivedQty) > 0);
+    if (anyReceived) {
+      throw new BadRequestException(
+        'Já há recebimento confirmado — não dá pra editar o pedido. ' +
+          'Use cancelamento parcial dos itens em aberto se precisar ajustar.',
+      );
+    }
+
+    // Aplica mudanças.
+    let recomputedTotal: number | null = null;
+    if (dto.items && dto.items.length > 0) {
+      // Recalcula total e atualiza item-a-item.
+      const itemMap = new Map(po.items.map((it) => [it.id, it]));
+      let total = 0;
+      await this.prisma.$transaction(async (tx) => {
+        for (const patch of dto.items!) {
+          const existing = itemMap.get(patch.id);
+          if (!existing) {
+            throw new BadRequestException(
+              `Item ${patch.id} não pertence ao pedido.`,
+            );
+          }
+          const qty = patch.quantity ?? Number(existing.quantity);
+          const unit = patch.unitPrice ?? Number(existing.unitPrice);
+          if (qty <= 0) {
+            throw new BadRequestException(
+              `Quantidade do item ${existing.itemDescription} deve ser > 0.`,
+            );
+          }
+          const totalIt = Number((qty * unit).toFixed(2));
+          await tx.purchaseOrderItem.update({
+            where: { id: patch.id },
+            data: {
+              quantity: qty,
+              unitPrice: unit,
+              totalPrice: totalIt,
+            },
+          });
+        }
+        // Recalcula total somando todos os itens (não só os patched).
+        const allItems = await tx.purchaseOrderItem.findMany({
+          where: { purchaseOrderId: id },
+          select: { totalPrice: true },
+        });
+        total = allItems.reduce((s, it) => s + Number(it.totalPrice), 0);
+      });
+      recomputedTotal = Number(total.toFixed(2));
+    }
+
+    const headerPatch: Record<string, unknown> = {
+      status: PurchaseOrderStatus.DRAFT,
+      approvedAt: null,
+      sentToSupplierAt: null,
+      lastEditReason: reason,
+      lastEditedAt: new Date(),
+      lastEditedById: user.id,
+    };
+    if (dto.paymentCondition !== undefined)
+      headerPatch.paymentCondition = dto.paymentCondition || null;
+    if (dto.transportadora !== undefined)
+      headerPatch.transportadora = dto.transportadora || null;
+    if (dto.deliveryAddress !== undefined)
+      headerPatch.deliveryAddress = dto.deliveryAddress || null;
+    if (dto.expectedDelivery !== undefined) {
+      headerPatch.expectedDelivery = dto.expectedDelivery
+        ? new Date(dto.expectedDelivery)
+        : null;
+    }
+    if (recomputedTotal !== null) headerPatch.totalAmount = recomputedTotal;
+
+    await this.prisma.purchaseOrder.update({
+      where: { id },
+      data: headerPatch,
+    });
+
+    // Linx: volta pra "em estudo" — diretor revê via fluxo de aprovação.
+    if (po.erpPedido) {
+      try {
+        await this.linx.markPedidoEmEstudo(po, reason, user);
+      } catch (err) {
+        // Não bloquear edição no P2P se Linx falhar; loga warning.
+        this.logger.warn(
+          `PC ${po.number}: falha ao voltar Linx pra 'E': ${(err as Error).message}`,
+        );
+      }
+    }
+
+    // Reset + nova cadeia de aprovação.
+    await this.approvals.resetForPurchaseOrder(id);
+    const next = await this.approvals.startApproval({
+      companyId: po.companyId,
+      teamId: null, // PC herda equipe da requisição original
+      entityType: ApprovalEntityType.PURCHASE_ORDER,
+      purchaseOrderId: id,
+      amount: recomputedTotal ?? Number(po.totalAmount),
+      documentNumber: po.number,
+    });
+    await this.prisma.purchaseOrder.update({
+      where: { id },
+      data: next === null
+        ? { status: PurchaseOrderStatus.APPROVED, approvedAt: new Date() }
+        : { status: PurchaseOrderStatus.IN_APPROVAL },
+    });
+    this.logger.log(
+      `PC ${po.number} editado por ${user.name} (${user.id}): ${reason}`,
+    );
     return this.findOne(user, id);
   }
 
