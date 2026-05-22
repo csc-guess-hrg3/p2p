@@ -196,6 +196,8 @@ export class LinxErpService {
 
         // 2) Cabeçalho.
         await tx.$executeRawUnsafe(
+          // PEDIDO_UX é IDENTITY no Linx (auto-incremento) — não pode
+          // ir explicitamente no INSERT (erro IDENTITY_INSERT off).
           `INSERT INTO [${erpDb}].dbo.COMPRAS
              (PEDIDO, FORNECEDOR, FILIAL_A_ENTREGAR, FILIAL_COBRANCA,
               FILIAL_A_FATURAR, CONDICAO_PGTO, TRANSPORTADORA, MOEDA,
@@ -204,7 +206,7 @@ export class LinxErpService {
               TABELA_FILHA, OBS, REQUERIDO_POR, TIPO_COMPRA,
               STATUS_APROVACAO, DATA_APROVACAO, STATUS_COMPRA,
               NATUREZA_ENTRADA, APROVADOR_POR, LX_STATUS_COMPRA,
-              CTB_TIPO_OPERACAO, PEDIDO_UX, DATA_PARA_TRANSFERENCIA)
+              CTB_TIPO_OPERACAO, DATA_PARA_TRANSFERENCIA)
            VALUES
              (@P1, @P2, @P3, @P3, @P3, @P4, N'', N'R$',
               @P5, GETDATE(), GETDATE(), @P6,
@@ -212,7 +214,7 @@ export class LinxErpService {
               @P9, @P10, @P11, @P12,
               N'A', GETDATE(), N'A ',
               @P13, @P6, 1,
-              @P14, 0, GETDATE())`,
+              @P14, GETDATE())`,
           pedido,
           this.trunc(po.supplierName, 25, 'FORNECEDOR') ?? '',
           this.trunc(po.branchName, 25, 'FILIAL') ?? '',

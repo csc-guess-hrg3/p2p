@@ -561,6 +561,19 @@ export class ProductOrdersPaService {
         who: header.aprovado_por ?? null,
       });
     }
+    // De-para de códigos do COMPRAS_STATUS_LOG pra rótulos legíveis,
+    // alinhado com o que a UI mostra na lista/badge de PA.
+    const STATUS_LABEL: Record<string, string> = {
+      P: 'Pendente aprovação',
+      E: 'Em estudo',
+      A: 'Aprovado',
+      R: 'Reprovado',
+      C: 'Cancelado',
+      CP: 'Cancelado parcial',
+      D: 'Entregue',
+      DP: 'Entregue parcial',
+      M: 'Microvix',
+    };
     for (const log of statusLog) {
       // Não duplicar a aprovação principal (já adicionada via header).
       const dt = new Date(log.data_alteracao_status).getTime();
@@ -570,10 +583,12 @@ export class ProductOrdersPaService {
       if (aprovDt && Math.abs(dt - aprovDt) < 60_000 && (log.status_compra === 'A' || log.status_compra === 'R')) {
         continue;
       }
+      const code = (log.status_compra ?? '').trim().toUpperCase();
+      const label = STATUS_LABEL[code] ?? code;
       events.push({
         at: new Date(log.data_alteracao_status).toISOString(),
         kind: 'status',
-        label: `Status alterado para "${log.status_compra}"`,
+        label: `Status alterado para "${label}"`,
         who: log.usuario,
       });
     }
