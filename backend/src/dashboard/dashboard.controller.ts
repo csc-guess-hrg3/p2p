@@ -48,4 +48,40 @@ export class DashboardController {
   ) {
     return this.dashboard.budgetConsumption(user, query.companyId);
   }
+
+  @Get('orders-by-month')
+  @ApiOperation({ summary: 'Pedidos criados por mês (últimos 6)' })
+  ordersByMonth(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: QueryDashboardDto,
+  ) {
+    return this.dashboard.ordersByMonth(user, query.companyId);
+  }
+
+  @Get('top-suppliers')
+  @ApiOperation({ summary: 'Top fornecedores do mês corrente' })
+  topSuppliers(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: QueryDashboardDto,
+  ) {
+    return this.dashboard.topSuppliers(user, query.companyId);
+  }
+
+  @Get('orders-by-status')
+  @ApiOperation({ summary: 'Distribuição de pedidos por status' })
+  ordersByStatus(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: QueryDashboardDto,
+  ) {
+    return this.dashboard.ordersByStatus(user, query.companyId);
+  }
+
+  @Get('my-actions')
+  @ApiOperation({ summary: 'Minhas ações pendentes (counts)' })
+  myActions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: QueryDashboardDto,
+  ) {
+    return this.dashboard.myActions(user, query.companyId);
+  }
 }

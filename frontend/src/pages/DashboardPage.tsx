@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertCircle,
   CalendarClock,
-  PieChart,
+  Eye,
+  EyeOff,
+  PieChart as PieIcon,
   ShoppingCart,
 } from 'lucide-react';
 import { useCompany } from '@/lib/company';
@@ -15,6 +17,7 @@ import {
 } from '@/lib/dashboard';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -31,6 +34,12 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/tabs';
+import {
+  MyActionsCard,
+  OrdersByMonthChart,
+  OrdersByStatusChart,
+  TopSuppliersChart,
+} from './dashboard/widgets';
 
 type KpiVariant = 'default' | 'warning' | 'destructive';
 
@@ -90,6 +99,31 @@ function fmtPct(v: number | undefined): string {
   return `${v.toFixed(1)}%`;
 }
 
+/* ----------------------------------------------------------------------
+ * Configuração de widgets — persistida em localStorage para não resetar
+ * a cada login. Cada widget tem uma chave estável (id).
+ * -------------------------------------------------------------------- */
+const WIDGETS = [
+  { id: 'actions', label: 'Minhas ações' },
+  { id: 'monthly', label: 'Pedidos por mês' },
+  { id: 'suppliers', label: 'Top fornecedores' },
+  { id: 'status', label: 'Pedidos por status' },
+] as const;
+type WidgetId = (typeof WIDGETS)[number]['id'];
+
+const STORAGE_KEY = 'p2p:dashboard:widgets';
+
+function loadVisible(): Set<WidgetId> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return new Set(WIDGETS.map((w) => w.id));
+    const arr = JSON.parse(raw) as WidgetId[];
+    return new Set(arr);
+  } catch {
+    return new Set(WIDGETS.map((w) => w.id));
+  }
+}
+
 export function DashboardPage() {
   const { activeCompany } = useCompany();
   const navigate = useNavigate();
@@ -101,17 +135,49 @@ export function DashboardPage() {
   const budgetQ = useBudgetConsumption(companyId);
 
   const [tab, setTab] = useState<'open' | 'overdue' | 'budget'>('open');
+  const [visible, setVisible] = useState<Set<WidgetId>>(() => loadVisible());
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([...visible]));
+  }, [visible]);
+
+  function toggle(id: WidgetId) {
+    setVisible((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   const summary = summaryQ.data;
 
   return (
     <div className="space-y-6 pb-10">
-      <div>
-        <h1 className="text-2xl font-semibold text-foreground">Visão geral</h1>
-        <p className="text-sm text-muted-foreground">
-          {activeCompany?.name ?? 'Selecione uma empresa'} — atualizado
-          automaticamente a cada 5 minutos.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">Visão geral</h1>
+          <p className="text-sm text-muted-foreground">
+            {activeCompany?.name ?? 'Selecione uma empresa'} — atualizado
+            automaticamente a cada 5 minutos.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {WIDGETS.map((w) => {
+            const on = visible.has(w.id);
+            return (
+              <Button
+                key={w.id}
+                variant={on ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => toggle(w.id)}
+              >
+                {on ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+                {w.label}
+              </Button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
@@ -153,7 +219,7 @@ export function DashboardPage() {
           loading={summaryQ.isLoading}
         />
         <KpiCard
-          icon={PieChart}
+          icon={PieIcon}
           label="Orçamento (mês)"
           value={
             summary
@@ -175,6 +241,16 @@ export function DashboardPage() {
           loading={summaryQ.isLoading}
         />
       </div>
+
+      {/* Widgets visíveis — layout em grid 2 colunas a partir de lg. */}
+      {visible.size > 0 && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {visible.has('actions') && <MyActionsCard companyId={companyId} />}
+          {visible.has('monthly') && <OrdersByMonthChart companyId={companyId} />}
+          {visible.has('suppliers') && <TopSuppliersChart companyId={companyId} />}
+          {visible.has('status') && <OrdersByStatusChart companyId={companyId} />}
+        </div>
+      )}
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
         <TabsList>

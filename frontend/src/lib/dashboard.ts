@@ -96,6 +96,88 @@ export function useOverdueOrders(companyId?: string) {
   });
 }
 
+export interface OrdersByMonth {
+  year: number;
+  month: number;
+  count: number;
+  total: number;
+}
+
+export interface TopSupplier {
+  supplier: string;
+  count: number;
+  total: number;
+}
+
+export interface OrdersByStatus {
+  status: string;
+  count: number;
+  total: number;
+}
+
+export interface MyActions {
+  approvalsPending: number;
+  paPending: number;
+  fiscalPending: number;
+  myDraftRequisitions: number;
+}
+
+export function useOrdersByMonth(companyId?: string) {
+  return useQuery({
+    queryKey: ['dashboard', 'orders-by-month', companyId],
+    queryFn: async () =>
+      (
+        await api.get<OrdersByMonth[]>('/dashboard/orders-by-month', {
+          params: { companyId },
+        })
+      ).data,
+    staleTime: STALE_MS,
+    enabled: !!companyId,
+  });
+}
+
+export function useTopSuppliers(companyId?: string) {
+  return useQuery({
+    queryKey: ['dashboard', 'top-suppliers', companyId],
+    queryFn: async () =>
+      (
+        await api.get<TopSupplier[]>('/dashboard/top-suppliers', {
+          params: { companyId },
+        })
+      ).data,
+    staleTime: STALE_MS,
+    enabled: !!companyId,
+  });
+}
+
+export function useOrdersByStatus(companyId?: string) {
+  return useQuery({
+    queryKey: ['dashboard', 'orders-by-status', companyId],
+    queryFn: async () =>
+      (
+        await api.get<OrdersByStatus[]>('/dashboard/orders-by-status', {
+          params: { companyId },
+        })
+      ).data,
+    staleTime: STALE_MS,
+    enabled: !!companyId,
+  });
+}
+
+export function useMyActions(companyId?: string) {
+  return useQuery({
+    queryKey: ['dashboard', 'my-actions', companyId],
+    queryFn: async () =>
+      (
+        await api.get<MyActions>('/dashboard/my-actions', {
+          params: { companyId },
+        })
+      ).data,
+    staleTime: STALE_MS,
+    enabled: !!companyId,
+  });
+}
+
 export function useBudgetConsumption(companyId?: string) {
   return useQuery({
     queryKey: ['dashboard', 'budget', companyId],
