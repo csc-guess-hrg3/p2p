@@ -3,11 +3,20 @@ import { useNavigate } from 'react-router-dom';
 import { isAxiosError } from 'axios';
 import { useConvertToPurchaseOrder } from '@/lib/purchase-orders';
 import type { Requisition } from '@/lib/requisitions';
+import { useCompany } from '@/lib/company';
+import { usePaymentConditions } from '@/lib/integration';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { CurrencyInput } from '@/components/ui/currency-input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -40,10 +49,17 @@ interface Props {
 export function ConvertToPoDialog({ open, onOpenChange, requisition }: Props) {
   const navigate = useNavigate();
   const convertMut = useConvertToPurchaseOrder();
+  const { activeCompany } = useCompany();
   const isAdvance = requisition.tipoNotaFiscal === 'NF_FUTURA';
 
+  // Lista do ERP — usuária escolhe o código (CONDICAO_PGTO) e
+  // enviamos o código pro Linx (que é o que ele entende, não o
+  // texto livre).
+  const { data: conditions = [] } = usePaymentConditions(
+    activeCompany?.code,
+  );
   const [paymentCondition, setPaymentCondition] = useState(
-    requisition.paymentConditionDesc ?? '',
+    requisition.paymentConditionCode ?? '',
   );
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [expectedDelivery, setExpectedDelivery] = useState('');
@@ -71,10 +87,16 @@ export function ConvertToPoDialog({ open, onOpenChange, requisition }: Props) {
 
   async function handleConfirm() {
     setError(null);
+    // Envia "código — descrição" pro PO; o Linx recebe só o código
+    // (trunc 3 no service), o display continua amigável.
+    const cond = conditions.find((c) => c.codigo === paymentCondition);
+    const payload = cond
+      ? `${cond.codigo} — ${cond.descricao}`
+      : paymentCondition || undefined;
     try {
       const po = await convertMut.mutateAsync({
         requisitionId: requisition.id,
-        paymentCondition: paymentCondition || undefined,
+        paymentCondition: payload,
         deliveryAddress: deliveryAddress || undefined,
         expectedDelivery: expectedDelivery
           ? new Date(expectedDelivery).toISOString()
@@ -115,13 +137,22 @@ export function ConvertToPoDialog({ open, onOpenChange, requisition }: Props) {
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="paymentCondition">Condição de pagamento</Label>
-              <Input
-                id="paymentCondition"
+              <Label>Condição de pagamento</Label>
+              <Select
                 value={paymentCondition}
-                onChange={(e) => setPaymentCondition(e.target.value)}
-                placeholder="Ex.: 30 dias"
-              />
+                onValueChange={setPaymentCondition}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a condição" />
+                </SelectTrigger>
+                <SelectContent>
+                  {conditions.map((c) => (
+                    <SelectItem key={c.codigo} value={c.codigo}>
+                      {c.codigo} — {c.descricao}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="expectedDelivery">Entrega prevista</Label>

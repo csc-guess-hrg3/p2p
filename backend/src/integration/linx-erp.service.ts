@@ -175,9 +175,17 @@ export class LinxErpService {
     const start = Date.now();
 
     try {
-      const pedido = await this.prisma.$transaction(async (tx) => {
-        // 1) Gera o nº do PEDIDO via LX_SEQUENCIAL (OUTPUT param) dentro da
-        //    mesma transação. Procedure vive em <erpDb>.dbo.LX_SEQUENCIAL.
+      // Sem prisma.$transaction: as triggers customizadas do Linx
+      // (especialmente TRI_HR_COMPRAS em Hering) abrem/encerram sua
+      // própria transação internamente. Envolver tudo em $transaction
+      // dispara "The transaction ended in the trigger. The batch has
+      // been aborted." Cada INSERT vai isolado; idempotência via OBS
+      // (`P2P-${po.number}`) e checagem de pedido existente protegem
+      // de duplicidade quando o usuário reusa após erro intermediário.
+      const pedido = await (async () => {
+        const tx = this.prisma;
+        // 1) Gera o nº do PEDIDO via LX_SEQUENCIAL (OUTPUT param). Procedure
+        //    vive em <erpDb>.dbo.LX_SEQUENCIAL.
         const seqResult = await tx.$queryRawUnsafe<
           { sequencia: string }[]
         >(
@@ -273,7 +281,7 @@ export class LinxErpService {
         );
 
         return pedido;
-      });
+      })();
 
       await this.writeIntegrationLog({
         companyId: po.companyId,
