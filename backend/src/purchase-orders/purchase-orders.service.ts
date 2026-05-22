@@ -104,6 +104,13 @@ export class PurchaseOrdersService {
       problems.push(
         `Empresa ${company.code} sem configuração de integração com o ERP.`,
       );
+    } else if (!company.erpConfig.transportadoraPadrao) {
+      // Trigger LXI_COMPRAS valida FK contra TRANSPORTADORAS — sem
+      // valor, dá "transaction ended in trigger". O admin configura
+      // em /admin → Integração ERP.
+      problems.push(
+        `Empresa ${company.code} sem transportadora padrão configurada.`,
+      );
     }
     for (const it of req.items) {
       const tag = `item "${it.itemDescription}"`;

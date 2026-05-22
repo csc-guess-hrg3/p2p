@@ -216,7 +216,7 @@ export class LinxErpService {
               NATUREZA_ENTRADA, APROVADOR_POR, LX_STATUS_COMPRA,
               CTB_TIPO_OPERACAO, DATA_PARA_TRANSFERENCIA)
            VALUES
-             (@P1, @P2, @P3, @P3, @P3, @P4, N'', N'R$',
+             (@P1, @P2, @P3, @P3, @P3, @P4, @P15, N'R$',
               @P5, GETDATE(), GETDATE(), @P6,
               N' ', @P7, @P8,
               @P9, @P10, @P11, @P12,
@@ -237,6 +237,11 @@ export class LinxErpService {
           this.trunc(tipoCompra, 25, 'TIPO_COMPRA'),
           this.trunc(natureza, 15, 'NATUREZA_ENTRADA'),
           ctb,
+          // @P15 — TRANSPORTADORA. Trigger LXI_COMPRAS valida FK em
+          // TRANSPORTADORAS; sem valor o trigger faz rollback (dá
+          // "The transaction ended in the trigger"). Config obrigatória
+          // em validateForConvert; trunc para varchar(25).
+          this.trunc(cfg.transportadoraPadrao, 25, 'TRANSPORTADORA') ?? '',
         );
 
         // 3) Itens.
