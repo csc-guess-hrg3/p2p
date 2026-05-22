@@ -25,6 +25,7 @@ import { SettingsPage } from '@/pages/admin/SettingsPage';
 import { UsersPage } from '@/pages/admin/UsersPage';
 import { TeamsPage } from '@/pages/admin/TeamsPage';
 import { DelegationsPage } from '@/pages/admin/DelegationsPage';
+import { AdSyncPage } from '@/pages/admin/AdSyncPage';
 import { Toaster } from '@/components/ui/toaster';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
@@ -93,6 +94,7 @@ function App() {
                     path="admin/delegacoes"
                     element={<DelegationsPage />}
                   />
+                  <Route path="admin/ad-sync" element={<AdSyncPage />} />
                 </Route>
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />

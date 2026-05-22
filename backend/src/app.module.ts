@@ -31,6 +31,7 @@ import { IntegrationModule } from './integration/integration.module';
 import { AttachmentsModule } from './attachments/attachments.module';
 import { ProductOrdersPaModule } from './product-orders-pa/product-orders-pa.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { NotificationsModule } from './notifications/notifications.module';
     AttachmentsModule,
     ProductOrdersPaModule,
     NotificationsModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [

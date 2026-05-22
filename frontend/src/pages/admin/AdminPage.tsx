@@ -3,6 +3,7 @@ import {
   Building2,
   ChevronRight,
   Repeat,
+  Server,
   Settings,
   Users,
   Workflow,
@@ -87,6 +88,12 @@ export function AdminPage() {
           icon={Repeat}
           title="Delegações"
           description="Delegar a própria alçada para outra pessoa por um período (férias, ausência)."
+        />
+        <AdminCard
+          to="/admin/ad-sync"
+          icon={Server}
+          title="Sincronizar com Active Directory"
+          description="Importa usuários ativos do AD agrupados por OU pai. Você confirma o que vira equipe/membro no P2P."
         />
       </div>
     </div>
