@@ -272,7 +272,7 @@ function ApprovalLevelsDialog({
                   <Label className="text-xs">Cargo</Label>
                   <Input
                     className="h-9"
-                    placeholder="Coordenador / Gestor / Diretor…"
+                    placeholder="ex.: Gestor"
                     value={l.name}
                     onChange={(e) =>
                       patchLevel(idx, { name: e.target.value })

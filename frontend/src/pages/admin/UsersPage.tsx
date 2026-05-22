@@ -201,7 +201,7 @@ export function UsersPage() {
                         patchUser(u.id, { teamId: v === 'NONE' ? null : v })
                       }
                     >
-                      <SelectTrigger className="h-8 w-44">
+                      <SelectTrigger className="h-9 w-56">
                         <SelectValue placeholder="Sem equipe" />
                       </SelectTrigger>
                       <SelectContent>
