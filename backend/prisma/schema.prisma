@@ -377,6 +377,12 @@ model Requisition {
   paymentConditionDesc String? @db.NVarChar(100)
   recurring        Boolean   @default(false)    // requisição recorrente
   recurrenceMonths Int?                         // por quantos meses se repete
+  // PRD RN-REQ-03: cron diário gera requisição filha (DRAFT) a cada
+  // `recurrenceMonths` meses a partir desta. `recurrenceParentId`
+  // aponta para a original; `nextRecurrenceAt` é setado ao aprovar e
+  // atualizado a cada geração.
+  recurrenceParentId String? @db.UniqueIdentifier
+  nextRecurrenceAt   DateTime?
   contractRef      String?   @db.NVarChar(100)  // contrato vinculado (quando aplicável)
   // Número de cotações anexadas pelo solicitante (RN-REQ-02 / REQ-08).
   // Quando o total >= threshold configurado em SystemSetting, o submit exige
@@ -406,6 +412,8 @@ model Requisition {
   purchaseOrders PurchaseOrder[]
   fundRequest    FundRequest?
   attachments    Attachment[]
+  recurrenceParent   Requisition?  @relation("ReqRecurrence", fields: [recurrenceParentId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  recurrenceChildren Requisition[] @relation("ReqRecurrence")
 
   @@index([companyId, status])
   @@index([requesterId, status])
