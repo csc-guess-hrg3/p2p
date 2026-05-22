@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -15,6 +16,7 @@ import {
   FundRequestStatus,
 } from '../common/enums';
 import { AuthenticatedUser } from '../auth/auth.types';
+import { LinxErpService } from '../integration/linx-erp.service';
 
 interface StartApprovalParams {
   companyId: string;
@@ -41,7 +43,11 @@ interface StartApprovalParams {
  */
 @Injectable()
 export class ApprovalsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(ApprovalsService.name);
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly linx: LinxErpService,
+  ) {}
 
   /** Filtro Prisma para os steps do mesmo documento. */
   private entityFilter(step: {
@@ -443,6 +449,8 @@ export class ApprovalsService {
       requisitionId: string | null;
       purchaseOrderId: string | null;
       fundRequestId: string | null;
+      decidedById?: string | null;
+      assignedApproverId?: string;
     },
     approved: boolean,
     rejectionReason?: string,
@@ -470,6 +478,29 @@ export class ApprovalsService {
               cancellationReason: rejectionReason ?? null,
             },
       });
+      // Reaprovação após edição: o PC tinha sido marcado 'em estudo'
+      // no Linx; agora voltamos pra 'aprovado'. Idempotente — markPedido-
+      // Aprovado lida com o caso de não haver erpPedido.
+      if (approved) {
+        const decider = await this.prisma.user.findUniqueOrThrow({
+          where: { id: step.decidedById ?? step.assignedApproverId },
+        });
+        const po = await this.prisma.purchaseOrder.findUniqueOrThrow({
+          where: { id: step.purchaseOrderId as string },
+          select: { id: true, companyId: true, erpPedido: true, number: true },
+        });
+        try {
+          await this.linx.markPedidoAprovado(po, {
+            id: decider.id,
+            name: decider.name,
+            adUsername: decider.adUsername,
+          } as AuthenticatedUser);
+        } catch (err) {
+          this.logger.warn(
+            `PC ${po.number}: falha ao reabrir Linx pra 'A' após aprovação: ${(err as Error).message}`,
+          );
+        }
+      }
     } else {
       await this.prisma.fundRequest.update({
         where: { id: step.fundRequestId as string },

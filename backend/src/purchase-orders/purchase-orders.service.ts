@@ -890,6 +890,18 @@ export class PurchaseOrdersService {
         ? { status: PurchaseOrderStatus.APPROVED, approvedAt: new Date() }
         : { status: PurchaseOrderStatus.IN_APPROVAL },
     });
+    // Cadeia vazia → auto-aprovado já. Devolve o Linx pra 'A ' agora
+    // (caso contrário fica em 'E ' ad-infinitum). Quando há cadeia, o
+    // updateEntityStatus do ApprovalsService cuida disso na aprovação.
+    if (next === null && po.erpPedido) {
+      try {
+        await this.linx.markPedidoAprovado(po, user);
+      } catch (err) {
+        this.logger.warn(
+          `PC ${po.number}: falha ao reabrir Linx pra 'A': ${(err as Error).message}`,
+        );
+      }
+    }
     this.logger.log(
       `PC ${po.number} editado por ${user.name} (${user.id}): ${reason}`,
     );
