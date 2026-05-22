@@ -175,13 +175,13 @@ export class LinxErpService {
     const start = Date.now();
 
     try {
-      // Sem prisma.$transaction: as triggers customizadas do Linx
-      // (especialmente TRI_HR_COMPRAS em Hering) abrem/encerram sua
-      // própria transação internamente. Envolver tudo em $transaction
-      // dispara "The transaction ended in the trigger. The batch has
-      // been aborted." Cada INSERT vai isolado; idempotência via OBS
-      // (`P2P-${po.number}`) e checagem de pedido existente protegem
-      // de duplicidade quando o usuário reusa após erro intermediário.
+      // Sem prisma.$transaction: as triggers padrão do Linx em COMPRAS
+      // (LXI_COMPRAS / LXU_COMPRAS / LXUDT_COMPRAS — presentes tanto em
+      // GUESS quanto em HML_GUESS / DB_HRG3) abrem/encerram sua própria
+      // transação. Envolver tudo em $transaction dispara "The transaction
+      // ended in the trigger. The batch has been aborted." Cada INSERT
+      // vai isolado; idempotência via OBS (`P2P-${po.number}`) e checagem
+      // de pedido existente protegem de duplicidade em retry.
       const pedido = await (async () => {
         const tx = this.prisma;
         // 1) Gera o nº do PEDIDO via LX_SEQUENCIAL (OUTPUT param). Procedure
