@@ -30,7 +30,11 @@ jobs:
           cache-dependency-path: backend/package-lock.json
 
       - name: Install
-        run: npm ci --ignore-scripts
+        # `npm install` em vez de `npm ci` porque o lockfile é gerado em
+        # Windows (drive de rede) e às vezes pula entradas optional de
+        # plataforma — npm ci no Linux quebra. Com --no-save preservamos
+        # o lockfile sem mudanças.
+        run: npm install --no-save --ignore-scripts
 
       # Prisma generate é necessário para o tsc compilar os types do client.
       # `npm ci --ignore-scripts` puxa o pacote mas não roda o postinstall.
@@ -67,7 +71,11 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install
-        run: npm ci --ignore-scripts
+        # `npm install` em vez de `npm ci` porque o lockfile é gerado em
+        # Windows (drive de rede) e às vezes pula entradas optional de
+        # plataforma — npm ci no Linux quebra. Com --no-save preservamos
+        # o lockfile sem mudanças.
+        run: npm install --no-save --ignore-scripts
 
       - name: Type-check
         run: npx tsc -b --noEmit
