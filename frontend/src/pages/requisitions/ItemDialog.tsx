@@ -236,9 +236,14 @@ export function ItemDialog({
               <Label>Quantidade</Label>
               <Input
                 type="number"
-                step="any"
+                step={1}
+                min={1}
+                inputMode="numeric"
                 value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
+                onChange={(e) =>
+                  // só aceita inteiro: descarta tudo que não for dígito.
+                  setQuantity(e.target.value.replace(/\D/g, ''))
+                }
               />
             </div>
             <div className="space-y-1.5">

@@ -21,6 +21,7 @@ import { useUsers, type AdminUser } from '@/lib/users';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { CurrencyInput } from '@/components/ui/currency-input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import {
@@ -221,19 +222,13 @@ function ApprovalLevelsDialog({
                 </Select>
               </div>
               <div className="col-span-2 space-y-1.5">
-                <Label className="text-xs">Alçada (R$)</Label>
-                <Input
+                <Label className="text-xs">Alçada</Label>
+                <CurrencyInput
                   className="h-9"
-                  type="number"
-                  min={0}
+                  nullable
                   placeholder="Sem limite"
-                  value={l.maxAmount ?? ''}
-                  onChange={(e) =>
-                    patchLevel(idx, {
-                      maxAmount:
-                        e.target.value === '' ? null : Number(e.target.value),
-                    })
-                  }
+                  value={l.maxAmount}
+                  onChange={(v) => patchLevel(idx, { maxAmount: v })}
                 />
               </div>
               <div className="col-span-1">

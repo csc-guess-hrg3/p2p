@@ -240,15 +240,17 @@ export function EditPoDialog({ po, open, onOpenChange }: Props) {
                       <Input
                         type="number"
                         className="w-20 text-right"
-                        min={0}
-                        step="0.01"
+                        min={1}
+                        step={1}
+                        inputMode="numeric"
                         value={quantities[it.id] ?? 0}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          const digits = e.target.value.replace(/\D/g, '');
                           setQuantities((p) => ({
                             ...p,
-                            [it.id]: Number(e.target.value),
-                          }))
-                        }
+                            [it.id]: digits ? Number(digits) : 0,
+                          }));
+                        }}
                       />
                       <span className="ml-1 text-xs text-muted-foreground">
                         {it.unit}
