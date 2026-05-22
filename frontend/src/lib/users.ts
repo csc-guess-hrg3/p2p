@@ -23,6 +23,9 @@ export interface UserListParams {
   status?: string;
   companyId?: string;
   search?: string;
+  skip?: number;
+  /** Default 50 no backend — passe um valor maior em telas de configuração. */
+  take?: number;
 }
 
 export function useUsers(params: UserListParams) {

@@ -10,6 +10,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ProductOrdersPaService } from './product-orders-pa.service';
 import { RejectPaDto } from './dto/reject-pa.dto';
+import { ReschedulePaDto } from './dto/reschedule-pa.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
@@ -76,6 +77,17 @@ export class ProductOrdersPaController {
     @Param('pedido') pedido: string,
   ) {
     return this.service.approve(user, company, pedido);
+  }
+
+  @Post(':pedido/reschedule')
+  @ApiOperation({ summary: 'Reagenda entrega de um pedido PA (DE/PARA)' })
+  reschedule(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('company') company: string,
+    @Param('pedido') pedido: string,
+    @Body() dto: ReschedulePaDto,
+  ) {
+    return this.service.reschedule(user, company, pedido, dto);
   }
 
   @Post(':pedido/reject')

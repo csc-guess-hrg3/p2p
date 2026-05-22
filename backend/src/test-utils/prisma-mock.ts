@@ -76,6 +76,8 @@ export interface PrismaMock {
   budgetEntry: ModelMock;
   documentSequence: ModelMock;
   fiscalItemRequest: ModelMock;
+  paApprovalNotification: ModelMock;
+  paDeliveryChange: ModelMock;
   $transaction: Fn;
   $queryRawUnsafe: Fn;
   $queryRaw: Fn;
@@ -113,6 +115,8 @@ export function createPrismaMock(): PrismaMock {
     budgetEntry: model(),
     documentSequence: model(),
     fiscalItemRequest: model(),
+    paApprovalNotification: model(),
+    paDeliveryChange: model(),
     // $transaction: roda o callback passando o próprio mock como tx, ou
     // resolve uma lista de promises (forma de batch).
     $transaction: jest.fn(async (fnOrList: any) => {

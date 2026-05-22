@@ -201,3 +201,416 @@ UNION ALL
 SELECT 'HERING', RTRIM(NATUREZA), RTRIM(DESC_NATUREZA), CTB_TIPO_OPERACAO
 FROM DB_HRG3.dbo.NATUREZAS_ENTRADAS WHERE INATIVO = 0;
 GO
+
+-- ============================================================
+-- PRODUTO ACABADO (PA) — pedidos de compra para revenda
+-- COMPRAS.TABELA_FILHA = 'COMPRAS_PRODUTO'. Cancelamento ocorre
+-- por item (COMPRAS_PRODUTO.QTDE_CANCELADA), por isso agregamos
+-- aqui e derivamos `status_efetivo`:
+--   - header 'C' ou 'R'                          → mantém
+--   - todos os itens cancelados (cancelada>=orig)→ 'C'
+--   - cancelamento parcial                       → 'CP'
+--   - caso contrário                             → header
+-- ============================================================
+CREATE OR ALTER VIEW dbo.v_p2p_product_orders AS
+SELECT 'GUESS' AS empresa,
+       RTRIM(c.PEDIDO) AS pedido,
+       RTRIM(c.FORNECEDOR) AS fornecedor,
+       RTRIM(c.FILIAL_A_ENTREGAR) AS filial,
+       RTRIM(c.CONDICAO_PGTO) AS condicao_pgto,
+       RTRIM(c.MOEDA) AS moeda,
+       RTRIM(c.STATUS_COMPRA) AS status_compra,
+       RTRIM(c.STATUS_APROVACAO) AS status_aprovacao,
+       c.LX_STATUS_COMPRA AS lx_status_compra,
+       RTRIM(c.TIPO_COMPRA) AS tipo_compra,
+       RTRIM(c.NATUREZA_ENTRADA) AS natureza_entrada,
+       c.EMISSAO AS emissao,
+       c.CADASTRAMENTO AS cadastramento,
+       c.DATA_APROVACAO AS data_aprovacao,
+       RTRIM(c.APROVADO_POR) AS aprovado_por,
+       RTRIM(c.REQUERIDO_POR) AS requerido_por,
+       c.TOT_QTDE_ORIGINAL AS tot_qtde_original,
+       c.TOT_QTDE_ENTREGAR AS tot_qtde_entregar,
+       ISNULL(agg.qtde_cancelada, 0) AS tot_qtde_cancelada,
+       c.TOT_VALOR_ORIGINAL AS tot_valor_original,
+       c.TOT_VALOR_ENTREGAR AS tot_valor_entregar,
+       agg.proxima_entrega AS proxima_entrega,
+       agg.proxima_entrega_original AS proxima_entrega_original,
+       CAST(c.OBS AS NVARCHAR(MAX)) AS obs,
+       CASE
+         -- Header já fechado (cancelado/reprovado) manda.
+         WHEN RTRIM(c.STATUS_COMPRA) IN ('C', 'R') THEN RTRIM(c.STATUS_COMPRA)
+         -- Tudo cancelado nos itens → cancelado.
+         WHEN ISNULL(agg.qtde_original, 0) > 0
+              AND ISNULL(agg.qtde_cancelada, 0) >= ISNULL(agg.qtde_original, 0)
+              THEN 'C'
+         -- Tudo que sobrou (original − cancelada) foi entregue → entregue.
+         WHEN ISNULL(agg.qtde_entregue, 0) > 0
+              AND ISNULL(agg.qtde_entregue, 0)
+                  >= ISNULL(agg.qtde_original, 0) - ISNULL(agg.qtde_cancelada, 0)
+              THEN 'D'
+         -- Houve entrega, ainda sobra saldo → entrega parcial.
+         WHEN ISNULL(agg.qtde_entregue, 0) > 0 THEN 'DP'
+         -- Sem entrega ainda, mas teve cancelamento parcial.
+         WHEN ISNULL(agg.qtde_cancelada, 0) > 0 THEN 'CP'
+         ELSE RTRIM(c.STATUS_COMPRA)
+       END AS status_efetivo
+FROM GUESS_PRODUCAO.dbo.COMPRAS c
+LEFT JOIN (
+  SELECT PEDIDO,
+         SUM(ISNULL(QTDE_ORIGINAL, 0)) AS qtde_original,
+         SUM(ISNULL(QTDE_CANCELADA, 0)) AS qtde_cancelada,
+         SUM(ISNULL(QTDE_ENTREGUE, 0)) AS qtde_entregue,
+         -- ENTREGA = data original do pedido (nunca muda no reschedule).
+         -- LIMITE_ENTREGA = data vigente (pode ser reagendada).
+         -- Expomos ambas pra UI mostrar "vigente (original X)".
+         MIN(CASE WHEN ISNULL(QTDE_ENTREGAR, 0) > 0 THEN LIMITE_ENTREGA END)
+           AS proxima_entrega,
+         MIN(CASE WHEN ISNULL(QTDE_ENTREGAR, 0) > 0 THEN ENTREGA END)
+           AS proxima_entrega_original
+  FROM GUESS_PRODUCAO.dbo.COMPRAS_PRODUTO
+  GROUP BY PEDIDO
+) agg ON agg.PEDIDO = c.PEDIDO
+WHERE RTRIM(c.TABELA_FILHA) = 'COMPRAS_PRODUTO'
+UNION ALL
+SELECT 'HERING',
+       RTRIM(c.PEDIDO), RTRIM(c.FORNECEDOR), RTRIM(c.FILIAL_A_ENTREGAR),
+       RTRIM(c.CONDICAO_PGTO), RTRIM(c.MOEDA),
+       RTRIM(c.STATUS_COMPRA), RTRIM(c.STATUS_APROVACAO),
+       c.LX_STATUS_COMPRA, RTRIM(c.TIPO_COMPRA), RTRIM(c.NATUREZA_ENTRADA),
+       c.EMISSAO, c.CADASTRAMENTO, c.DATA_APROVACAO,
+       RTRIM(c.APROVADO_POR), RTRIM(c.REQUERIDO_POR),
+       c.TOT_QTDE_ORIGINAL, c.TOT_QTDE_ENTREGAR,
+       ISNULL(agg.qtde_cancelada, 0),
+       c.TOT_VALOR_ORIGINAL, c.TOT_VALOR_ENTREGAR,
+       agg.proxima_entrega,
+       agg.proxima_entrega_original,
+       CAST(c.OBS AS NVARCHAR(MAX)),
+       CASE
+         -- Header já fechado (cancelado/reprovado) manda.
+         WHEN RTRIM(c.STATUS_COMPRA) IN ('C', 'R') THEN RTRIM(c.STATUS_COMPRA)
+         -- Tudo cancelado nos itens → cancelado.
+         WHEN ISNULL(agg.qtde_original, 0) > 0
+              AND ISNULL(agg.qtde_cancelada, 0) >= ISNULL(agg.qtde_original, 0)
+              THEN 'C'
+         -- Tudo que sobrou (original − cancelada) foi entregue → entregue.
+         WHEN ISNULL(agg.qtde_entregue, 0) > 0
+              AND ISNULL(agg.qtde_entregue, 0)
+                  >= ISNULL(agg.qtde_original, 0) - ISNULL(agg.qtde_cancelada, 0)
+              THEN 'D'
+         -- Houve entrega, ainda sobra saldo → entrega parcial.
+         WHEN ISNULL(agg.qtde_entregue, 0) > 0 THEN 'DP'
+         -- Sem entrega ainda, mas teve cancelamento parcial.
+         WHEN ISNULL(agg.qtde_cancelada, 0) > 0 THEN 'CP'
+         ELSE RTRIM(c.STATUS_COMPRA)
+       END
+FROM DB_HRG3.dbo.COMPRAS c
+LEFT JOIN (
+  SELECT PEDIDO,
+         SUM(ISNULL(QTDE_ORIGINAL, 0)) AS qtde_original,
+         SUM(ISNULL(QTDE_CANCELADA, 0)) AS qtde_cancelada,
+         SUM(ISNULL(QTDE_ENTREGUE, 0)) AS qtde_entregue,
+         -- ENTREGA = data original do pedido (nunca muda no reschedule).
+         -- LIMITE_ENTREGA = data vigente (pode ser reagendada).
+         -- Expomos ambas pra UI mostrar "vigente (original X)".
+         MIN(CASE WHEN ISNULL(QTDE_ENTREGAR, 0) > 0 THEN LIMITE_ENTREGA END)
+           AS proxima_entrega,
+         MIN(CASE WHEN ISNULL(QTDE_ENTREGAR, 0) > 0 THEN ENTREGA END)
+           AS proxima_entrega_original
+  FROM DB_HRG3.dbo.COMPRAS_PRODUTO
+  GROUP BY PEDIDO
+) agg ON agg.PEDIDO = c.PEDIDO
+WHERE RTRIM(c.TABELA_FILHA) = 'COMPRAS_PRODUTO';
+GO
+
+-- ---------- ITENS DO PEDIDO DE PRODUTO ACABADO ----------
+CREATE OR ALTER VIEW dbo.v_p2p_product_order_items AS
+SELECT 'GUESS' AS empresa,
+       RTRIM(cp.PEDIDO) AS pedido,
+       RTRIM(cp.PRODUTO) AS produto,
+       RTRIM(cp.COR_PRODUTO) AS cor,
+       cp.ENTREGA AS entrega,
+       cp.LIMITE_ENTREGA AS limite_entrega,
+       cp.CHEGADA_PREVISTA AS chegada_prevista,
+       cp.DATA_CONFIRMACAO AS data_confirmacao,
+       cp.QTDE_ORIGINAL AS qtde_original,
+       cp.QTDE_CANCELADA AS qtde_cancelada,
+       cp.QTDE_ENTREGUE AS qtde_entregue,
+       cp.QTDE_ENTREGAR AS qtde_entregar,
+       cp.VALOR_ORIGINAL AS valor_original,
+       cp.VALOR_ENTREGUE AS valor_entregue,
+       cp.VALOR_ENTREGAR AS valor_entregar,
+       cp.CUSTO1 AS custo_unit,
+       cp.IPI AS ipi_pct,
+       cp.DESCONTO_ITEM AS desconto_item,
+       CAST(cp.OBS_ITEM AS NVARCHAR(MAX)) AS obs_item
+FROM GUESS_PRODUCAO.dbo.COMPRAS_PRODUTO cp
+UNION ALL
+SELECT 'HERING',
+       RTRIM(cp.PEDIDO), RTRIM(cp.PRODUTO), RTRIM(cp.COR_PRODUTO),
+       cp.ENTREGA, cp.LIMITE_ENTREGA, cp.CHEGADA_PREVISTA, cp.DATA_CONFIRMACAO,
+       cp.QTDE_ORIGINAL, cp.QTDE_CANCELADA, cp.QTDE_ENTREGUE, cp.QTDE_ENTREGAR,
+       cp.VALOR_ORIGINAL, cp.VALOR_ENTREGUE, cp.VALOR_ENTREGAR,
+       cp.CUSTO1, cp.IPI, cp.DESCONTO_ITEM,
+       CAST(cp.OBS_ITEM AS NVARCHAR(MAX))
+FROM DB_HRG3.dbo.COMPRAS_PRODUTO cp;
+GO
+
+-- ---------- GRADE (vertical) DO ITEM DE PRODUTO ACABADO ----------
+CREATE OR ALTER VIEW dbo.v_p2p_product_order_grade AS
+SELECT empresa, pedido, produto, cor, entrega, posicao,
+       SUM(qtde_original) AS qtde_original,
+       SUM(qtde_entregue) AS qtde_entregue
+FROM (
+  SELECT 'GUESS' AS empresa,
+         RTRIM(cp.PEDIDO) AS pedido,
+         RTRIM(cp.PRODUTO) AS produto,
+         RTRIM(cp.COR_PRODUTO) AS cor,
+         cp.ENTREGA AS entrega,
+         v.posicao,
+         CASE v.posicao
+           WHEN 1 THEN cp.CO1 WHEN 2 THEN cp.CO2 WHEN 3 THEN cp.CO3
+           WHEN 4 THEN cp.CO4 WHEN 5 THEN cp.CO5 WHEN 6 THEN cp.CO6
+           WHEN 7 THEN cp.CO7 WHEN 8 THEN cp.CO8 WHEN 9 THEN cp.CO9
+           WHEN 10 THEN cp.CO10 WHEN 11 THEN cp.CO11 WHEN 12 THEN cp.CO12
+           WHEN 13 THEN cp.CO13 WHEN 14 THEN cp.CO14 WHEN 15 THEN cp.CO15
+           WHEN 16 THEN cp.CO16 WHEN 17 THEN cp.CO17 WHEN 18 THEN cp.CO18
+           WHEN 19 THEN cp.CO19 WHEN 20 THEN cp.CO20 WHEN 21 THEN cp.CO21
+           WHEN 22 THEN cp.CO22 WHEN 23 THEN cp.CO23 WHEN 24 THEN cp.CO24
+           WHEN 25 THEN cp.CO25 WHEN 26 THEN cp.CO26 WHEN 27 THEN cp.CO27
+           WHEN 28 THEN cp.CO28 WHEN 29 THEN cp.CO29 WHEN 30 THEN cp.CO30
+           WHEN 31 THEN cp.CO31 WHEN 32 THEN cp.CO32 WHEN 33 THEN cp.CO33
+           WHEN 34 THEN cp.CO34 WHEN 35 THEN cp.CO35 WHEN 36 THEN cp.CO36
+           WHEN 37 THEN cp.CO37 WHEN 38 THEN cp.CO38 WHEN 39 THEN cp.CO39
+           WHEN 40 THEN cp.CO40 WHEN 41 THEN cp.CO41 WHEN 42 THEN cp.CO42
+           WHEN 43 THEN cp.CO43 WHEN 44 THEN cp.CO44 WHEN 45 THEN cp.CO45
+           WHEN 46 THEN cp.CO46 WHEN 47 THEN cp.CO47 WHEN 48 THEN cp.CO48
+         END AS qtde_original,
+         -- CE = saldo "a entregar" no Linx. Entregue = original − saldo.
+         CASE v.posicao
+           WHEN 1 THEN ISNULL(cp.CO1,0)-ISNULL(cp.CE1,0)
+           WHEN 2 THEN ISNULL(cp.CO2,0)-ISNULL(cp.CE2,0)
+           WHEN 3 THEN ISNULL(cp.CO3,0)-ISNULL(cp.CE3,0)
+           WHEN 4 THEN ISNULL(cp.CO4,0)-ISNULL(cp.CE4,0)
+           WHEN 5 THEN ISNULL(cp.CO5,0)-ISNULL(cp.CE5,0)
+           WHEN 6 THEN ISNULL(cp.CO6,0)-ISNULL(cp.CE6,0)
+           WHEN 7 THEN ISNULL(cp.CO7,0)-ISNULL(cp.CE7,0)
+           WHEN 8 THEN ISNULL(cp.CO8,0)-ISNULL(cp.CE8,0)
+           WHEN 9 THEN ISNULL(cp.CO9,0)-ISNULL(cp.CE9,0)
+           WHEN 10 THEN ISNULL(cp.CO10,0)-ISNULL(cp.CE10,0)
+           WHEN 11 THEN ISNULL(cp.CO11,0)-ISNULL(cp.CE11,0)
+           WHEN 12 THEN ISNULL(cp.CO12,0)-ISNULL(cp.CE12,0)
+           WHEN 13 THEN ISNULL(cp.CO13,0)-ISNULL(cp.CE13,0)
+           WHEN 14 THEN ISNULL(cp.CO14,0)-ISNULL(cp.CE14,0)
+           WHEN 15 THEN ISNULL(cp.CO15,0)-ISNULL(cp.CE15,0)
+           WHEN 16 THEN ISNULL(cp.CO16,0)-ISNULL(cp.CE16,0)
+           WHEN 17 THEN ISNULL(cp.CO17,0)-ISNULL(cp.CE17,0)
+           WHEN 18 THEN ISNULL(cp.CO18,0)-ISNULL(cp.CE18,0)
+           WHEN 19 THEN ISNULL(cp.CO19,0)-ISNULL(cp.CE19,0)
+           WHEN 20 THEN ISNULL(cp.CO20,0)-ISNULL(cp.CE20,0)
+           WHEN 21 THEN ISNULL(cp.CO21,0)-ISNULL(cp.CE21,0)
+           WHEN 22 THEN ISNULL(cp.CO22,0)-ISNULL(cp.CE22,0)
+           WHEN 23 THEN ISNULL(cp.CO23,0)-ISNULL(cp.CE23,0)
+           WHEN 24 THEN ISNULL(cp.CO24,0)-ISNULL(cp.CE24,0)
+           WHEN 25 THEN ISNULL(cp.CO25,0)-ISNULL(cp.CE25,0)
+           WHEN 26 THEN ISNULL(cp.CO26,0)-ISNULL(cp.CE26,0)
+           WHEN 27 THEN ISNULL(cp.CO27,0)-ISNULL(cp.CE27,0)
+           WHEN 28 THEN ISNULL(cp.CO28,0)-ISNULL(cp.CE28,0)
+           WHEN 29 THEN ISNULL(cp.CO29,0)-ISNULL(cp.CE29,0)
+           WHEN 30 THEN ISNULL(cp.CO30,0)-ISNULL(cp.CE30,0)
+           WHEN 31 THEN ISNULL(cp.CO31,0)-ISNULL(cp.CE31,0)
+           WHEN 32 THEN ISNULL(cp.CO32,0)-ISNULL(cp.CE32,0)
+           WHEN 33 THEN ISNULL(cp.CO33,0)-ISNULL(cp.CE33,0)
+           WHEN 34 THEN ISNULL(cp.CO34,0)-ISNULL(cp.CE34,0)
+           WHEN 35 THEN ISNULL(cp.CO35,0)-ISNULL(cp.CE35,0)
+           WHEN 36 THEN ISNULL(cp.CO36,0)-ISNULL(cp.CE36,0)
+           WHEN 37 THEN ISNULL(cp.CO37,0)-ISNULL(cp.CE37,0)
+           WHEN 38 THEN ISNULL(cp.CO38,0)-ISNULL(cp.CE38,0)
+           WHEN 39 THEN ISNULL(cp.CO39,0)-ISNULL(cp.CE39,0)
+           WHEN 40 THEN ISNULL(cp.CO40,0)-ISNULL(cp.CE40,0)
+           WHEN 41 THEN ISNULL(cp.CO41,0)-ISNULL(cp.CE41,0)
+           WHEN 42 THEN ISNULL(cp.CO42,0)-ISNULL(cp.CE42,0)
+           WHEN 43 THEN ISNULL(cp.CO43,0)-ISNULL(cp.CE43,0)
+           WHEN 44 THEN ISNULL(cp.CO44,0)-ISNULL(cp.CE44,0)
+           WHEN 45 THEN ISNULL(cp.CO45,0)-ISNULL(cp.CE45,0)
+           WHEN 46 THEN ISNULL(cp.CO46,0)-ISNULL(cp.CE46,0)
+           WHEN 47 THEN ISNULL(cp.CO47,0)-ISNULL(cp.CE47,0)
+           WHEN 48 THEN ISNULL(cp.CO48,0)-ISNULL(cp.CE48,0)
+         END AS qtde_entregue
+  FROM GUESS_PRODUCAO.dbo.COMPRAS_PRODUTO cp
+  CROSS JOIN (VALUES
+    (1),(2),(3),(4),(5),(6),(7),(8),(9),(10),
+    (11),(12),(13),(14),(15),(16),(17),(18),(19),(20),
+    (21),(22),(23),(24),(25),(26),(27),(28),(29),(30),
+    (31),(32),(33),(34),(35),(36),(37),(38),(39),(40),
+    (41),(42),(43),(44),(45),(46),(47),(48)
+  ) AS v(posicao)
+  UNION ALL
+  SELECT 'HERING' AS empresa,
+         RTRIM(cp.PEDIDO), RTRIM(cp.PRODUTO), RTRIM(cp.COR_PRODUTO),
+         cp.ENTREGA, v.posicao,
+         CASE v.posicao
+           WHEN 1 THEN cp.CO1 WHEN 2 THEN cp.CO2 WHEN 3 THEN cp.CO3
+           WHEN 4 THEN cp.CO4 WHEN 5 THEN cp.CO5 WHEN 6 THEN cp.CO6
+           WHEN 7 THEN cp.CO7 WHEN 8 THEN cp.CO8 WHEN 9 THEN cp.CO9
+           WHEN 10 THEN cp.CO10 WHEN 11 THEN cp.CO11 WHEN 12 THEN cp.CO12
+           WHEN 13 THEN cp.CO13 WHEN 14 THEN cp.CO14 WHEN 15 THEN cp.CO15
+           WHEN 16 THEN cp.CO16 WHEN 17 THEN cp.CO17 WHEN 18 THEN cp.CO18
+           WHEN 19 THEN cp.CO19 WHEN 20 THEN cp.CO20 WHEN 21 THEN cp.CO21
+           WHEN 22 THEN cp.CO22 WHEN 23 THEN cp.CO23 WHEN 24 THEN cp.CO24
+           WHEN 25 THEN cp.CO25 WHEN 26 THEN cp.CO26 WHEN 27 THEN cp.CO27
+           WHEN 28 THEN cp.CO28 WHEN 29 THEN cp.CO29 WHEN 30 THEN cp.CO30
+           WHEN 31 THEN cp.CO31 WHEN 32 THEN cp.CO32 WHEN 33 THEN cp.CO33
+           WHEN 34 THEN cp.CO34 WHEN 35 THEN cp.CO35 WHEN 36 THEN cp.CO36
+           WHEN 37 THEN cp.CO37 WHEN 38 THEN cp.CO38 WHEN 39 THEN cp.CO39
+           WHEN 40 THEN cp.CO40 WHEN 41 THEN cp.CO41 WHEN 42 THEN cp.CO42
+           WHEN 43 THEN cp.CO43 WHEN 44 THEN cp.CO44 WHEN 45 THEN cp.CO45
+           WHEN 46 THEN cp.CO46 WHEN 47 THEN cp.CO47 WHEN 48 THEN cp.CO48
+         END,
+         CASE v.posicao
+           WHEN 1 THEN cp.CE1 WHEN 2 THEN cp.CE2 WHEN 3 THEN cp.CE3
+           WHEN 4 THEN cp.CE4 WHEN 5 THEN cp.CE5 WHEN 6 THEN cp.CE6
+           WHEN 7 THEN cp.CE7 WHEN 8 THEN cp.CE8 WHEN 9 THEN cp.CE9
+           WHEN 10 THEN cp.CE10 WHEN 11 THEN cp.CE11 WHEN 12 THEN cp.CE12
+           WHEN 13 THEN cp.CE13 WHEN 14 THEN cp.CE14 WHEN 15 THEN cp.CE15
+           WHEN 16 THEN cp.CE16 WHEN 17 THEN cp.CE17 WHEN 18 THEN cp.CE18
+           WHEN 19 THEN cp.CE19 WHEN 20 THEN cp.CE20 WHEN 21 THEN cp.CE21
+           WHEN 22 THEN cp.CE22 WHEN 23 THEN cp.CE23 WHEN 24 THEN cp.CE24
+           WHEN 25 THEN cp.CE25 WHEN 26 THEN cp.CE26 WHEN 27 THEN cp.CE27
+           WHEN 28 THEN cp.CE28 WHEN 29 THEN cp.CE29 WHEN 30 THEN cp.CE30
+           WHEN 31 THEN cp.CE31 WHEN 32 THEN cp.CE32 WHEN 33 THEN cp.CE33
+           WHEN 34 THEN cp.CE34 WHEN 35 THEN cp.CE35 WHEN 36 THEN cp.CE36
+           WHEN 37 THEN cp.CE37 WHEN 38 THEN cp.CE38 WHEN 39 THEN cp.CE39
+           WHEN 40 THEN cp.CE40 WHEN 41 THEN cp.CE41 WHEN 42 THEN cp.CE42
+           WHEN 43 THEN cp.CE43 WHEN 44 THEN cp.CE44 WHEN 45 THEN cp.CE45
+           WHEN 46 THEN cp.CE46 WHEN 47 THEN cp.CE47 WHEN 48 THEN cp.CE48
+         END
+  FROM DB_HRG3.dbo.COMPRAS_PRODUTO cp
+  CROSS JOIN (VALUES
+    (1),(2),(3),(4),(5),(6),(7),(8),(9),(10),
+    (11),(12),(13),(14),(15),(16),(17),(18),(19),(20),
+    (21),(22),(23),(24),(25),(26),(27),(28),(29),(30),
+    (31),(32),(33),(34),(35),(36),(37),(38),(39),(40),
+    (41),(42),(43),(44),(45),(46),(47),(48)
+  ) AS v(posicao)
+) src
+WHERE qtde_original > 0 OR qtde_entregue > 0
+GROUP BY empresa, pedido, produto, cor, entrega, posicao;
+GO
+
+-- ---------- DE-PARA POSIÇÃO DA GRADE → NOME DO TAMANHO ----------
+CREATE OR ALTER VIEW dbo.v_p2p_grade_tamanhos AS
+SELECT 'GUESS' AS empresa, RTRIM(grade) AS grade, posicao, RTRIM(tamanho) AS tamanho
+FROM GUESS_PRODUCAO.dbo.PRODUTOS_TAMANHOS
+CROSS APPLY (VALUES
+  ( 1, TAMANHO_1),  ( 2, TAMANHO_2),  ( 3, TAMANHO_3),  ( 4, TAMANHO_4),
+  ( 5, TAMANHO_5),  ( 6, TAMANHO_6),  ( 7, TAMANHO_7),  ( 8, TAMANHO_8),
+  ( 9, TAMANHO_9),  (10, TAMANHO_10), (11, TAMANHO_11), (12, TAMANHO_12),
+  (13, TAMANHO_13), (14, TAMANHO_14), (15, TAMANHO_15), (16, TAMANHO_16),
+  (17, TAMANHO_17), (18, TAMANHO_18), (19, TAMANHO_19), (20, TAMANHO_20),
+  (21, TAMANHO_21), (22, TAMANHO_22), (23, TAMANHO_23), (24, TAMANHO_24),
+  (25, TAMANHO_25), (26, TAMANHO_26), (27, TAMANHO_27), (28, TAMANHO_28),
+  (29, TAMANHO_29), (30, TAMANHO_30), (31, TAMANHO_31), (32, TAMANHO_32),
+  (33, TAMANHO_33), (34, TAMANHO_34), (35, TAMANHO_35), (36, TAMANHO_36),
+  (37, TAMANHO_37), (38, TAMANHO_38), (39, TAMANHO_39), (40, TAMANHO_40),
+  (41, TAMANHO_41), (42, TAMANHO_42), (43, TAMANHO_43), (44, TAMANHO_44),
+  (45, TAMANHO_45), (46, TAMANHO_46), (47, TAMANHO_47), (48, TAMANHO_48)
+) v(posicao, tamanho)
+WHERE LTRIM(RTRIM(ISNULL(tamanho, ''))) <> ''
+UNION ALL
+SELECT 'HERING', RTRIM(grade), posicao, RTRIM(tamanho)
+FROM DB_HRG3.dbo.PRODUTOS_TAMANHOS
+CROSS APPLY (VALUES
+  ( 1, TAMANHO_1),  ( 2, TAMANHO_2),  ( 3, TAMANHO_3),  ( 4, TAMANHO_4),
+  ( 5, TAMANHO_5),  ( 6, TAMANHO_6),  ( 7, TAMANHO_7),  ( 8, TAMANHO_8),
+  ( 9, TAMANHO_9),  (10, TAMANHO_10), (11, TAMANHO_11), (12, TAMANHO_12),
+  (13, TAMANHO_13), (14, TAMANHO_14), (15, TAMANHO_15), (16, TAMANHO_16),
+  (17, TAMANHO_17), (18, TAMANHO_18), (19, TAMANHO_19), (20, TAMANHO_20),
+  (21, TAMANHO_21), (22, TAMANHO_22), (23, TAMANHO_23), (24, TAMANHO_24),
+  (25, TAMANHO_25), (26, TAMANHO_26), (27, TAMANHO_27), (28, TAMANHO_28),
+  (29, TAMANHO_29), (30, TAMANHO_30), (31, TAMANHO_31), (32, TAMANHO_32),
+  (33, TAMANHO_33), (34, TAMANHO_34), (35, TAMANHO_35), (36, TAMANHO_36),
+  (37, TAMANHO_37), (38, TAMANHO_38), (39, TAMANHO_39), (40, TAMANHO_40),
+  (41, TAMANHO_41), (42, TAMANHO_42), (43, TAMANHO_43), (44, TAMANHO_44),
+  (45, TAMANHO_45), (46, TAMANHO_46), (47, TAMANHO_47), (48, TAMANHO_48)
+) v(posicao, tamanho)
+WHERE LTRIM(RTRIM(ISNULL(tamanho, ''))) <> '';
+GO
+
+-- ============================================================
+-- NOTAS FISCAIS DE ENTRADA vinculadas a pedidos PA
+-- ENTRADAS_PRODUTO traz, por linha de item, qual NF o entregou.
+-- Convenções do Linx:
+--   - NF_ENTRADA tem padding de espaços (RTRIM sempre).
+--   - SERIE_NF do header pode vir NULL; a série confiável é a do item
+--     (SERIE_NF_ENTRADA).
+--   - Não existe FK por código de fornecedor — JOIN com ENTRADAS é por
+--     NF_ENTRADA + NOME_CLIFOR (nome textual).
+-- ============================================================
+
+-- ---------- NFs DO PEDIDO (uma linha por NF distinta) ----------
+CREATE OR ALTER VIEW dbo.v_p2p_product_order_nfs AS
+SELECT 'GUESS' AS empresa,
+       RTRIM(ep.PEDIDO) AS pedido,
+       RTRIM(ep.NF_ENTRADA) AS nf,
+       RTRIM(ep.SERIE_NF_ENTRADA) AS serie,
+       RTRIM(ep.NOME_CLIFOR) AS fornecedor,
+       MAX(e.EMISSAO) AS emissao,
+       MAX(e.RECEBIMENTO) AS recebimento,
+       MAX(e.FILIAL_ENTRADA) AS filial_entrada,
+       SUM(ISNULL(ep.TOTAL_ENTRADAS, 0)) AS qtde_total,
+       SUM(ISNULL(ep.VALOR, 0) * ISNULL(ep.TOTAL_ENTRADAS, 0)) AS valor_total
+FROM GUESS_PRODUCAO.dbo.ENTRADAS_PRODUTO ep
+LEFT JOIN GUESS_PRODUCAO.dbo.ENTRADAS e
+  ON e.NF_ENTRADA = ep.NF_ENTRADA AND e.NOME_CLIFOR = ep.NOME_CLIFOR
+GROUP BY ep.PEDIDO, ep.NF_ENTRADA, ep.SERIE_NF_ENTRADA, ep.NOME_CLIFOR
+UNION ALL
+SELECT 'HERING',
+       RTRIM(ep.PEDIDO), RTRIM(ep.NF_ENTRADA), RTRIM(ep.SERIE_NF_ENTRADA),
+       RTRIM(ep.NOME_CLIFOR),
+       MAX(e.EMISSAO), MAX(e.RECEBIMENTO), MAX(e.FILIAL_ENTRADA),
+       SUM(ISNULL(ep.TOTAL_ENTRADAS, 0)),
+       SUM(ISNULL(ep.VALOR, 0) * ISNULL(ep.TOTAL_ENTRADAS, 0))
+FROM DB_HRG3.dbo.ENTRADAS_PRODUTO ep
+LEFT JOIN DB_HRG3.dbo.ENTRADAS e
+  ON e.NF_ENTRADA = ep.NF_ENTRADA AND e.NOME_CLIFOR = ep.NOME_CLIFOR
+GROUP BY ep.PEDIDO, ep.NF_ENTRADA, ep.SERIE_NF_ENTRADA, ep.NOME_CLIFOR;
+GO
+
+-- ---------- NFs POR ITEM DO PEDIDO ----------
+-- Cada item (pedido,produto,cor,entrega) pode ter sido entregue em N NFs
+-- (entrega parcelada). PRODUTO_PEDIDO/COR_PRODUTO_PEDIDO/ENTREGA_PEDIDO
+-- preservam o item original do pedido caso a NF tenha trocado o produto
+-- (devolução com substituição, p. ex.) — usamos esses pra casar com o item.
+CREATE OR ALTER VIEW dbo.v_p2p_product_order_item_nfs AS
+SELECT 'GUESS' AS empresa,
+       RTRIM(ep.PEDIDO) AS pedido,
+       RTRIM(ep.PRODUTO_PEDIDO) AS produto,
+       RTRIM(ep.COR_PRODUTO_PEDIDO) AS cor,
+       ep.ENTREGA_PEDIDO AS entrega,
+       RTRIM(ep.NF_ENTRADA) AS nf,
+       RTRIM(ep.SERIE_NF_ENTRADA) AS serie,
+       RTRIM(ep.NOME_CLIFOR) AS fornecedor,
+       e.EMISSAO AS emissao,
+       e.RECEBIMENTO AS recebimento,
+       ISNULL(ep.TOTAL_ENTRADAS, 0) AS qtde,
+       ISNULL(ep.VALOR, 0) AS valor_unit,
+       ISNULL(ep.VALOR, 0) * ISNULL(ep.TOTAL_ENTRADAS, 0) AS valor_total,
+       CAST(ISNULL(ep.MATA_SALDO_PEDIDO, 0) AS BIT) AS mata_saldo
+FROM GUESS_PRODUCAO.dbo.ENTRADAS_PRODUTO ep
+LEFT JOIN GUESS_PRODUCAO.dbo.ENTRADAS e
+  ON e.NF_ENTRADA = ep.NF_ENTRADA AND e.NOME_CLIFOR = ep.NOME_CLIFOR
+UNION ALL
+SELECT 'HERING',
+       RTRIM(ep.PEDIDO), RTRIM(ep.PRODUTO_PEDIDO), RTRIM(ep.COR_PRODUTO_PEDIDO),
+       ep.ENTREGA_PEDIDO,
+       RTRIM(ep.NF_ENTRADA), RTRIM(ep.SERIE_NF_ENTRADA), RTRIM(ep.NOME_CLIFOR),
+       e.EMISSAO, e.RECEBIMENTO,
+       ISNULL(ep.TOTAL_ENTRADAS, 0),
+       ISNULL(ep.VALOR, 0),
+       ISNULL(ep.VALOR, 0) * ISNULL(ep.TOTAL_ENTRADAS, 0),
+       CAST(ISNULL(ep.MATA_SALDO_PEDIDO, 0) AS BIT)
+FROM DB_HRG3.dbo.ENTRADAS_PRODUTO ep
+LEFT JOIN DB_HRG3.dbo.ENTRADAS e
+  ON e.NF_ENTRADA = ep.NF_ENTRADA AND e.NOME_CLIFOR = ep.NOME_CLIFOR;
+GO

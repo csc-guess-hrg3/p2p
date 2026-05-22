@@ -1,7 +1,18 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { isAxiosError } from 'axios';
-import { ArrowLeft, Check, Grid3x3, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  CalendarClock,
+  Check,
+  CircleCheck,
+  CircleSlash,
+  CircleX,
+  FileText,
+  Grid3x3,
+  PackageCheck,
+  X,
+} from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import {
   useApprovePaOrder,
@@ -9,7 +20,9 @@ import {
   usePaItemGrade,
   useRejectPaOrder,
   type PaItem,
+  type PaTimelineEvent,
 } from '@/lib/product-orders-pa';
+import { RescheduleDialog } from './RescheduleDialog';
 import { useToast } from '@/components/ui/use-toast';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -43,8 +56,52 @@ const STATUS_MAP: Record<
   R: { label: 'Reprovado', variant: 'destructive' },
   C: { label: 'Cancelado', variant: 'neutral' },
   CP: { label: 'Cancelado parcial', variant: 'warning' },
+  D: { label: 'Entregue', variant: 'success' },
+  DP: { label: 'Entregue parcialmente', variant: 'default' },
   M: { label: 'Microvix', variant: 'default' },
 };
+
+/**
+ * Item da timeline — ícone + label, com data relativa à esquerda.
+ * Cores acompanham a natureza do evento (criação azul, aprovação verde,
+ * reprovação vermelha, NF cinza).
+ */
+function TimelineRow({ ev }: { ev: PaTimelineEvent }) {
+  const { Icon, color } = (() => {
+    switch (ev.kind) {
+      case 'created':
+        return { Icon: FileText, color: 'text-primary' };
+      case 'approved':
+        return { Icon: CircleCheck, color: 'text-emerald-600' };
+      case 'rejected':
+        return { Icon: CircleX, color: 'text-destructive' };
+      case 'nf':
+        return { Icon: PackageCheck, color: 'text-foreground' };
+      case 'reschedule':
+        return { Icon: CalendarClock, color: 'text-warning' };
+      default:
+        return { Icon: CircleSlash, color: 'text-muted-foreground' };
+    }
+  })();
+  return (
+    <li className="flex gap-3">
+      <div className={`mt-0.5 ${color}`}>
+        <Icon className="size-4" />
+      </div>
+      <div className="flex-1 text-sm">
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <span className="font-medium">{ev.label}</span>
+          <span className="text-xs text-muted-foreground">{formatDate(ev.at)}</span>
+        </div>
+        {(ev.who || ev.detail) && (
+          <p className="text-xs text-muted-foreground">
+            {[ev.who, ev.detail].filter(Boolean).join(' · ')}
+          </p>
+        )}
+      </div>
+    </li>
+  );
+}
 
 function PaStatusBadge({ status }: { status: string }) {
   const key = (status ?? '').trim().toUpperCase();
@@ -215,6 +272,7 @@ export function PaOrderDetailPage() {
   const { toast } = useToast();
   const [gradeFor, setGradeFor] = useState<PaItem | null>(null);
   const [rejectOpen, setRejectOpen] = useState(false);
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const approveMut = useApprovePaOrder();
   const { data, isLoading } = usePaOrder(activeCompany?.code, pedido);
 
@@ -231,6 +289,14 @@ export function PaOrderDetailPage() {
   const efetivo = (data.status_efetivo ?? data.status_compra ?? '').trim();
   const isCancelled = efetivo === 'C' || efetivo === 'CP';
   const canDecide = data.canApprovePa && isPending && !isCancelled;
+
+  // Reagendar entrega: backend resolve a permissão olhando o time
+  // configurado (paReschedulerTeamId) ou ADMIN. Aqui só travamos quando
+  // o pedido já está fechado/cancelado/sem saldo.
+  const canReschedule =
+    !!data.canReschedule &&
+    !!data.proxima_entrega &&
+    !['C', 'R', 'D'].includes(efetivo);
 
   async function handleApprove() {
     if (!data || !activeCompany) return;
@@ -266,6 +332,16 @@ export function PaOrderDetailPage() {
             Pedidos PA
           </Link>
         </Button>
+        <div className="flex flex-wrap gap-2">
+          {canReschedule && (
+            <Button
+              variant="outline"
+              onClick={() => setRescheduleOpen(true)}
+            >
+              <CalendarClock className="size-4" />
+              Reagendar entrega
+            </Button>
+          )}
         {canDecide && (
           <div className="flex gap-2">
             <Button
@@ -284,6 +360,7 @@ export function PaOrderDetailPage() {
             </Button>
           </div>
         )}
+        </div>
       </div>
 
       <Card>
@@ -294,7 +371,7 @@ export function PaOrderDetailPage() {
           </div>
           <PaStatusBadge status={efetivo} />
         </CardHeader>
-        <CardContent className="grid grid-cols-3 gap-4">
+        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Filial" value={data.filial} />
           <Field label="Tipo de compra" value={data.tipo_compra} />
           <Field label="Condição" value={data.condicao_pgto || '—'} />
@@ -361,6 +438,7 @@ export function PaOrderDetailPage() {
                 <TableHead className="text-right">Qtde</TableHead>
                 <TableHead className="text-right">Cancelada</TableHead>
                 <TableHead className="text-right">Entregue</TableHead>
+                <TableHead>NF</TableHead>
                 <TableHead className="text-right">Custo unit.</TableHead>
                 <TableHead className="text-right">Valor</TableHead>
                 <TableHead className="w-32" />
@@ -372,7 +450,18 @@ export function PaOrderDetailPage() {
                   <TableCell className="font-medium">{it.produto}</TableCell>
                   <TableCell>{it.cor}</TableCell>
                   <TableCell className="text-muted-foreground">
-                    {formatDate(it.entrega)}
+                    {it.was_rescheduled ? (
+                      <span title={`Original: ${formatDate(it.entrega)}`}>
+                        <span className="font-medium text-foreground">
+                          {formatDate(it.limite_entrega)}
+                        </span>
+                        <span className="ml-1 text-xs italic text-muted-foreground">
+                          (reagendada)
+                        </span>
+                      </span>
+                    ) : (
+                      formatDate(it.entrega)
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
                     {it.qtde_original ?? '—'}
@@ -388,6 +477,11 @@ export function PaOrderDetailPage() {
                   </TableCell>
                   <TableCell className="text-right text-muted-foreground">
                     {it.qtde_entregue ?? 0}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {it.nfs && it.nfs.length > 0
+                      ? it.nfs.map((n) => n.nf).join(', ')
+                      : '—'}
                   </TableCell>
                   <TableCell className="text-right text-muted-foreground">
                     {formatCurrency(it.custo_unit)}
@@ -411,6 +505,78 @@ export function PaOrderDetailPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {data.nfs && data.nfs.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Notas fiscais recebidas ({data.nfs.length})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>NF</TableHead>
+                  <TableHead>Série</TableHead>
+                  <TableHead>Fornecedor</TableHead>
+                  <TableHead>Emissão</TableHead>
+                  <TableHead>Recebimento</TableHead>
+                  <TableHead className="text-right">Qtde</TableHead>
+                  <TableHead className="text-right">Valor</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.nfs.map((nf) => (
+                  <TableRow key={`${nf.nf}-${nf.serie ?? ''}`}>
+                    <TableCell className="font-medium">{nf.nf}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {nf.serie || '—'}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {nf.fornecedor}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {formatDate(nf.emissao)}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {formatDate(nf.recebimento)}
+                    </TableCell>
+                    <TableCell className="text-right">{nf.qtde_total}</TableCell>
+                    <TableCell className="text-right font-medium">
+                      {formatCurrency(nf.valor_total)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {data.timeline && data.timeline.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Histórico</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-3">
+              {data.timeline.map((ev, i) => (
+                <TimelineRow key={`${ev.at}-${ev.kind}-${i}`} ev={ev} />
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {rescheduleOpen && activeCompany && data && (
+        <RescheduleDialog
+          open={rescheduleOpen}
+          onOpenChange={setRescheduleOpen}
+          company={activeCompany.code}
+          pedido={data.pedido}
+          items={data.items}
+          proximaEntrega={data.proxima_entrega}
+        />
+      )}
 
       {gradeFor && activeCompany && (
         <ItemGradeDialog

@@ -160,12 +160,19 @@ SELECT 'GUESS' AS empresa,
        ISNULL(agg.qtde_cancelada, 0) AS tot_qtde_cancelada,
        c.TOT_VALOR_ORIGINAL AS tot_valor_original,
        c.TOT_VALOR_ENTREGAR AS tot_valor_entregar,
+       agg.proxima_entrega AS proxima_entrega,
+       agg.proxima_entrega_original AS proxima_entrega_original,
        CAST(c.OBS AS NVARCHAR(MAX)) AS obs,
        CASE
          WHEN RTRIM(c.STATUS_COMPRA) IN ('C', 'R') THEN RTRIM(c.STATUS_COMPRA)
          WHEN ISNULL(agg.qtde_original, 0) > 0
               AND ISNULL(agg.qtde_cancelada, 0) >= ISNULL(agg.qtde_original, 0)
               THEN 'C'
+         WHEN ISNULL(agg.qtde_entregue, 0) > 0
+              AND ISNULL(agg.qtde_entregue, 0)
+                  >= ISNULL(agg.qtde_original, 0) - ISNULL(agg.qtde_cancelada, 0)
+              THEN 'D'
+         WHEN ISNULL(agg.qtde_entregue, 0) > 0 THEN 'DP'
          WHEN ISNULL(agg.qtde_cancelada, 0) > 0 THEN 'CP'
          ELSE RTRIM(c.STATUS_COMPRA)
        END AS status_efetivo
@@ -173,7 +180,12 @@ FROM HML_GUESS.dbo.COMPRAS c
 LEFT JOIN (
   SELECT PEDIDO,
          SUM(ISNULL(QTDE_ORIGINAL, 0)) AS qtde_original,
-         SUM(ISNULL(QTDE_CANCELADA, 0)) AS qtde_cancelada
+         SUM(ISNULL(QTDE_CANCELADA, 0)) AS qtde_cancelada,
+         SUM(ISNULL(QTDE_ENTREGUE, 0)) AS qtde_entregue,
+         MIN(CASE WHEN ISNULL(QTDE_ENTREGAR, 0) > 0 THEN LIMITE_ENTREGA END)
+           AS proxima_entrega,
+         MIN(CASE WHEN ISNULL(QTDE_ENTREGAR, 0) > 0 THEN ENTREGA END)
+           AS proxima_entrega_original
   FROM HML_GUESS.dbo.COMPRAS_PRODUTO
   GROUP BY PEDIDO
 ) agg ON agg.PEDIDO = c.PEDIDO
@@ -241,23 +253,56 @@ FROM (
            WHEN 43 THEN cp.CO43 WHEN 44 THEN cp.CO44 WHEN 45 THEN cp.CO45
            WHEN 46 THEN cp.CO46 WHEN 47 THEN cp.CO47 WHEN 48 THEN cp.CO48
          END AS qtde_original,
+         -- CE = saldo "a entregar" no Linx. Entregue = original − saldo.
          CASE v.posicao
-           WHEN 1 THEN cp.CE1 WHEN 2 THEN cp.CE2 WHEN 3 THEN cp.CE3
-           WHEN 4 THEN cp.CE4 WHEN 5 THEN cp.CE5 WHEN 6 THEN cp.CE6
-           WHEN 7 THEN cp.CE7 WHEN 8 THEN cp.CE8 WHEN 9 THEN cp.CE9
-           WHEN 10 THEN cp.CE10 WHEN 11 THEN cp.CE11 WHEN 12 THEN cp.CE12
-           WHEN 13 THEN cp.CE13 WHEN 14 THEN cp.CE14 WHEN 15 THEN cp.CE15
-           WHEN 16 THEN cp.CE16 WHEN 17 THEN cp.CE17 WHEN 18 THEN cp.CE18
-           WHEN 19 THEN cp.CE19 WHEN 20 THEN cp.CE20 WHEN 21 THEN cp.CE21
-           WHEN 22 THEN cp.CE22 WHEN 23 THEN cp.CE23 WHEN 24 THEN cp.CE24
-           WHEN 25 THEN cp.CE25 WHEN 26 THEN cp.CE26 WHEN 27 THEN cp.CE27
-           WHEN 28 THEN cp.CE28 WHEN 29 THEN cp.CE29 WHEN 30 THEN cp.CE30
-           WHEN 31 THEN cp.CE31 WHEN 32 THEN cp.CE32 WHEN 33 THEN cp.CE33
-           WHEN 34 THEN cp.CE34 WHEN 35 THEN cp.CE35 WHEN 36 THEN cp.CE36
-           WHEN 37 THEN cp.CE37 WHEN 38 THEN cp.CE38 WHEN 39 THEN cp.CE39
-           WHEN 40 THEN cp.CE40 WHEN 41 THEN cp.CE41 WHEN 42 THEN cp.CE42
-           WHEN 43 THEN cp.CE43 WHEN 44 THEN cp.CE44 WHEN 45 THEN cp.CE45
-           WHEN 46 THEN cp.CE46 WHEN 47 THEN cp.CE47 WHEN 48 THEN cp.CE48
+           WHEN 1 THEN ISNULL(cp.CO1,0)-ISNULL(cp.CE1,0)
+           WHEN 2 THEN ISNULL(cp.CO2,0)-ISNULL(cp.CE2,0)
+           WHEN 3 THEN ISNULL(cp.CO3,0)-ISNULL(cp.CE3,0)
+           WHEN 4 THEN ISNULL(cp.CO4,0)-ISNULL(cp.CE4,0)
+           WHEN 5 THEN ISNULL(cp.CO5,0)-ISNULL(cp.CE5,0)
+           WHEN 6 THEN ISNULL(cp.CO6,0)-ISNULL(cp.CE6,0)
+           WHEN 7 THEN ISNULL(cp.CO7,0)-ISNULL(cp.CE7,0)
+           WHEN 8 THEN ISNULL(cp.CO8,0)-ISNULL(cp.CE8,0)
+           WHEN 9 THEN ISNULL(cp.CO9,0)-ISNULL(cp.CE9,0)
+           WHEN 10 THEN ISNULL(cp.CO10,0)-ISNULL(cp.CE10,0)
+           WHEN 11 THEN ISNULL(cp.CO11,0)-ISNULL(cp.CE11,0)
+           WHEN 12 THEN ISNULL(cp.CO12,0)-ISNULL(cp.CE12,0)
+           WHEN 13 THEN ISNULL(cp.CO13,0)-ISNULL(cp.CE13,0)
+           WHEN 14 THEN ISNULL(cp.CO14,0)-ISNULL(cp.CE14,0)
+           WHEN 15 THEN ISNULL(cp.CO15,0)-ISNULL(cp.CE15,0)
+           WHEN 16 THEN ISNULL(cp.CO16,0)-ISNULL(cp.CE16,0)
+           WHEN 17 THEN ISNULL(cp.CO17,0)-ISNULL(cp.CE17,0)
+           WHEN 18 THEN ISNULL(cp.CO18,0)-ISNULL(cp.CE18,0)
+           WHEN 19 THEN ISNULL(cp.CO19,0)-ISNULL(cp.CE19,0)
+           WHEN 20 THEN ISNULL(cp.CO20,0)-ISNULL(cp.CE20,0)
+           WHEN 21 THEN ISNULL(cp.CO21,0)-ISNULL(cp.CE21,0)
+           WHEN 22 THEN ISNULL(cp.CO22,0)-ISNULL(cp.CE22,0)
+           WHEN 23 THEN ISNULL(cp.CO23,0)-ISNULL(cp.CE23,0)
+           WHEN 24 THEN ISNULL(cp.CO24,0)-ISNULL(cp.CE24,0)
+           WHEN 25 THEN ISNULL(cp.CO25,0)-ISNULL(cp.CE25,0)
+           WHEN 26 THEN ISNULL(cp.CO26,0)-ISNULL(cp.CE26,0)
+           WHEN 27 THEN ISNULL(cp.CO27,0)-ISNULL(cp.CE27,0)
+           WHEN 28 THEN ISNULL(cp.CO28,0)-ISNULL(cp.CE28,0)
+           WHEN 29 THEN ISNULL(cp.CO29,0)-ISNULL(cp.CE29,0)
+           WHEN 30 THEN ISNULL(cp.CO30,0)-ISNULL(cp.CE30,0)
+           WHEN 31 THEN ISNULL(cp.CO31,0)-ISNULL(cp.CE31,0)
+           WHEN 32 THEN ISNULL(cp.CO32,0)-ISNULL(cp.CE32,0)
+           WHEN 33 THEN ISNULL(cp.CO33,0)-ISNULL(cp.CE33,0)
+           WHEN 34 THEN ISNULL(cp.CO34,0)-ISNULL(cp.CE34,0)
+           WHEN 35 THEN ISNULL(cp.CO35,0)-ISNULL(cp.CE35,0)
+           WHEN 36 THEN ISNULL(cp.CO36,0)-ISNULL(cp.CE36,0)
+           WHEN 37 THEN ISNULL(cp.CO37,0)-ISNULL(cp.CE37,0)
+           WHEN 38 THEN ISNULL(cp.CO38,0)-ISNULL(cp.CE38,0)
+           WHEN 39 THEN ISNULL(cp.CO39,0)-ISNULL(cp.CE39,0)
+           WHEN 40 THEN ISNULL(cp.CO40,0)-ISNULL(cp.CE40,0)
+           WHEN 41 THEN ISNULL(cp.CO41,0)-ISNULL(cp.CE41,0)
+           WHEN 42 THEN ISNULL(cp.CO42,0)-ISNULL(cp.CE42,0)
+           WHEN 43 THEN ISNULL(cp.CO43,0)-ISNULL(cp.CE43,0)
+           WHEN 44 THEN ISNULL(cp.CO44,0)-ISNULL(cp.CE44,0)
+           WHEN 45 THEN ISNULL(cp.CO45,0)-ISNULL(cp.CE45,0)
+           WHEN 46 THEN ISNULL(cp.CO46,0)-ISNULL(cp.CE46,0)
+           WHEN 47 THEN ISNULL(cp.CO47,0)-ISNULL(cp.CE47,0)
+           WHEN 48 THEN ISNULL(cp.CO48,0)-ISNULL(cp.CE48,0)
          END AS qtde_entregue
   FROM HML_GUESS.dbo.COMPRAS_PRODUTO cp
   CROSS JOIN (VALUES
@@ -294,4 +339,46 @@ CROSS APPLY (VALUES
   (45, TAMANHO_45), (46, TAMANHO_46), (47, TAMANHO_47), (48, TAMANHO_48)
 ) v(posicao, tamanho)
 WHERE LTRIM(RTRIM(ISNULL(tamanho, ''))) <> '';
+GO
+
+-- ============================================================
+-- NOTAS FISCAIS DE ENTRADA vinculadas a pedidos PA
+-- ENTRADAS_PRODUTO traz, por linha de item, qual NF o entregou.
+-- ============================================================
+
+CREATE OR ALTER VIEW dbo.v_p2p_product_order_nfs AS
+SELECT 'GUESS' AS empresa,
+       RTRIM(ep.PEDIDO) AS pedido,
+       RTRIM(ep.NF_ENTRADA) AS nf,
+       RTRIM(ep.SERIE_NF_ENTRADA) AS serie,
+       RTRIM(ep.NOME_CLIFOR) AS fornecedor,
+       MAX(e.EMISSAO) AS emissao,
+       MAX(e.RECEBIMENTO) AS recebimento,
+       MAX(e.FILIAL_ENTRADA) AS filial_entrada,
+       SUM(ISNULL(ep.TOTAL_ENTRADAS, 0)) AS qtde_total,
+       SUM(ISNULL(ep.VALOR, 0) * ISNULL(ep.TOTAL_ENTRADAS, 0)) AS valor_total
+FROM HML_GUESS.dbo.ENTRADAS_PRODUTO ep
+LEFT JOIN HML_GUESS.dbo.ENTRADAS e
+  ON e.NF_ENTRADA = ep.NF_ENTRADA AND e.NOME_CLIFOR = ep.NOME_CLIFOR
+GROUP BY ep.PEDIDO, ep.NF_ENTRADA, ep.SERIE_NF_ENTRADA, ep.NOME_CLIFOR;
+GO
+
+CREATE OR ALTER VIEW dbo.v_p2p_product_order_item_nfs AS
+SELECT 'GUESS' AS empresa,
+       RTRIM(ep.PEDIDO) AS pedido,
+       RTRIM(ep.PRODUTO_PEDIDO) AS produto,
+       RTRIM(ep.COR_PRODUTO_PEDIDO) AS cor,
+       ep.ENTREGA_PEDIDO AS entrega,
+       RTRIM(ep.NF_ENTRADA) AS nf,
+       RTRIM(ep.SERIE_NF_ENTRADA) AS serie,
+       RTRIM(ep.NOME_CLIFOR) AS fornecedor,
+       e.EMISSAO AS emissao,
+       e.RECEBIMENTO AS recebimento,
+       ISNULL(ep.TOTAL_ENTRADAS, 0) AS qtde,
+       ISNULL(ep.VALOR, 0) AS valor_unit,
+       ISNULL(ep.VALOR, 0) * ISNULL(ep.TOTAL_ENTRADAS, 0) AS valor_total,
+       CAST(ISNULL(ep.MATA_SALDO_PEDIDO, 0) AS BIT) AS mata_saldo
+FROM HML_GUESS.dbo.ENTRADAS_PRODUTO ep
+LEFT JOIN HML_GUESS.dbo.ENTRADAS e
+  ON e.NF_ENTRADA = ep.NF_ENTRADA AND e.NOME_CLIFOR = ep.NOME_CLIFOR;
 GO

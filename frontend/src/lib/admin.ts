@@ -24,6 +24,8 @@ export interface ErpConfigPayload {
   hasSmtpPassword: boolean;
   /** Aprovador de Pedidos de Produto Acabado (diretor da marca). */
   paApproverUserId: string | null;
+  /** Time autorizado a reagendar entregas de pedidos PA. */
+  paReschedulerTeamId: string | null;
 }
 
 export interface CompanyErpConfigResponse {

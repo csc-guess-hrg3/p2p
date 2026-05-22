@@ -13,6 +13,8 @@ import {
   useCtbTipoOperacao,
   useNaturezasEntrada,
 } from '@/lib/integration';
+import { useUsers } from '@/lib/users';
+import { useTeams } from '@/lib/teams';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -45,6 +47,9 @@ interface FormState {
   smtpFromName: string;
   emailSubjectTemplate: string;
   emailBodyTemplate: string;
+  /** UUID do aprovador de Pedidos de Produto Acabado (diretor da marca). */
+  paApproverUserId: string;
+  paReschedulerTeamId: string;
 }
 
 const EMPTY: FormState = {
@@ -64,6 +69,8 @@ const EMPTY: FormState = {
   smtpFromName: '',
   emailSubjectTemplate: '',
   emailBodyTemplate: '',
+  paApproverUserId: '',
+  paReschedulerTeamId: '',
 };
 
 export function ErpConfigPage() {
@@ -81,6 +88,17 @@ export function ErpConfigPage() {
     companyCode,
     null, // todas, sem filtro
   );
+  // Lista usuários ativos da empresa pra escolher o aprovador de PA.
+  // Take alto pra garantir que todos caibam no select (Hering tem ~120
+  // usuários — sem isso o usuário corrente pode ficar fora dos 50 default).
+  const { data: usersPage } = useUsers({
+    companyId,
+    status: 'ACTIVE',
+    take: 500,
+  });
+  const users = usersPage?.data ?? [];
+  // Times pra escolher quem reagenda PA — todos ativos.
+  const { data: teams = [] } = useTeams();
 
   const [form, setForm] = useState<FormState>(EMPTY);
   const [touched, setTouched] = useState(false);
@@ -106,6 +124,8 @@ export function ErpConfigPage() {
       smtpFromName: c.smtpFromName ?? '',
       emailSubjectTemplate: c.emailSubjectTemplate ?? '',
       emailBodyTemplate: c.emailBodyTemplate ?? '',
+      paApproverUserId: c.paApproverUserId ?? '',
+      paReschedulerTeamId: c.paReschedulerTeamId ?? '',
     });
     setTouched(false);
   }, [data?.config]);
@@ -133,6 +153,8 @@ export function ErpConfigPage() {
       smtpFromName: form.smtpFromName.trim() || null,
       emailSubjectTemplate: form.emailSubjectTemplate.trim() || null,
       emailBodyTemplate: form.emailBodyTemplate.trim() || null,
+      paApproverUserId: form.paApproverUserId.trim() || null,
+      paReschedulerTeamId: form.paReschedulerTeamId.trim() || null,
     };
     // Senha: só envia se o usuário digitou alguma coisa.
     if (form.smtpPassword.trim()) {
@@ -263,6 +285,75 @@ export function ErpConfigPage() {
                   placeholder="Opcional"
                 />
               </div>
+            </div>
+          </section>
+
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Compra de Produto Acabado
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Pedidos de PA (TABELA_FILHA = COMPRAS_PRODUTO) nascem no ERP em
+              status "em estudo" e aguardam aprovação do diretor da marca aqui
+              no P2P. Defina quem é esse aprovador.
+            </p>
+            <div className="space-y-1.5 md:max-w-md">
+              <Label>Aprovador (diretor da marca)</Label>
+              <Select
+                value={form.paApproverUserId || '__none__'}
+                onValueChange={(v) =>
+                  patch('paApproverUserId', v === '__none__' ? '' : v)
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione um usuário" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">— Sem aprovador —</SelectItem>
+                  {users.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.name} ({u.email})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {form.paApproverUserId === '' && (
+                <p className="text-xs text-warning">
+                  Sem aprovador definido — botão Aprovar/Reprovar não aparece
+                  para ninguém.
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1.5 md:max-w-md">
+              <Label>Time autorizado a reagendar entregas</Label>
+              <Select
+                value={form.paReschedulerTeamId || '__none__'}
+                onValueChange={(v) =>
+                  patch(
+                    'paReschedulerTeamId',
+                    v === '__none__' ? '' : v,
+                  )
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione um time" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">— Sem time —</SelectItem>
+                  {teams
+                    .filter((t) => t.active)
+                    .map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Quem é membro deste time (ou ADMIN) consegue reagendar a data
+                de entrega de pedidos PA pela tela de detalhe.
+              </p>
             </div>
           </section>
 

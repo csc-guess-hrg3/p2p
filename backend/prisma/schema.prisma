@@ -99,11 +99,18 @@ model CompanyErpConfig {
   // alçada por valor (cadeia), substituir esta coluna por um vínculo
   // com TeamApprovalLevel com escopo PA (ver Rodada 8 / dívida 6.2).
   paApproverUserId            String?  @db.UniqueIdentifier
+  /**
+   * Time autorizado a reagendar entregas de pedidos PA (Compras).
+   * O ERP não preenche REQUERIDO_POR de PA, então a permissão é por time
+   * configurado aqui (mais ADMIN, que sempre pode).
+   */
+  paReschedulerTeamId         String?  @db.UniqueIdentifier
   createdAt                   DateTime @default(now())
   updatedAt                   DateTime @updatedAt
 
-  company     Company @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  paApprover  User?   @relation("PaApprover", fields: [paApproverUserId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  company           Company @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  paApprover        User?   @relation("PaApprover", fields: [paApproverUserId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  paReschedulerTeam Team?   @relation("PaReschedulerTeam", fields: [paReschedulerTeamId], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
   @@map("company_erp_configs")
 }
@@ -187,6 +194,7 @@ model Team {
   costCenterRateios TeamCostCenterRateio[]
   approvalLevels    TeamApprovalLevel[]
   requisitions      Requisition[]
+  paReschedulerFor  CompanyErpConfig[] @relation("PaReschedulerTeam")
 
   @@map("teams")
 }
@@ -278,6 +286,7 @@ model User {
   fiscalRequests      FiscalItemRequest[] @relation("fiscalRequester")
   fiscalResolutions   FiscalItemRequest[] @relation("fiscalResolver")
   paApproverFor       CompanyErpConfig[] @relation("PaApprover")
+  paDeliveryChanges   PaDeliveryChange[] @relation("PaDeliveryChangeUser")
 
   @@map("users")
 }
@@ -401,6 +410,10 @@ model Requisition {
   @@index([companyId, status])
   @@index([requesterId, status])
   @@index([teamId, status])
+  // Cobre o findAll mais comum: WHERE companyId+teamId ORDER BY createdAt DESC.
+  @@index([companyId, teamId, createdAt(sort: Desc)])
+  // Cobre listagens "minhas" (ADMIN, sem teamId).
+  @@index([companyId, createdAt(sort: Desc)])
   @@map("requisitions")
 }
 
@@ -497,6 +510,8 @@ model PurchaseOrder {
 
   @@index([companyId, status])
   @@index([expectedDelivery, status])
+  // findAll padrão: WHERE companyId ORDER BY createdAt DESC.
+  @@index([companyId, createdAt(sort: Desc)])
   @@map("purchase_orders")
 }
 
@@ -517,6 +532,15 @@ model PurchaseOrderItem {
   costCenterRateioCode String   @db.NVarChar(20)
   costCenterRateioDesc String?  @db.NVarChar(100)
   receivedQty          Decimal  @default(0) @db.Decimal(15, 4)
+  /**
+   * Quantidade já cancelada (PRD RN-OC-03). Quando `receivedQty +
+   * cancelledQty >= quantity`, o item está fechado. Sempre que muda,
+   * o backend recomputa o status do pedido (CANCELLED quando todos os
+   * itens são cancelados).
+   */
+  cancelledQty         Decimal  @default(0) @db.Decimal(15, 4)
+  cancelledAt          DateTime?
+  cancellationReason   String?  @db.NVarChar(500)
   notes                String?  @db.NVarChar(Max)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
@@ -815,4 +839,58 @@ model DocumentSequence {
 
   @@unique([companyId, docType, year])
   @@map("document_sequences")
+}
+
+/**
+ * Log de notificações de aprovação enviadas pra diretor de PA.
+ * Idempotência: um (companyId, pedido) só dispara e-mail uma vez.
+ * Se o envio falhar, fica marcado e o cron tenta de novo no próximo tick
+ * (até `attemptCount` chegar num teto razoável).
+ */
+model PaApprovalNotification {
+  id            String   @id @default(uuid()) @db.UniqueIdentifier
+  companyId     String   @db.UniqueIdentifier
+  pedido        String   @db.NVarChar(20)
+  approverEmail String   @db.NVarChar(255)
+  firstAttempt  DateTime @default(now())
+  lastAttempt   DateTime @default(now())
+  attemptCount  Int      @default(1)
+  success       Boolean  @default(false)
+  errorMessage  String?  @db.NVarChar(500)
+
+  @@unique([companyId, pedido])
+  @@map("pa_approval_notifications")
+}
+
+/**
+ * Reagendamento de entrega de pedidos PA — registra o histórico DE/PARA.
+ *
+ * `scope = 'order'` aplica a TODOS os itens abertos do pedido (produto/cor/
+ * entregaOriginal ficam NULL). `scope = 'item'` aplica só ao item específico
+ * (chaveado pela ENTREGA *original* no ERP, não pela vigente — assim a chave
+ * fica estável mesmo após múltiplos reagendamentos).
+ *
+ * `fromDate` é redundante mas fica explícito pra timeline mostrar
+ * "DE 2026-03-15 PARA 2026-04-02" sem reconstruir o histórico.
+ *
+ * Não há FK pro pedido em si — o pedido vive no ERP, identificamos por
+ * número (`pedido`). FK só pro changedBy (user do P2P).
+ */
+model PaDeliveryChange {
+  id              String   @id @default(uuid()) @db.UniqueIdentifier
+  companyId       String   @db.UniqueIdentifier
+  pedido          String   @db.NVarChar(20)
+  scope           String   @db.NVarChar(10) // 'order' | 'item'
+  produto         String?  @db.NVarChar(50)
+  cor             String?  @db.NVarChar(20)
+  entregaOriginal DateTime?
+  fromDate        DateTime
+  toDate          DateTime
+  reason          String   @db.NVarChar(500)
+  changedById     String   @db.UniqueIdentifier
+  changedBy       User     @relation("PaDeliveryChangeUser", fields: [changedById], references: [id])
+  createdAt       DateTime @default(now())
+
+  @@index([companyId, pedido])
+  @@map("pa_delivery_changes")
 }

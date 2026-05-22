@@ -38,4 +38,12 @@ export class UpdateErpConfigDto {
   @IsOptional()
   @IsString()
   paApproverUserId?: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      'ID do time autorizado a reagendar entregas de pedidos PA.',
+  })
+  @IsOptional()
+  @IsString()
+  paReschedulerTeamId?: string | null;
 }

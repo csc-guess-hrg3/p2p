@@ -220,6 +220,167 @@ export class ProductOrdersPaService {
   }
 
   /**
+   * Reagenda a entrega de um pedido PA — grava o DE/PARA no histórico
+   * pra refletir na timeline e na coluna "Próxima entrega" (vigente).
+   *
+   * Permissão: somente quem criou o pedido no Linx (`REQUERIDO_POR` =
+   * `user.adUsername`) ou ADMIN do P2P.
+   *
+   * scope='order'  → move todos os itens abertos (produto/cor/entrega NULL)
+   * scope='item'   → move apenas o item específico identificado por
+   *                  (produto, cor, entregaOriginal).
+   */
+  async reschedule(
+    user: AuthenticatedUser,
+    company: string,
+    pedido: string,
+    payload: {
+      scope: 'order' | 'item';
+      toDate: string;
+      reason: string;
+      produto?: string;
+      cor?: string;
+      entregaOriginal?: string;
+    },
+  ) {
+    const c = this.assertCompany(company);
+    this.assertUserHasCompany(user, c);
+
+    const numero = pedido.trim();
+    const reason = (payload.reason ?? '').trim();
+    if (reason.length < 5) {
+      throw new BadRequestException(
+        'Motivo do reagendamento obrigatório (mínimo 5 caracteres).',
+      );
+    }
+    const toDate = new Date(payload.toDate);
+    if (Number.isNaN(toDate.getTime())) {
+      throw new BadRequestException('Nova data inválida.');
+    }
+
+    const comp = await this.prisma.company.findFirst({
+      where: { code: c, deletedAt: null },
+      include: { erpConfig: true },
+    });
+    if (!comp) {
+      throw new BadRequestException(`Empresa "${c}" não cadastrada.`);
+    }
+    const erpDb = comp.erpDbName;
+
+    // Header só pra garantir que o pedido existe — REQUERIDO_POR não é
+    // mais usado pra permissão (campo vem vazio no Linx pra PA).
+    const headerRows = await this.prisma.$queryRawUnsafe<
+      { requerido_por: string | null }[]
+    >(
+      `SELECT TOP 1 RTRIM(REQUERIDO_POR) AS requerido_por
+         FROM [${erpDb}].dbo.COMPRAS
+        WHERE PEDIDO = @P1
+          AND RTRIM(TABELA_FILHA) = 'COMPRAS_PRODUTO'`,
+      numero,
+    );
+    if (headerRows.length === 0) {
+      throw new NotFoundException(`Pedido ${numero} não encontrado.`);
+    }
+
+    // Permissão: time configurado em CompanyErpConfig.paReschedulerTeamId,
+    // ou perfil ADMIN do P2P.
+    const isAdmin = user.profile === 'ADMIN';
+    const teamMatches =
+      !!comp.erpConfig?.paReschedulerTeamId &&
+      user.teamId === comp.erpConfig.paReschedulerTeamId;
+    if (!isAdmin && !teamMatches) {
+      throw new ForbiddenException(
+        comp.erpConfig?.paReschedulerTeamId
+          ? 'Você não está no time autorizado a reagendar entregas de PA.'
+          : 'Time autorizado a reagendar PA não configurado em /admin (ADMIN pode configurar).',
+      );
+    }
+
+    // Como o Linx é atualizado a cada reschedule, `fromDate` = data
+    // vigente atual do alvo (do pedido ou do item específico).
+    let fromDate: Date | null = null;
+    if (payload.scope === 'order') {
+      const r = await this.prisma.$queryRaw<{ proxima_entrega: Date | null }[]>`
+        SELECT TOP 1 proxima_entrega FROM dbo.v_p2p_product_orders
+        WHERE empresa = ${c} AND pedido = ${numero}`;
+      fromDate = r[0]?.proxima_entrega ?? null;
+    } else {
+      if (!payload.produto || !payload.cor || !payload.entregaOriginal) {
+        throw new BadRequestException(
+          'Reagendamento por item exige produto, cor e a data atual da entrega.',
+        );
+      }
+      // Cliente envia a ENTREGA vigente que está vendo na UI (it.entrega
+      // — já reflete updates anteriores). Confiamos nela.
+      fromDate = new Date(payload.entregaOriginal);
+    }
+    if (!fromDate) {
+      throw new BadRequestException(
+        'Pedido sem data de entrega aberta — não há o que reagendar.',
+      );
+    }
+    if (toDate.getTime() === fromDate.getTime()) {
+      throw new BadRequestException(
+        'Nova data igual à atual — sem mudança a registrar.',
+      );
+    }
+
+    // Atualiza a data no Linx pra refletir nos demais sistemas (logística,
+    // PCP, relatórios). A data original fica preservada no `fromDate` do
+    // primeiro change do pedido, então não perdemos rastreabilidade.
+    await this.prisma.$transaction(async () => {
+      // Só LIMITE_ENTREGA muda. ENTREGA (data original do pedido) fica
+      // preservada — o WHERE do scope='item' usa ENTREGA pra identificar
+      // a linha, e ela continua estável após N reagendamentos.
+      if (payload.scope === 'order') {
+        await this.prisma.$executeRawUnsafe(
+          `UPDATE [${erpDb}].dbo.COMPRAS_PRODUTO
+              SET LIMITE_ENTREGA = @P2
+            WHERE PEDIDO = @P1
+              AND ISNULL(QTDE_ENTREGAR, 0) > 0`,
+          numero,
+          toDate,
+        );
+      } else {
+        await this.prisma.$executeRawUnsafe(
+          `UPDATE [${erpDb}].dbo.COMPRAS_PRODUTO
+              SET LIMITE_ENTREGA = @P4
+            WHERE PEDIDO = @P1
+              AND PRODUTO = @P2
+              AND COR_PRODUTO = @P3
+              AND ENTREGA = @P5`,
+          numero,
+          payload.produto!.trim(),
+          payload.cor!.trim(),
+          toDate,
+          new Date(payload.entregaOriginal!),
+        );
+      }
+      await this.prisma.paDeliveryChange.create({
+        data: {
+          companyId: comp.id,
+          pedido: numero,
+          scope: payload.scope,
+          produto: payload.scope === 'item' ? payload.produto ?? null : null,
+          cor: payload.scope === 'item' ? payload.cor ?? null : null,
+          entregaOriginal:
+            payload.scope === 'item' && payload.entregaOriginal
+              ? new Date(payload.entregaOriginal)
+              : null,
+          fromDate,
+          toDate,
+          reason,
+          changedById: user.id,
+        },
+      });
+    });
+    this.logger.log(
+      `PA ${numero} reagendado (${payload.scope}) por ${user.name}: ${fromDate.toISOString()} → ${toDate.toISOString()}`,
+    );
+    return this.findOne(user, company, numero);
+  }
+
+  /**
    * Lista os pedidos de PA da empresa. Filtros suportados:
    *  - status (P, E, A, R, C, M ou ALL — default = ALL)
    *  - search (busca por número do pedido ou fornecedor)
@@ -235,7 +396,12 @@ export class ProductOrdersPaService {
     this.assertUserHasCompany(user, c);
 
     const { status, search } = options;
-    const filters: Prisma.Sql[] = [Prisma.sql`empresa = ${c}`];
+    const filters: Prisma.Sql[] = [
+      Prisma.sql`empresa = ${c}`,
+      // Corte de safra: o P2P só lista pedidos PA a partir desta data.
+      // Altere aqui se quiser ampliar/restringir a janela histórica.
+      Prisma.sql`emissao >= '2025-01-01'`,
+    ];
     if (status && status !== 'ALL') {
       // Usa `status_efetivo` (derivado do cancelamento por item) — o
       // status do header sozinho não basta porque cancelamento de PA
@@ -250,11 +416,56 @@ export class ProductOrdersPaService {
     }
     const where = Prisma.join(filters, ' AND ');
 
-    return this.prisma.$queryRaw<any[]>`
+    // Query 1: pedidos. Evitamos OUTER APPLY com subquery agregada (que
+    // dispara 200 leituras na view de NFs por chamada — em PROD passava
+    // dos 5s). Vamos fazer o agg de NFs separado, em batch (Q2).
+    const rows = await this.prisma.$queryRaw<any[]>`
       SELECT TOP 200 *
       FROM dbo.v_p2p_product_orders
       WHERE ${where}
       ORDER BY emissao DESC`;
+
+    if (rows.length === 0) return rows;
+
+    const pedidos = rows.map((r) => r.pedido);
+    const company2 = await this.prisma.company.findFirst({
+      where: { code: c, deletedAt: null },
+      select: { id: true },
+    });
+
+    // NFs agregadas (batch) + pedidos com reagendamento P2P (batch).
+    // O flag "reagendada" só conta se há registro em pa_delivery_changes;
+    // ENTREGA != LIMITE_ENTREGA por si só não basta, pois Compras costuma
+    // criar pedidos com essas datas diferentes organicamente.
+    const [nfAgg, changedPedidos] = await Promise.all([
+      this.prisma.$queryRaw<
+        { pedido: string; nfs_count: number; first_nf: string | null }[]
+      >`
+        SELECT pedido,
+               COUNT(*) AS nfs_count,
+               MIN(nf) AS first_nf
+        FROM dbo.v_p2p_product_order_nfs
+        WHERE empresa = ${c} AND pedido IN (${Prisma.join(pedidos)})
+        GROUP BY pedido`,
+      company2
+        ? this.prisma.paDeliveryChange.findMany({
+            where: { companyId: company2.id, pedido: { in: pedidos } },
+            distinct: ['pedido'],
+            select: { pedido: true },
+          })
+        : Promise.resolve([] as { pedido: string }[]),
+    ]);
+    const nfByPedido = new Map(nfAgg.map((n) => [n.pedido, n]));
+    const rescheduledSet = new Set(changedPedidos.map((c) => c.pedido));
+    return rows.map((r) => {
+      const nf = nfByPedido.get(r.pedido);
+      return {
+        ...r,
+        nfs_count: nf?.nfs_count ?? 0,
+        first_nf: nf?.first_nf ?? null,
+        was_rescheduled: rescheduledSet.has(r.pedido),
+      };
+    });
   }
 
   /**
@@ -278,11 +489,168 @@ export class ProductOrdersPaService {
       WHERE empresa = ${c} AND pedido = ${numero}
       ORDER BY produto, cor, entrega`;
 
+    // NFs do pedido (header agregado) + linhas NF×item para associar
+    // a coluna "NF que entregou" em cada item da grade.
+    const nfs = await this.prisma.$queryRaw<any[]>`
+      SELECT * FROM dbo.v_p2p_product_order_nfs
+      WHERE empresa = ${c} AND pedido = ${numero}
+      ORDER BY recebimento DESC, emissao DESC, nf`;
+    const itemNfs = await this.prisma.$queryRaw<any[]>`
+      SELECT * FROM dbo.v_p2p_product_order_item_nfs
+      WHERE empresa = ${c} AND pedido = ${numero}`;
+
+    // Log de mudanças de status no Linx (gravado pelo P2P em approve/reject
+    // e por outros sistemas do Linx). Pode vir vazio em pedidos antigos.
+    const erpDb = await this.resolveErpDb(c);
+    const statusLog = await this.prisma.$queryRawUnsafe<
+      {
+        data_alteracao_status: Date;
+        status_compra: string;
+        usuario: string | null;
+      }[]
+    >(
+      `SELECT DATA_ALTERACAO_STATUS AS data_alteracao_status,
+              RTRIM(STATUS_COMPRA) AS status_compra,
+              RTRIM(USUARIO) AS usuario
+         FROM [${erpDb}].dbo.COMPRAS_STATUS_LOG
+        WHERE RTRIM(PEDIDO) = @P1
+        ORDER BY DATA_ALTERACAO_STATUS`,
+      numero,
+    );
+
+    // Carrega reagendamentos do pedido (DE/PARA) — usados tanto na
+    // timeline quanto no cálculo de entrega_vigente por item logo abaixo.
+    const companyRec = await this.prisma.company.findFirst({
+      where: { code: c, deletedAt: null },
+      select: { id: true },
+    });
+    const changes = companyRec
+      ? await this.prisma.paDeliveryChange.findMany({
+          where: { companyId: companyRec.id, pedido: numero },
+          include: { changedBy: { select: { name: true } } },
+          orderBy: { createdAt: 'asc' },
+        })
+      : [];
+
+    // Timeline unificada: criação + log de status + NFs recebidas.
+    // Ordenada decrescente (mais recente primeiro) pra UI mostrar como feed.
+    const header = headerRows[0];
+    type Evt = {
+      at: string;
+      kind: 'created' | 'approved' | 'rejected' | 'status' | 'nf' | 'reschedule';
+      label: string;
+      who?: string | null;
+      detail?: string | null;
+    };
+    const events: Evt[] = [];
+
+    if (header.cadastramento) {
+      events.push({
+        at: new Date(header.cadastramento).toISOString(),
+        kind: 'created',
+        label: 'Pedido criado no ERP',
+        who: header.requerido_por ?? null,
+      });
+    }
+    if (header.data_aprovacao) {
+      const eff = (header.status_efetivo ?? header.status_compra ?? '').trim();
+      events.push({
+        at: new Date(header.data_aprovacao).toISOString(),
+        kind: eff === 'R' ? 'rejected' : 'approved',
+        label: eff === 'R' ? 'Pedido reprovado' : 'Pedido aprovado',
+        who: header.aprovado_por ?? null,
+      });
+    }
+    for (const log of statusLog) {
+      // Não duplicar a aprovação principal (já adicionada via header).
+      const dt = new Date(log.data_alteracao_status).getTime();
+      const aprovDt = header.data_aprovacao
+        ? new Date(header.data_aprovacao).getTime()
+        : null;
+      if (aprovDt && Math.abs(dt - aprovDt) < 60_000 && (log.status_compra === 'A' || log.status_compra === 'R')) {
+        continue;
+      }
+      events.push({
+        at: new Date(log.data_alteracao_status).toISOString(),
+        kind: 'status',
+        label: `Status alterado para "${log.status_compra}"`,
+        who: log.usuario,
+      });
+    }
+    for (const nf of nfs) {
+      const at = nf.recebimento ?? nf.emissao;
+      if (!at) continue;
+      events.push({
+        at: new Date(at).toISOString(),
+        kind: 'nf',
+        label: `Nota fiscal ${nf.nf}${nf.serie ? `/${nf.serie}` : ''} recebida`,
+        detail: `Qtde ${nf.qtde_total}`,
+      });
+    }
+    for (const ch of changes) {
+      const from = ch.fromDate.toLocaleDateString('pt-BR');
+      const to = ch.toDate.toLocaleDateString('pt-BR');
+      const scopeLabel =
+        ch.scope === 'order'
+          ? 'pedido inteiro'
+          : `${ch.produto ?? '?'} ${ch.cor ?? ''}`.trim();
+      events.push({
+        at: ch.createdAt.toISOString(),
+        kind: 'reschedule',
+        label: `Entrega reagendada (${scopeLabel}): DE ${from} PARA ${to}`,
+        who: ch.changedBy?.name ?? null,
+        detail: ch.reason,
+      });
+    }
+    const timeline = events.sort(
+      (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime(),
+    );
+
+    // Anexa em cada item:
+    //  - lista de NFs que o entregaram
+    //  - was_rescheduled: true se houve um change registrado no P2P
+    //    (scope=order afeta todos; scope=item só o item específico).
+    //    Sem isso, comparar ENTREGA != LIMITE_ENTREGA marcaria "reagendada"
+    //    em pedidos que Compras já criou com datas diferentes no ERP.
+    const hadOrderScopeChange = changes.some((ch) => ch.scope === 'order');
+    const itemsWithNfs = items.map((it) => {
+      const itemEntrega = it.entrega ? new Date(it.entrega).getTime() : null;
+      const matching = itemNfs.filter(
+        (r) =>
+          (r.produto ?? '').trim() === (it.produto ?? '').trim() &&
+          (r.cor ?? '').trim() === (it.cor ?? '').trim() &&
+          (r.entrega ? new Date(r.entrega).getTime() : null) === itemEntrega,
+      );
+      const hadItemChange = changes.some(
+        (ch) =>
+          ch.scope === 'item' &&
+          (ch.produto ?? '').trim() === (it.produto ?? '').trim() &&
+          (ch.cor ?? '').trim() === (it.cor ?? '').trim(),
+      );
+      return {
+        ...it,
+        nfs: matching,
+        was_rescheduled: hadOrderScopeChange || hadItemChange,
+      };
+    });
+
     const cfg = await this.resolveConfig(c).catch(() => null);
     const canApprovePa =
       !!cfg?.config?.paApproverUserId &&
       cfg.config.paApproverUserId === user.id;
-    return { ...headerRows[0], items, canApprovePa };
+    // canReschedule: time configurado bate com o time do usuário OU ADMIN.
+    const canReschedule =
+      user.profile === 'ADMIN' ||
+      (!!cfg?.config?.paReschedulerTeamId &&
+        user.teamId === cfg.config.paReschedulerTeamId);
+    return {
+      ...header,
+      items: itemsWithNfs,
+      nfs,
+      timeline,
+      canApprovePa,
+      canReschedule,
+    };
   }
 
   /**

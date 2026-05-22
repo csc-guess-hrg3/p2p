@@ -39,6 +39,7 @@ export interface CompanyErpConfigPatch {
   emailSubjectTemplate?: string | null;
   emailBodyTemplate?: string | null;
   paApproverUserId?: string | null;
+  paReschedulerTeamId?: string | null;
 }
 
 @Injectable()
@@ -121,8 +122,17 @@ export class CompaniesService {
         patch.emailSubjectTemplate ?? current?.emailSubjectTemplate ?? null,
       emailBodyTemplate:
         patch.emailBodyTemplate ?? current?.emailBodyTemplate ?? null,
+      // `??` ignora null — para o aprovador de PA queremos permitir
+      // limpar (admin tira o vínculo). Distinguimos undefined (não
+      // mandou) de null (limpar explicitamente) via 'in'.
       paApproverUserId:
-        patch.paApproverUserId ?? current?.paApproverUserId ?? null,
+        'paApproverUserId' in patch
+          ? patch.paApproverUserId ?? null
+          : current?.paApproverUserId ?? null,
+      paReschedulerTeamId:
+        'paReschedulerTeamId' in patch
+          ? patch.paReschedulerTeamId ?? null
+          : current?.paReschedulerTeamId ?? null,
     };
 
     const saved = await this.prisma.companyErpConfig.upsert({

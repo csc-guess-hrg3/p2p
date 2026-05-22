@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -33,6 +34,8 @@ import { ProductOrdersPaModule } from './product-orders-pa/product-orders-pa.mod
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    // Jobs agendados (cron). Hoje só rodam: notificação PA pendente.
+    ScheduleModule.forRoot(),
     // Throttle global — 60 req / minuto por IP por padrão.
     // Endpoints sensíveis (login) recebem throttle adicional via @Throttle.
     ThrottlerModule.forRoot([
