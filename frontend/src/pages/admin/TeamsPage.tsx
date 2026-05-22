@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { isAxiosError } from 'axios';
 import {
+  AlertTriangle,
   ArrowLeft,
+  GripVertical,
   Plus,
   Save,
   Trash2,
@@ -137,9 +139,11 @@ function ApprovalLevelsDialog({
 
   function addLevel() {
     const next = levels.length + 1;
+    // Sem prefixo "Nível N" — o número aparece numa coluna separada; o
+    // nome é livre (Coordenador, Gestor, Diretor…), placeholder ajuda.
     setLevels((p) => [
       ...p,
-      { level: next, name: `Nível ${next}`, approverId: '', maxAmount: null },
+      { level: next, name: '', approverId: '', maxAmount: null },
     ]);
   }
   function removeLevel(idx: number) {
@@ -150,12 +154,59 @@ function ApprovalLevelsDialog({
   function patchLevel(idx: number, patch: Partial<ApprovalLevelInput>) {
     setLevels((p) => p.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
   }
+  /** Reordena o array movendo o item de `from` pra posição `to`. */
+  function moveLevel(from: number, to: number) {
+    setLevels((p) => {
+      if (from === to || to < 0 || to >= p.length) return p;
+      const arr = p.slice();
+      const [removed] = arr.splice(from, 1);
+      arr.splice(to, 0, removed);
+      // Renumera level pra refletir a ordem visual.
+      return arr.map((l, i) => ({ ...l, level: i + 1 }));
+    });
+  }
+
+  /**
+   * Detecta inconsistência de alçada — nível N+1 com alçada menor que
+   * N quebra a regra "topo da cadeia cobre mais". A UI marca o problema
+   * em vermelho e o save() bloqueia até resolver.
+   */
+  const levelErrors = useMemo(() => {
+    const errors: (string | null)[] = levels.map(() => null);
+    for (let i = 1; i < levels.length; i++) {
+      const prev = levels[i - 1].maxAmount;
+      const curr = levels[i].maxAmount;
+      // Anterior sem limite + atual com limite → atual cobre menos. Inválido.
+      if (prev === null && curr !== null) {
+        errors[i] = 'Alçada menor que o nível anterior (sem limite).';
+        continue;
+      }
+      // Ambos com limite, atual < anterior → inválido.
+      if (prev !== null && curr !== null && curr < prev) {
+        errors[i] = `Alçada precisa ser ≥ R$ ${prev.toLocaleString('pt-BR')}.`;
+      }
+    }
+    return errors;
+  }, [levels]);
+  const hasLevelError = levelErrors.some((e) => e !== null);
+
+  // Índice da linha sendo arrastada (HTML5 DnD) — nullable.
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
 
   async function save() {
     if (levels.some((l) => !l.approverId || !l.name)) {
       toast({
         title: 'Campos obrigatórios',
         description: 'Cada nível precisa de nome e aprovador.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (hasLevelError) {
+      toast({
+        title: 'Alçadas inconsistentes',
+        description:
+          'A alçada de um nível superior precisa ser ≥ à do nível anterior.',
         variant: 'destructive',
       });
       return;
@@ -187,61 +238,95 @@ function ApprovalLevelsDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
-          {levels.map((l, idx) => (
-            <div
-              key={idx}
-              className="grid grid-cols-12 items-end gap-2 rounded-md border p-2"
-            >
-              <div className="col-span-1 text-center text-sm font-semibold">
-                {l.level}
-              </div>
-              <div className="col-span-3 space-y-1.5">
-                <Label className="text-xs">Nome</Label>
-                <Input
-                  className="h-9"
-                  value={l.name}
-                  onChange={(e) => patchLevel(idx, { name: e.target.value })}
-                />
-              </div>
-              <div className="col-span-5 space-y-1.5">
-                <Label className="text-xs">Aprovador</Label>
-                <Select
-                  value={l.approverId}
-                  onValueChange={(v) => patchLevel(idx, { approverId: v })}
+          {levels.map((l, idx) => {
+            const err = levelErrors[idx];
+            const isDragging = dragFrom === idx;
+            return (
+              <div
+                key={idx}
+                onDragOver={(e) => {
+                  // Permite o drop
+                  if (dragFrom !== null) e.preventDefault();
+                }}
+                onDrop={() => {
+                  if (dragFrom !== null) {
+                    moveLevel(dragFrom, idx);
+                    setDragFrom(null);
+                  }
+                }}
+                className={`grid grid-cols-12 items-end gap-2 rounded-md border p-2 transition-opacity ${
+                  isDragging ? 'opacity-40' : ''
+                } ${err ? 'border-destructive/50' : ''}`}
+              >
+                <div
+                  className="col-span-1 flex cursor-grab items-center justify-center gap-1 text-sm font-semibold active:cursor-grabbing"
+                  draggable
+                  onDragStart={() => setDragFrom(idx)}
+                  onDragEnd={() => setDragFrom(null)}
+                  title="Arraste pra reordenar"
                 >
-                  <SelectTrigger className="h-9">
-                    <SelectValue placeholder="Selecione" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {approvers.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        {a.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  <GripVertical className="size-3.5 text-muted-foreground" />
+                  {l.level}
+                </div>
+                <div className="col-span-3 space-y-1.5">
+                  <Label className="text-xs">Cargo</Label>
+                  <Input
+                    className="h-9"
+                    placeholder="Coordenador / Gestor / Diretor…"
+                    value={l.name}
+                    onChange={(e) =>
+                      patchLevel(idx, { name: e.target.value })
+                    }
+                  />
+                </div>
+                <div className="col-span-5 space-y-1.5">
+                  <Label className="text-xs">Aprovador</Label>
+                  <Select
+                    value={l.approverId}
+                    onValueChange={(v) =>
+                      patchLevel(idx, { approverId: v })
+                    }
+                  >
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Selecione" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {approvers.map((a) => (
+                        <SelectItem key={a.id} value={a.id}>
+                          {a.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-2 space-y-1.5">
+                  <Label className="text-xs">Alçada</Label>
+                  <CurrencyInput
+                    className={`h-9 ${err ? 'border-destructive' : ''}`}
+                    nullable
+                    placeholder="Sem limite"
+                    value={l.maxAmount}
+                    onChange={(v) => patchLevel(idx, { maxAmount: v })}
+                  />
+                </div>
+                <div className="col-span-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => removeLevel(idx)}
+                  >
+                    <Trash2 className="size-4 text-destructive" />
+                  </Button>
+                </div>
+                {err && (
+                  <p className="col-span-12 flex items-center gap-1 text-xs text-destructive">
+                    <AlertTriangle className="size-3" />
+                    {err}
+                  </p>
+                )}
               </div>
-              <div className="col-span-2 space-y-1.5">
-                <Label className="text-xs">Alçada</Label>
-                <CurrencyInput
-                  className="h-9"
-                  nullable
-                  placeholder="Sem limite"
-                  value={l.maxAmount}
-                  onChange={(v) => patchLevel(idx, { maxAmount: v })}
-                />
-              </div>
-              <div className="col-span-1">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => removeLevel(idx)}
-                >
-                  <Trash2 className="size-4 text-destructive" />
-                </Button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
           <Button variant="outline" size="sm" onClick={addLevel}>
             <Plus className="size-4" />
             Adicionar nível
