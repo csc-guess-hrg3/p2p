@@ -17,6 +17,7 @@ import {
 } from '../common/enums';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { LinxErpService } from '../integration/linx-erp.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 interface StartApprovalParams {
   companyId: string;
@@ -47,6 +48,7 @@ export class ApprovalsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly linx: LinxErpService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Filtro Prisma para os steps do mesmo documento. */
@@ -87,16 +89,15 @@ export class ApprovalsService {
     entityId: string,
     documentNumber: string,
   ): Promise<void> {
-    await this.prisma.notification.create({
-      data: {
-        companyId,
-        userId: approverId,
-        type: NotificationType.APPROVAL_REQUIRED,
-        title: 'Aprovação pendente',
-        body: `O documento ${documentNumber} aguarda sua aprovação.`,
-        entityType,
-        entityId,
-      },
+    await this.notifications.create({
+      companyId,
+      userId: approverId,
+      type: NotificationType.APPROVAL_REQUIRED,
+      title: `Aprovação pendente: ${documentNumber}`,
+      body: `O documento ${documentNumber} aguarda sua aprovação.`,
+      entityType,
+      entityId,
+      sendEmail: true,
     });
   }
 
@@ -257,6 +258,25 @@ export class ApprovalsService {
 
     if (!approved) {
       await this.updateEntityStatus(step, false, comments);
+      const rejectedRequesterId = await this.documentRequester(step);
+      if (rejectedRequesterId) {
+        const docNum = await this.documentNumber(step);
+        await this.notifications.create({
+          companyId: step.companyId,
+          userId: rejectedRequesterId,
+          type: NotificationType.REJECTED,
+          title: `Documento rejeitado: ${docNum}`,
+          body: comments
+            ? `Seu documento ${docNum} foi rejeitado. Motivo: ${comments}`
+            : `Seu documento ${docNum} foi rejeitado.`,
+          entityType: step.entityType,
+          entityId:
+            step.requisitionId ??
+            step.purchaseOrderId ??
+            (step.fundRequestId as string),
+          sendEmail: true,
+        });
+      }
       return { result: 'REJECTED' as const };
     }
 
@@ -284,6 +304,23 @@ export class ApprovalsService {
     }
 
     await this.updateEntityStatus(step, true);
+    const approvedRequesterId = await this.documentRequester(step);
+    if (approvedRequesterId) {
+      const docNum = await this.documentNumber(step);
+      await this.notifications.create({
+        companyId: step.companyId,
+        userId: approvedRequesterId,
+        type: NotificationType.APPROVED,
+        title: `Documento aprovado: ${docNum}`,
+        body: `Seu documento ${docNum} foi aprovado.`,
+        entityType: step.entityType,
+        entityId:
+          step.requisitionId ??
+          step.purchaseOrderId ??
+          (step.fundRequestId as string),
+        sendEmail: true,
+      });
+    }
     return { result: 'APPROVED' as const };
   }
 
@@ -357,6 +394,22 @@ export class ApprovalsService {
         );
       }
     });
+    // Notifica o requisitante/comprador que o doc voltou pra ajuste.
+    const requesterId = await this.documentRequester(step);
+    if (requesterId) {
+      const docNum = await this.documentNumber(step);
+      await this.notifications.create({
+        companyId: step.companyId,
+        userId: requesterId,
+        type: NotificationType.REVISION_REQUESTED,
+        title: `Revisão solicitada: ${docNum}`,
+        body: `${user.name ?? user.adUsername} pediu ajustes em ${docNum}. Motivo: ${trimmed}`,
+        entityType: step.entityType,
+        entityId:
+          step.requisitionId ?? (step.purchaseOrderId as string),
+        sendEmail: true,
+      });
+    }
     return { result: 'REVISION' as const };
   }
 

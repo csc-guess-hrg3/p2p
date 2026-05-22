@@ -30,6 +30,7 @@ import { ReportsModule } from './reports/reports.module';
 import { IntegrationModule } from './integration/integration.module';
 import { AttachmentsModule } from './attachments/attachments.module';
 import { ProductOrdersPaModule } from './product-orders-pa/product-orders-pa.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -65,6 +66,7 @@ import { ProductOrdersPaModule } from './product-orders-pa/product-orders-pa.mod
     IntegrationModule,
     AttachmentsModule,
     ProductOrdersPaModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [

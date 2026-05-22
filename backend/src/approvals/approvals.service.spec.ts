@@ -36,10 +36,18 @@ function makeStep(over: Partial<any> = {}) {
 describe('ApprovalsService.decide', () => {
   let prisma: PrismaMock;
   let service: ApprovalsService;
+  let notifCreate: jest.Mock;
 
   beforeEach(() => {
     prisma = createPrismaMock();
-    service = new ApprovalsService(prisma as unknown as PrismaService);
+    notifCreate = jest.fn();
+    const linxStub = { markPedidoAprovado: jest.fn() } as unknown as import('../integration/linx-erp.service').LinxErpService;
+    const notifStub = { create: notifCreate } as unknown as import('../notifications/notifications.service').NotificationsService;
+    service = new ApprovalsService(
+      prisma as unknown as PrismaService,
+      linxStub,
+      notifStub,
+    );
     // Solicitante diferente do aprovador por padrão.
     prisma.requisition.findUnique.mockResolvedValue({ requesterId: 'someone-else' });
   });
@@ -96,7 +104,7 @@ describe('ApprovalsService.decide', () => {
         data: expect.objectContaining({ status: 'APPROVED', decidedById: TEST_USER.id }),
       }),
     );
-    expect(prisma.notification.create).toHaveBeenCalled();
+    expect(notifCreate).toHaveBeenCalled();
   });
 
   it('aprovação no último nível devolve APPROVED e marca a requisição como APPROVED', async () => {

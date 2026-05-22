@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { NAV_ITEMS } from './nav';
 import { EnvironmentSwitch } from './EnvironmentSwitch';
+import { NotificationsBell } from './NotificationsBell';
 
 const PROFILE_LABELS: Record<string, string> = {
   ADMIN: 'Administrador',
@@ -59,6 +60,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
       </div>
 
       <div className="flex items-center gap-2 md:gap-3">
+        <NotificationsBell />
         {/* Ambiente: produção / homologação */}
         <EnvironmentSwitch />
 
