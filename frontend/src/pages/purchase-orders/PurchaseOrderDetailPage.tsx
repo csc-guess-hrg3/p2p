@@ -5,6 +5,7 @@ import {
   Banknote,
   FileText,
   PackageCheck,
+  Scissors,
   XCircle,
 } from 'lucide-react';
 import {
@@ -12,6 +13,7 @@ import {
   usePurchaseOrder,
 } from '@/lib/purchase-orders';
 import { ReceiveDialog } from '@/pages/receiving/ReceiveDialog';
+import { CancelItemsDialog } from './CancelItemsDialog';
 import { AttachmentsSection } from '@/components/AttachmentsSection';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
@@ -44,6 +46,7 @@ export function PurchaseOrderDetailPage() {
   const { data: po, isLoading } = usePurchaseOrder(id);
   const { toast } = useToast();
   const [receiveOpen, setReceiveOpen] = useState(false);
+  const [cancelItemsOpen, setCancelItemsOpen] = useState(false);
   const cancelMut = useCancelPurchaseOrder();
 
   if (isLoading) {
@@ -77,6 +80,13 @@ export function PurchaseOrderDetailPage() {
   const canCancel = !['CANCELLED', 'FULLY_RECEIVED', 'INTEGRATED'].includes(
     po.status,
   );
+  // Existe saldo aberto pra cancelar item-a-item?
+  const hasOpenBalance = (po.items ?? []).some(
+    (it) =>
+      !it.cancelledAt && Number(it.quantity) - Number(it.receivedQty) > 0,
+  );
+  const canCancelItems =
+    !['CANCELLED', 'INTEGRATED'].includes(po.status) && hasOpenBalance;
 
   async function handleCancel() {
     if (!po) return;
@@ -121,6 +131,15 @@ export function PurchaseOrderDetailPage() {
           </Link>
         </Button>
         <div className="flex flex-wrap items-center gap-2">
+          {canCancelItems && (
+            <Button
+              variant="outline"
+              onClick={() => setCancelItemsOpen(true)}
+            >
+              <Scissors className="size-4 text-warning" />
+              Cancelar itens em aberto
+            </Button>
+          )}
           {canCancel && (
             <Button
               variant="outline"
@@ -147,6 +166,13 @@ export function PurchaseOrderDetailPage() {
           po={po}
         />
       )}
+      {cancelItemsOpen && (
+        <CancelItemsDialog
+          open={cancelItemsOpen}
+          onOpenChange={setCancelItemsOpen}
+          po={po}
+        />
+      )}
 
       <Card>
         <CardHeader className="flex-row items-start justify-between">
@@ -158,7 +184,7 @@ export function PurchaseOrderDetailPage() {
           </div>
           <StatusBadge status={po.status} />
         </CardHeader>
-        <CardContent className="grid grid-cols-3 gap-4">
+        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Filial" value={po.branchName} />
           <Field label="Fornecedor" value={po.supplierName} />
           <Field label="Comprador" value={po.buyer?.name ?? '—'} />
@@ -231,6 +257,7 @@ export function PurchaseOrderDetailPage() {
                 <TableHead className="text-right">Preço unit.</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead className="text-right">Recebido</TableHead>
+                <TableHead className="text-right">Cancelado</TableHead>
                 <TableHead>Conta</TableHead>
                 <TableHead>Rateios</TableHead>
               </TableRow>
@@ -251,6 +278,22 @@ export function PurchaseOrderDetailPage() {
                   </TableCell>
                   <TableCell className="text-right text-muted-foreground">
                     {formatNumber(it.receivedQty)}
+                  </TableCell>
+                  <TableCell
+                    className={
+                      Number(it.cancelledQty) > 0
+                        ? 'text-right font-medium text-warning'
+                        : 'text-right text-muted-foreground'
+                    }
+                    title={
+                      it.cancellationReason
+                        ? `Motivo: ${it.cancellationReason}`
+                        : undefined
+                    }
+                  >
+                    {Number(it.cancelledQty) > 0
+                      ? formatNumber(it.cancelledQty)
+                      : '—'}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {it.accountingAccount}

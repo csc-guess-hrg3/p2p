@@ -32,6 +32,9 @@ export interface PurchaseOrderItem {
   costCenterRateioCode: string;
   costCenterRateioDesc: string | null;
   receivedQty: string;
+  cancelledQty: string;
+  cancelledAt: string | null;
+  cancellationReason: string | null;
   notes: string | null;
   rateios?: PurchaseOrderItemRateio[];
 }
@@ -138,6 +141,32 @@ export function useCancelPurchaseOrder() {
       (
         await api.post<PurchaseOrder>(`/purchase-orders/${id}/cancel`, {
           cancellationReason,
+        })
+      ).data,
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['purchase-orders'] });
+      qc.invalidateQueries({ queryKey: ['purchase-order', data.id] });
+    },
+  });
+}
+
+/** RN-OC-03: cancela só o saldo dos itens informados. */
+export function useCancelPurchaseOrderItems() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      itemIds,
+      reason,
+    }: {
+      id: string;
+      itemIds: string[];
+      reason: string;
+    }) =>
+      (
+        await api.post<PurchaseOrder>(`/purchase-orders/${id}/cancel-items`, {
+          itemIds,
+          reason,
         })
       ).data,
     onSuccess: (data) => {

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -31,6 +32,7 @@ interface SnapshotLine {
 
 @Injectable()
 export class PurchaseOrdersService {
+  private readonly logger = new Logger(PurchaseOrdersService.name);
   constructor(
     private readonly prisma: PrismaService,
     private readonly numbering: NumberingService,
@@ -381,13 +383,25 @@ export class PurchaseOrdersService {
       ...(status ? { status } : {}),
       ...(search ? { number: { contains: search } } : {}),
     };
+    // Select enxuto — evita NVarChar(Max) inúteis (notes, cancellationReason)
+    // e cobre o que a UI da listagem usa.
     const [data, total] = await Promise.all([
       this.prisma.purchaseOrder.findMany({
         where,
         skip,
         take,
         orderBy: { createdAt: 'desc' },
-        include: { buyer: { select: { id: true, name: true } } },
+        select: {
+          id: true,
+          number: true,
+          supplierName: true,
+          branchName: true,
+          status: true,
+          totalAmount: true,
+          expectedDelivery: true,
+          createdAt: true,
+          buyer: { select: { id: true, name: true } },
+        },
       }),
       this.prisma.purchaseOrder.count({ where }),
     ]);
@@ -539,18 +553,140 @@ export class PurchaseOrdersService {
     const anyReceived = po.items.some((it) => Number(it.receivedQty) > 0);
     if (anyReceived) {
       throw new BadRequestException(
-        'Já há itens recebidos neste pedido. Cancelamento de itens não recebidos ' +
-          'individualmente ainda não está disponível — entre em contato com o admin.',
+        'Pedido já tem recebimento. Use "Cancelar itens em aberto" pra ' +
+          'cancelar só o saldo não recebido (PRD RN-OC-03).',
       );
     }
-    await this.prisma.purchaseOrder.update({
-      where: { id },
-      data: {
-        status: PurchaseOrderStatus.CANCELLED,
-        cancelledAt: new Date(),
-        cancellationReason,
-      },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.purchaseOrder.update({
+        where: { id },
+        data: {
+          status: PurchaseOrderStatus.CANCELLED,
+          cancelledAt: new Date(),
+          cancellationReason,
+        },
+      });
+      // Marca cada item com cancelamento total — útil pra histórico.
+      await tx.purchaseOrderItem.updateMany({
+        where: { purchaseOrderId: id, cancelledAt: null },
+        data: {
+          cancelledAt: new Date(),
+          cancellationReason,
+        },
+      });
+      // Atualiza cancelledQty pra refletir o saldo cancelado
+      // (quantity - receivedQty). Não dá pra fazer em updateMany simples
+      // por depender de outra coluna — itera.
+      const items = await tx.purchaseOrderItem.findMany({
+        where: { purchaseOrderId: id },
+        select: { id: true, quantity: true, receivedQty: true },
+      });
+      for (const it of items) {
+        await tx.purchaseOrderItem.update({
+          where: { id: it.id },
+          data: {
+            cancelledQty: Number(it.quantity) - Number(it.receivedQty),
+          },
+        });
+      }
     });
+    return this.findOne(user, id);
+  }
+
+  /**
+   * RN-OC-03: cancelamento parcial de itens em aberto.
+   *
+   * Cancela só o saldo não-recebido dos itens informados (`quantity -
+   * receivedQty`). Itens que já estão totalmente recebidos não podem
+   * estar na lista. Se, após o cancelamento, **todos** os itens do
+   * pedido estiverem fechados (recebidos OU cancelados), o pedido vira
+   * CANCELLED como um todo — preservando saldo financeiro acertado.
+   */
+  async cancelItems(
+    user: AuthenticatedUser,
+    id: string,
+    payload: { itemIds: string[]; reason: string },
+  ) {
+    if (user.profile === UserProfile.REVIEWER) {
+      throw new ForbiddenException('Revisor não cancela itens de pedido.');
+    }
+    const reason = (payload.reason ?? '').trim();
+    if (reason.length < 5) {
+      throw new BadRequestException(
+        'Motivo do cancelamento obrigatório (mínimo 5 caracteres).',
+      );
+    }
+    if (!payload.itemIds || payload.itemIds.length === 0) {
+      throw new BadRequestException('Informe pelo menos um item para cancelar.');
+    }
+
+    const po = await this.findOne(user, id);
+    if (po.status === PurchaseOrderStatus.CANCELLED) {
+      throw new BadRequestException('Pedido já está cancelado.');
+    }
+
+    const idSet = new Set(payload.itemIds);
+    const targets = po.items.filter((it) => idSet.has(it.id));
+    if (targets.length !== payload.itemIds.length) {
+      throw new BadRequestException('Algum item informado não pertence ao pedido.');
+    }
+    for (const it of targets) {
+      if (it.cancelledAt) {
+        throw new BadRequestException(
+          `Item ${it.itemDescription} já está cancelado.`,
+        );
+      }
+      const saldo = Number(it.quantity) - Number(it.receivedQty);
+      if (saldo <= 0) {
+        throw new BadRequestException(
+          `Item ${it.itemDescription} já foi totalmente recebido — não pode ser cancelado.`,
+        );
+      }
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const now = new Date();
+      for (const it of targets) {
+        const saldo = Number(it.quantity) - Number(it.receivedQty);
+        await tx.purchaseOrderItem.update({
+          where: { id: it.id },
+          data: {
+            cancelledQty: saldo,
+            cancelledAt: now,
+            cancellationReason: reason,
+          },
+        });
+      }
+      // Se todos os itens estão fechados → cancela o pedido inteiro.
+      const remaining = await tx.purchaseOrderItem.count({
+        where: {
+          purchaseOrderId: id,
+          cancelledAt: null,
+          // Saldo aberto: quantity > receivedQty + cancelledQty
+          // (atual: cancelledAt=null implica cancelledQty=0)
+        },
+      });
+      const stillOpen = await tx.purchaseOrderItem.findMany({
+        where: { purchaseOrderId: id, cancelledAt: null },
+        select: { quantity: true, receivedQty: true },
+      });
+      const anyOpen = stillOpen.some(
+        (i) => Number(i.quantity) - Number(i.receivedQty) > 0,
+      );
+      if (remaining === 0 || !anyOpen) {
+        await tx.purchaseOrder.update({
+          where: { id },
+          data: {
+            status: PurchaseOrderStatus.CANCELLED,
+            cancelledAt: now,
+            cancellationReason: reason,
+          },
+        });
+      }
+    });
+    this.logger.log(
+      `PC ${po.number}: ${targets.length} itens cancelados por ${user.name} — ${reason}`,
+    );
     return this.findOne(user, id);
   }
 

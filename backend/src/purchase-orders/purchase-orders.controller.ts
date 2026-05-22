@@ -13,6 +13,7 @@ import { ConvertToPurchaseOrderDto } from './dto/convert-to-po.dto';
 import { QueryPurchaseOrdersDto } from './dto/query-purchase-orders.dto';
 import { SendToSupplierDto } from './dto/send-to-supplier.dto';
 import { CancelPurchaseOrderDto } from './dto/cancel-po.dto';
+import { CancelPurchaseOrderItemsDto } from './dto/cancel-po-items.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
@@ -80,5 +81,20 @@ export class PurchaseOrdersController {
     @Body() dto: CancelPurchaseOrderDto,
   ) {
     return this.purchaseOrders.cancel(user, id, dto.cancellationReason);
+  }
+
+  @Post(':id/cancel-items')
+  @ApiOperation({
+    summary: 'Cancela só o saldo de itens em aberto (PRD RN-OC-03)',
+  })
+  cancelItems(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: CancelPurchaseOrderItemsDto,
+  ) {
+    return this.purchaseOrders.cancelItems(user, id, {
+      itemIds: dto.itemIds,
+      reason: dto.reason,
+    });
   }
 }
