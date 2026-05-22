@@ -30,9 +30,9 @@ export class ProductOrdersPaService {
 
   private assertCompany(company: string): string {
     const c = company?.toUpperCase();
-    if (c !== 'GUESS' && c !== 'HERING') {
+    if (c !== 'GUESS' && c !== 'HRG3') {
       throw new BadRequestException(
-        `Empresa inválida: "${company}". Use GUESS ou HERING.`,
+        `Empresa inválida: "${company}". Use GUESS ou HRG3.`,
       );
     }
     return c;

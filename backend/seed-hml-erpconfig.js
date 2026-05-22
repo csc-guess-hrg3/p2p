@@ -1,6 +1,6 @@
 /**
  * Cria/atualiza company_erp_configs no HML_P2P_DB com os defaults do
- * Linx para a empresa GUESS (e Hering se existir). SMTP fica vazio —
+ * Linx para a empresa GUESS (e HRG3 se existir). SMTP fica vazio —
  * deve ser preenchido manualmente (server, porta, usuário, senha, from).
  */
 const sql = require('mssql');
@@ -25,7 +25,7 @@ const DEFAULTS = {
     ctbTipoOperacaoDefault: 202,
     naturezaEntradaDefault: '202.01',
   },
-  HERING: {
+  HRG3: {
     codTransacao: 'COMPRAS_003',
     tabelaFilha: 'COMPRAS_CONSUMIVEL',
     tipoCompraDefault: 'COMPRA DIVERSAS',

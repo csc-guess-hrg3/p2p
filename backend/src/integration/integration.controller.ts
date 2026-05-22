@@ -5,7 +5,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 /**
  * Endpoints de leitura dos dados de referência do ERP.
- * :company aceita GUESS ou HERING.
+ * :company aceita GUESS ou HRG3.
  */
 @ApiTags('Integração ERP')
 @ApiBearerAuth()

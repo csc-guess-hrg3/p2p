@@ -21,7 +21,7 @@ interface AdUser {
   ouName: string;
   /** OU top-level (Guess / Hrg3). */
   topLevelOu: string;
-  /** Empresa sugerida (GUESS/HERING) derivada da topLevelOu. */
+  /** Empresa sugerida (GUESS/HRG3) derivada da topLevelOu. */
   companyCode: string | null;
 }
 
@@ -38,7 +38,7 @@ export interface AdTeamSuggestion {
  */
 const TOP_LEVEL_TO_COMPANY: Record<string, string> = {
   guess: 'GUESS',
-  hrg3: 'HERING',
+  hrg3: 'HRG3',
 };
 
 /**
@@ -147,7 +147,7 @@ export class AdSyncService {
           user = await this.prisma.user.create({
             data: {
               adUsername: login,
-              email: ad.email ?? `${login}@corp.local`,
+              email: ad.email!,  // filtrado em searchActiveUsers (nunca null aqui)
               name: ad.name,
               profile: UserProfile.OPERATOR,
               status: UserStatus.ACTIVE,
@@ -204,12 +204,16 @@ export class AdSyncService {
         const { ouName, topLevelOu } = parseOu(dn);
         if (!ouName) continue;
         if (IGNORED_OU_NAMES.has(ouName.toLowerCase())) continue;
+        // E-mail é obrigatório no cadastro do P2P, então pulamos usuários
+        // do AD sem `mail` preenchido — não há como criar o User aqui.
+        const email = stringAttr(e, 'mail');
+        if (!email) continue;
         out.push({
           dn,
           login: sam,
           name:
             stringAttr(e, 'displayName') ?? stringAttr(e, 'cn') ?? sam,
-          email: stringAttr(e, 'mail'),
+          email,
           ouName,
           topLevelOu,
           companyCode:

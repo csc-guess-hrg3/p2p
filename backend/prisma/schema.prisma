@@ -40,12 +40,12 @@ datasource db {
 }
 
 // ============================================================
-// EMPRESAS (dado próprio do P2P — 2 registros: Guess e Hering)
+// EMPRESAS (dado próprio do P2P — 2 registros: Guess e HRG3)
 // ============================================================
 
 model Company {
   id        String    @id @default(uuid()) @db.UniqueIdentifier
-  code      String    @unique @db.NVarChar(20)  // GUESS | HERING (casa com coluna empresa das views)
+  code      String    @unique @db.NVarChar(20)  // GUESS | HRG3 (casa com coluna empresa das views)
   name      String    @db.NVarChar(255)
   cnpj      String?   @db.NVarChar(18)
   erpDbName String    @db.NVarChar(100)         // GUESS_PRODUCAO | DB_HRG3
@@ -72,7 +72,7 @@ model Company {
 // ============================================================
 // Configuração da integração com o ERP Linx, por empresa.
 // Cada empresa pode usar TIPO_COMPRA, CTB_TIPO_OPERACAO e NATUREZA_ENTRADA
-// diferentes (Guess e Hering têm cadastros distintos no Linx). Aqui ficam
+// diferentes (Guess e HRG3 têm cadastros distintos no Linx). Aqui ficam
 // os defaults que o P2P aplica quando o solicitante/fiscal não sobrescreve.
 // SMTP também é por empresa: cada uma pode usar seu próprio servidor.
 // ============================================================
@@ -837,7 +837,7 @@ model Attachment {
 model IntegrationLog {
   id               String    @id @default(uuid()) @db.UniqueIdentifier
   companyId        String    @db.UniqueIdentifier
-  source           String    @db.NVarChar(50)   // ERP_GUESS | ERP_HERING
+  source           String    @db.NVarChar(50)   // ERP_GUESS | ERP_HRG3
   jobType          String    @db.NVarChar(100)  // SEND_PO | SEND_SV | ...
   status           String    @db.NVarChar(10)   // SUCCESS | PARTIAL | FAILED
   recordsProcessed Int       @default(0)

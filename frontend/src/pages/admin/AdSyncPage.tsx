@@ -24,7 +24,7 @@ import { useToast } from '@/components/ui/use-toast';
  *
  * Equipes sem usuários ativos não aparecem aqui (o backend já filtra).
  * Usuários sem empresa identificável (OU top-level não mapeada para
- * GUESS/HERING) aparecem mas o admin precisa escolher a empresa.
+ * GUESS/HRG3) aparecem mas o admin precisa escolher a empresa.
  */
 export function AdSyncPage() {
   const { toast } = useToast();
@@ -80,6 +80,32 @@ export function AdSyncPage() {
       },
     }));
   }
+
+  /** Marca/desmarca todas as equipes (e usuários) de uma só vez. */
+  function toggleAll(checked: boolean) {
+    if (!preview.data) return;
+    setSelected(() => {
+      const next: typeof selected = {};
+      for (const t of preview.data ?? []) {
+        const key = `${t.companyCode ?? '?'}::${t.ouName}`;
+        next[key] = {
+          teamName: t.ouName,
+          userLogins: checked ? new Set(t.users.map((u) => u.login)) : new Set(),
+        };
+      }
+      return next;
+    });
+  }
+
+  const allTeamsChecked = useMemo(() => {
+    if (!preview.data || preview.data.length === 0) return false;
+    return preview.data.every((t) => {
+      const sel = selected[`${t.companyCode ?? '?'}::${t.ouName}`];
+      return !!sel && sel.userLogins.size === t.users.length;
+    });
+  }, [preview.data, selected]);
+
+  const anyChecked = summary.users > 0;
 
   function toggleUser(t: AdTeamSuggestion, login: string, checked: boolean) {
     const key = keyOf(t);
@@ -208,6 +234,26 @@ export function AdSyncPage() {
             </p>
           ) : (
             <div className="space-y-3">
+              <label className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm font-medium">
+                <input
+                  type="checkbox"
+                  checked={allTeamsChecked}
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  ref={(el: any) => {
+                    if (el) el.indeterminate = !allTeamsChecked && anyChecked;
+                  }}
+                  onChange={(e) => toggleAll(e.target.checked)}
+                />
+                Selecionar todos
+                <span className="ml-auto text-xs font-normal text-muted-foreground">
+                  {(preview.data ?? []).length} equipe(s) ·{' '}
+                  {(preview.data ?? []).reduce(
+                    (acc, t) => acc + t.users.length,
+                    0,
+                  )}{' '}
+                  usuário(s)
+                </span>
+              </label>
               {(preview.data ?? []).map((t) => {
                 const key = keyOf(t);
                 const sel = selected[key];
@@ -216,11 +262,14 @@ export function AdSyncPage() {
                 return (
                   <div key={key} className="rounded-lg border">
                     <div className="flex items-center gap-3 border-b px-3 py-2">
-                      <input
-                        type="checkbox"
-                        checked={allChecked}
-                        onChange={(e) => toggleTeam(t, e.target.checked)}
-                      />
+                      <label className="flex items-center gap-2 text-xs font-medium">
+                        <input
+                          type="checkbox"
+                          checked={allChecked}
+                          onChange={(e) => toggleTeam(t, e.target.checked)}
+                        />
+                        Selecionar equipe
+                      </label>
                       <span className="rounded bg-muted px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         {t.companyCode ?? 'sem empresa'}
                       </span>

@@ -1,7 +1,7 @@
 -- ============================================================
 -- Views de integração ERP — HOMOLOGAÇÃO
 -- Criadas no HML_P2P_DB; leem HML_GUESS (cross-database, servidor .34)
--- Versão Guess-only — não há HML_HERING ainda.
+-- Versão Guess-only — não há HML_HRG3 ainda.
 -- Espelha erp-views.sql: ao mudar lá, refletir aqui.
 -- ============================================================
 

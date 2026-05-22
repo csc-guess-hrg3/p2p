@@ -102,6 +102,7 @@ export function PurchaseOrdersListPage() {
               `pedidos-compra-${new Date().toISOString().slice(0, 10)}`,
               [
                 { header: 'Número', value: (po) => po.number },
+                { header: 'Nº Linx', value: (po) => po.erpPedido ?? '' },
                 { header: 'Fornecedor', value: (po) => po.supplierName },
                 { header: 'Filial', value: (po) => po.branchName },
                 { header: 'Comprador', value: (po) => po.buyer?.name ?? '' },
@@ -150,6 +151,7 @@ export function PurchaseOrdersListPage() {
           <TableHeader>
             <TableRow>
               <TableHead>Número</TableHead>
+              <TableHead>Nº Linx</TableHead>
               <TableHead>Fornecedor</TableHead>
               <TableHead>Filial</TableHead>
               <TableHead>Comprador</TableHead>
@@ -163,7 +165,7 @@ export function PurchaseOrdersListPage() {
             {isLoading && (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={9}
                   className="py-8 text-center text-muted-foreground"
                 >
                   Carregando…
@@ -173,7 +175,7 @@ export function PurchaseOrdersListPage() {
             {!isLoading && rows.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={9}
                   className="py-8 text-center text-muted-foreground"
                 >
                   Nenhum pedido de compra encontrado.
@@ -202,6 +204,9 @@ export function PurchaseOrdersListPage() {
                       )}
                       {po.number}
                     </div>
+                  </TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">
+                    {po.erpPedido ?? '—'}
                   </TableCell>
                   <TableCell>{po.supplierName}</TableCell>
                   <TableCell className="text-muted-foreground">

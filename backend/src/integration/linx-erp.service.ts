@@ -506,9 +506,9 @@ export class LinxErpService {
     errorDetails?: string;
   }): Promise<void> {
     try {
-      // Source segue a convenção SPEC § 1 (ERP_GUESS / ERP_HERING).
+      // Source segue a convenção SPEC § 1 (ERP_GUESS / ERP_HRG3).
       const source = params.erpDbName.includes('HRG3')
-        ? 'ERP_HERING'
+        ? 'ERP_HRG3'
         : 'ERP_GUESS';
       await this.prisma.integrationLog.create({
         data: {

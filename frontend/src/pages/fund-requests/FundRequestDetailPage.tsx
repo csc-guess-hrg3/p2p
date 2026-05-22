@@ -73,7 +73,7 @@ export function FundRequestDetailPage() {
             }
           />
           {sv.erpSolicitacao && (
-            <Field label="Solicitação no ERP" value={sv.erpSolicitacao} />
+            <Field label="Nº da solicitação no Linx" value={sv.erpSolicitacao} />
           )}
           <div className="col-span-3 flex flex-wrap gap-2">
             {sv.requisition && (

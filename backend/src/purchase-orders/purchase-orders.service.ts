@@ -454,6 +454,7 @@ export class PurchaseOrdersService {
           status: true,
           totalAmount: true,
           expectedDelivery: true,
+          erpPedido: true,
           createdAt: true,
           buyer: { select: { id: true, name: true } },
         },

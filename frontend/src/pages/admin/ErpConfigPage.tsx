@@ -90,7 +90,7 @@ export function ErpConfigPage() {
     null, // todas, sem filtro
   );
   // Lista usuários ativos da empresa pra escolher o aprovador de PA.
-  // Take alto pra garantir que todos caibam no select (Hering tem ~120
+  // Take alto pra garantir que todos caibam no select (HRG3 tem ~120
   // usuários — sem isso o usuário corrente pode ficar fora dos 50 default).
   const { data: usersPage } = useUsers({
     companyId,

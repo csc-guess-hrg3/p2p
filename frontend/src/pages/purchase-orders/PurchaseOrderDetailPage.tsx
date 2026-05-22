@@ -260,7 +260,7 @@ export function PurchaseOrderDetailPage() {
             )}
           </div>
           {po.erpPedido && (
-            <Field label="Nº do pedido no financeiro" value={po.erpPedido} />
+            <Field label="Nº do pedido no Linx" value={po.erpPedido} />
           )}
           {po.status === 'CANCELLED' && po.cancellationReason && (
             <div className="col-span-3">

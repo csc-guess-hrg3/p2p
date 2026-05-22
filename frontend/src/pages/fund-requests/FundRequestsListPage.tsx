@@ -64,6 +64,7 @@ export function FundRequestsListPage() {
               `solicitacoes-verba-${new Date().toISOString().slice(0, 10)}`,
               [
                 { header: 'Número', value: (sv) => sv.number },
+                { header: 'Nº Linx', value: (sv) => sv.erpSolicitacao ?? '' },
                 { header: 'Título', value: (sv) => sv.title },
                 {
                   header: 'Pedido vinculado',
@@ -117,6 +118,7 @@ export function FundRequestsListPage() {
           <TableHeader>
             <TableRow>
               <TableHead>Número</TableHead>
+              <TableHead>Nº Linx</TableHead>
               <TableHead>Título</TableHead>
               <TableHead>Pedido vinculado</TableHead>
               <TableHead>Solicitante</TableHead>
@@ -129,7 +131,7 @@ export function FundRequestsListPage() {
             {isLoading && (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={8}
                   className="py-8 text-center text-muted-foreground"
                 >
                   Carregando…
@@ -139,7 +141,7 @@ export function FundRequestsListPage() {
             {!isLoading && rows.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={8}
                   className="py-8 text-center text-muted-foreground"
                 >
                   Nenhuma solicitação de verba encontrada.
@@ -153,6 +155,9 @@ export function FundRequestsListPage() {
                 onClick={() => navigate(`/solicitacoes-verba/${sv.id}`)}
               >
                 <TableCell className="font-medium">{sv.number}</TableCell>
+                <TableCell className="font-mono text-xs text-muted-foreground">
+                  {sv.erpSolicitacao ?? '—'}
+                </TableCell>
                 <TableCell>{sv.title}</TableCell>
                 <TableCell className="text-muted-foreground">
                   {sv.purchaseOrder?.number ?? '—'}

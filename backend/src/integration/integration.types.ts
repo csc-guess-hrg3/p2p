@@ -3,7 +3,7 @@
  * O ERP é fonte de verdade — estes dados NÃO são persistidos no P2P.
  */
 
-export type CompanyCode = 'GUESS' | 'HERING';
+export type CompanyCode = 'GUESS' | 'HRG3';
 
 export interface ErpBranch {
   codigo: string;

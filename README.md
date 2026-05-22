@@ -11,7 +11,7 @@ pedidos e solicitações aprovados.
 
 ## Escopo
 
-Atende duas empresas (Guess e Hering) e cobre a compra indireta —
+Atende duas empresas (Guess e HRG3) e cobre a compra indireta —
 serviços e materiais de consumo. Documentos do fluxo:
 
 - **Requisição** — porta de entrada; o tipo de nota fiscal define o que ela gera

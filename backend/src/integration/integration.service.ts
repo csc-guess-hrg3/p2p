@@ -31,9 +31,9 @@ export class IntegrationService {
   /** Valida e normaliza o código da empresa. */
   private assertCompany(company: string): CompanyCode {
     const c = company?.toUpperCase();
-    if (c !== 'GUESS' && c !== 'HERING') {
+    if (c !== 'GUESS' && c !== 'HRG3') {
       throw new BadRequestException(
-        `Empresa inválida: "${company}". Use GUESS ou HERING.`,
+        `Empresa inválida: "${company}". Use GUESS ou HRG3.`,
       );
     }
     return c;

@@ -56,12 +56,12 @@ async function main() {
     update: { name: 'Guess', erpDbName: 'GUESS_PRODUCAO' },
     create: { code: 'GUESS', name: 'Guess', erpDbName: 'GUESS_PRODUCAO' },
   });
-  const hering = await prisma.company.upsert({
-    where: { code: 'HERING' },
-    update: { name: 'Hering', erpDbName: 'DB_HRG3' },
-    create: { code: 'HERING', name: 'Hering', erpDbName: 'DB_HRG3' },
+  const hrg3 = await prisma.company.upsert({
+    where: { code: 'HRG3' },
+    update: { name: 'HRG3', erpDbName: 'DB_HRG3' },
+    create: { code: 'HRG3', name: 'HRG3', erpDbName: 'DB_HRG3' },
   });
-  const companies = [guess, hering];
+  const companies = [guess, hrg3];
   console.log(`Empresas: ${companies.map((c) => c.code).join(', ')}`);
 
   // As cadeias de aprovação são por equipe (TeamApprovalLevel),
