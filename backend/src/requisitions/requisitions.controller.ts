@@ -50,6 +50,12 @@ export class RequisitionsController {
     return this.requisitions.findOne(user, id);
   }
 
+  @Get(':id/history')
+  @ApiOperation({ summary: 'Timeline cronológica da requisição' })
+  history(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.requisitions.history(user, id);
+  }
+
   @Post(':id/submit')
   @ApiOperation({ summary: 'Submete a requisição para aprovação' })
   submit(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {

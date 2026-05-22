@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { NumberingService } from '../numbering/numbering.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { RequisitionStatus } from '../common/enums';
 
 /**
@@ -27,6 +28,7 @@ export class RequisitionRecurrenceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly numbering: NumberingService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Tick diário às 07:00 local. */
@@ -92,7 +94,7 @@ export class RequisitionRecurrenceService {
     });
     for (const parent of dueParents) {
       try {
-        await this.cloneAsDraft(parent);
+        const child = await this.cloneAsDraft(parent);
         const next = this.addMonths(
           parent.nextRecurrenceAt!,
           parent.recurrenceMonths!,
@@ -101,6 +103,19 @@ export class RequisitionRecurrenceService {
           where: { id: parent.id },
           data: { nextRecurrenceAt: next },
         });
+        // Notifica o solicitante para revisar/submeter a nova requisição.
+        await this.notifications
+          .create({
+            companyId: parent.companyId,
+            userId: parent.requesterId,
+            type: 'REQUISITION_RECURRED',
+            title: `Recorrência: nova requisição ${child.number}`,
+            body: `Foi gerada automaticamente uma cópia da requisição ${parent.number} para revisão e submissão.`,
+            entityType: 'REQUISITION',
+            entityId: child.id,
+            sendEmail: true,
+          })
+          .catch(() => undefined);
         generated++;
       } catch (err) {
         this.logger.error(
@@ -162,7 +177,8 @@ export class RequisitionRecurrenceService {
   }) {
     const number = await this.numbering.next(parent.company.code, 'REQ');
     const stamp = new Date().toLocaleDateString('pt-BR');
-    await this.prisma.requisition.create({
+    const created = await this.prisma.requisition.create({
+      select: { id: true, number: true },
       data: {
         number,
         companyId: parent.companyId,
@@ -213,6 +229,7 @@ export class RequisitionRecurrenceService {
       },
     });
     this.logger.log(`Recorrência: ${parent.number} -> ${number}`);
+    return created;
   }
 
   /**

@@ -14,6 +14,7 @@ import {
 } from '../common/enums';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { SettingsService } from '../settings/settings.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateReceivingDto } from './dto/create-receiving.dto';
 import { QueryReceivingsDto } from './dto/query-receivings.dto';
 
@@ -34,6 +35,7 @@ export class ReceivingService {
     private readonly prisma: PrismaService,
     private readonly numbering: NumberingService,
     private readonly settings: SettingsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Registra um recebimento (em rascunho) contra um Pedido de Compra. */
@@ -260,6 +262,59 @@ export class ReceivingService {
       },
       { maxWait: 15000, timeout: 30000 },
     );
+
+    // Notifica o comprador e o solicitante da requisição original.
+    // Falhas viram log no NotificationsService — não bloqueiam o confirm.
+    try {
+      const fresh = await this.prisma.purchaseOrder.findUnique({
+        where: { id: receiving.purchaseOrder.id },
+        select: {
+          id: true,
+          companyId: true,
+          number: true,
+          status: true,
+          buyerId: true,
+          requisition: { select: { requesterId: true } },
+        },
+      });
+      if (fresh) {
+        const fullyReceived =
+          fresh.status === PurchaseOrderStatus.FULLY_RECEIVED;
+        const title = fullyReceived
+          ? `PC ${fresh.number} totalmente recebido`
+          : `Recebimento parcial do PC ${fresh.number}`;
+        const divergent =
+          (await this.prisma.receiving.findUnique({
+            where: { id },
+            select: { status: true, divergenceNotes: true },
+          })) ?? null;
+        const body =
+          divergent?.status === ReceivingStatus.DIVERGENT
+            ? `Recebimento confirmado com divergência: ${divergent.divergenceNotes ?? ''}`
+            : 'Recebimento confirmado dentro da tolerância.';
+        const recipients = new Set<string>();
+        if (fresh.buyerId) recipients.add(fresh.buyerId);
+        if (fresh.requisition?.requesterId)
+          recipients.add(fresh.requisition.requesterId);
+        for (const uid of recipients) {
+          await this.notifications.create({
+            companyId: fresh.companyId,
+            userId: uid,
+            type:
+              divergent?.status === ReceivingStatus.DIVERGENT
+                ? 'RECEIVING_DIVERGENT'
+                : 'RECEIVING_CONFIRMED',
+            title,
+            body,
+            entityType: 'PURCHASE_ORDER',
+            entityId: fresh.id,
+            sendEmail: true,
+          });
+        }
+      }
+    } catch {
+      /* notificação é best-effort */
+    }
 
     return this.findOne(user, id);
   }

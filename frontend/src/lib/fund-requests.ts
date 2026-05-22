@@ -73,3 +73,20 @@ export function useFundRequest(id: string | undefined) {
     enabled: !!id,
   });
 }
+
+export interface SvHistoryEvent {
+  at: string;
+  kind: string;
+  label: string;
+  who?: string | null;
+  detail?: string | null;
+}
+
+export function useFundRequestHistory(id: string | undefined) {
+  return useQuery({
+    queryKey: ['fund-request-history', id],
+    queryFn: async () =>
+      (await api.get<SvHistoryEvent[]>(`/fund-requests/${id}/history`)).data,
+    enabled: !!id,
+  });
+}

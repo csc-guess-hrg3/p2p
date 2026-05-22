@@ -392,6 +392,7 @@ export function TeamsPage() {
           <CardTitle>Equipes e cadeias de aprovação</CardTitle>
         </CardHeader>
         <CardContent>
+         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -457,6 +458,7 @@ export function TeamsPage() {
               ))}
             </TableBody>
           </Table>
+         </div>
         </CardContent>
       </Card>
 

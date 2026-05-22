@@ -13,9 +13,11 @@ import {
 } from 'lucide-react';
 import {
   useRequisition,
+  useRequisitionHistory,
   useSubmitRequisition,
   useDeleteRequisition,
 } from '@/lib/requisitions';
+import { HistoryTimeline } from '@/components/HistoryTimeline';
 import { usePendingApprovals } from '@/lib/approvals';
 import { useAuth } from '@/lib/auth';
 import { useCompany } from '@/lib/company';
@@ -51,6 +53,7 @@ export function RequisitionDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { data: req, isLoading } = useRequisition(id);
+  const historyQ = useRequisitionHistory(id);
   const submitMut = useSubmitRequisition();
   const deleteMut = useDeleteRequisition();
   const { user } = useAuth();
@@ -396,6 +399,8 @@ export function RequisitionDetailPage() {
           </CardContent>
         </Card>
       )}
+
+      <HistoryTimeline events={historyQ.data} />
     </div>
   );
 }

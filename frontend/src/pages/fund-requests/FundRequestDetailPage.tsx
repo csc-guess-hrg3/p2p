@@ -1,6 +1,7 @@
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, FileText, ShoppingCart } from 'lucide-react';
-import { useFundRequest } from '@/lib/fund-requests';
+import { useFundRequest, useFundRequestHistory } from '@/lib/fund-requests';
+import { HistoryTimeline } from '@/components/HistoryTimeline';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,7 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 export function FundRequestDetailPage() {
   const { id } = useParams();
   const { data: sv, isLoading } = useFundRequest(id);
+  const historyQ = useFundRequestHistory(id);
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Carregando…</p>;
@@ -154,6 +156,8 @@ export function FundRequestDetailPage() {
           />
         </CardContent>
       </Card>
+
+      <HistoryTimeline events={historyQ.data} />
     </div>
   );
 }

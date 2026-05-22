@@ -15,7 +15,10 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        'fixed left-1/2 top-1/2 z-50 grid w-full max-w-2xl -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border bg-background p-6 shadow-lg',
+        // Em telas pequenas: ocupa quase tudo, com padding menor; em
+        // ≥ sm volta ao layout fixo central. max-h evita overflow vertical
+        // em forms grandes — o próprio body rola.
+        'fixed left-1/2 top-1/2 z-50 grid max-h-[92vh] w-[calc(100vw-1rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-lg border bg-background p-4 shadow-lg sm:w-full sm:p-6',
         className,
       )}
       {...props}
@@ -43,7 +46,10 @@ function DialogFooter({
 }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('flex justify-end gap-2', className)}
+      className={cn(
+        'flex flex-col-reverse gap-2 sm:flex-row sm:justify-end',
+        className,
+      )}
       {...props}
     />
   );

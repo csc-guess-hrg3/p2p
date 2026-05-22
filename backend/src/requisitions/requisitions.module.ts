@@ -6,9 +6,10 @@ import { IntegrationModule } from '../integration/integration.module';
 import { ApprovalsModule } from '../approvals/approvals.module';
 import { SettingsModule } from '../settings/settings.module';
 import { NumberingModule } from '../numbering/numbering.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [IntegrationModule, ApprovalsModule, SettingsModule, NumberingModule],
+  imports: [IntegrationModule, ApprovalsModule, SettingsModule, NumberingModule, NotificationsModule],
   controllers: [RequisitionsController],
   providers: [RequisitionsService, RequisitionRecurrenceService],
   exports: [RequisitionsService],

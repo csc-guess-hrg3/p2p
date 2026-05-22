@@ -27,4 +27,10 @@ export class FundRequestsController {
   findOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.fundRequests.findOne(user, id);
   }
+
+  @Get(':id/history')
+  @ApiOperation({ summary: 'Timeline cronológica da SV' })
+  history(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.fundRequests.history(user, id);
+  }
 }

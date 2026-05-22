@@ -171,6 +171,23 @@ export function useRequisition(id: string | undefined) {
   });
 }
 
+export interface HistoryEvent {
+  at: string;
+  kind: string;
+  label: string;
+  who?: string | null;
+  detail?: string | null;
+}
+
+export function useRequisitionHistory(id: string | undefined) {
+  return useQuery({
+    queryKey: ['requisition-history', id],
+    queryFn: async () =>
+      (await api.get<HistoryEvent[]>(`/requisitions/${id}/history`)).data,
+    enabled: !!id,
+  });
+}
+
 export function useCreateRequisition() {
   const qc = useQueryClient();
   return useMutation({

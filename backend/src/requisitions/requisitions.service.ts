@@ -670,6 +670,122 @@ export class RequisitionsService {
     return this.findOne(user, id);
   }
 
+  /**
+   * Timeline da requisição (espelha PO.history): junta criação,
+   * submissão, decisões da cadeia, edição, classificação fiscal,
+   * recorrência e cancelamento. Ordem decrescente.
+   */
+  async history(user: AuthenticatedUser, id: string) {
+    const req = await this.findOne(user, id);
+    type Evt = {
+      at: string;
+      kind: string;
+      label: string;
+      who?: string | null;
+      detail?: string | null;
+    };
+    const events: Evt[] = [];
+    events.push({
+      at: req.createdAt.toISOString(),
+      kind: 'created',
+      label: 'Requisição criada',
+      who: req.requester?.name ?? null,
+    });
+    if (req.submittedAt) {
+      events.push({
+        at: req.submittedAt.toISOString(),
+        kind: 'submitted',
+        label: 'Submetida para aprovação',
+      });
+    }
+    if (req.approvedAt) {
+      events.push({
+        at: req.approvedAt.toISOString(),
+        kind: 'approved',
+        label: 'Requisição aprovada',
+      });
+    }
+    if (req.rejectedAt) {
+      events.push({
+        at: req.rejectedAt.toISOString(),
+        kind: 'rejected',
+        label: 'Requisição rejeitada',
+        detail: req.rejectionReason,
+      });
+    }
+    if (req.revisionRequestedAt) {
+      const reviewer = req.revisionRequestedById
+        ? await this.prisma.user.findUnique({
+            where: { id: req.revisionRequestedById },
+            select: { name: true },
+          })
+        : null;
+      events.push({
+        at: req.revisionRequestedAt.toISOString(),
+        kind: 'revision',
+        label: 'Devolvida para revisão',
+        who: reviewer?.name ?? null,
+        detail: req.revisionReason,
+      });
+    }
+    if (req.lastEditedAt) {
+      const editor = req.lastEditedById
+        ? await this.prisma.user.findUnique({
+            where: { id: req.lastEditedById },
+            select: { name: true },
+          })
+        : null;
+      events.push({
+        at: req.lastEditedAt.toISOString(),
+        kind: 'edited',
+        label: 'Requisição editada',
+        who: editor?.name ?? null,
+        detail: req.lastEditReason,
+      });
+    }
+    if (req.recurrenceParentId) {
+      events.push({
+        at: req.createdAt.toISOString(),
+        kind: 'recurrence',
+        label: 'Gerada automaticamente por recorrência',
+      });
+    }
+    if (req.deletedAt && req.status === RequisitionStatus.CANCELLED) {
+      events.push({
+        at: req.deletedAt.toISOString(),
+        kind: 'cancelled',
+        label: 'Requisição cancelada',
+      });
+    }
+    // Aprovações step-by-step.
+    const steps = await this.prisma.approvalStep.findMany({
+      where: { requisitionId: id, status: { not: 'PENDING' } },
+      orderBy: { decidedAt: 'desc' },
+      include: { decidedBy: { select: { name: true } } },
+    });
+    for (const s of steps) {
+      if (!s.decidedAt) continue;
+      events.push({
+        at: s.decidedAt.toISOString(),
+        kind:
+          s.status === 'REVISION'
+            ? 'step-revision'
+            : `step-${s.status.toLowerCase()}`,
+        label:
+          s.status === 'REVISION'
+            ? `${s.levelName}: devolveu para revisão`
+            : `${s.levelName}: ${
+                s.status === 'APPROVED' ? 'aprovou' : 'reprovou'
+              }`,
+        who: s.decidedBy?.name ?? null,
+        detail: s.comments,
+      });
+    }
+    return events.sort(
+      (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime(),
+    );
+  }
+
   /** Exclui uma requisição em rascunho (soft delete). */
   async remove(user: AuthenticatedUser, id: string) {
     const req = await this.findOne(user, id);

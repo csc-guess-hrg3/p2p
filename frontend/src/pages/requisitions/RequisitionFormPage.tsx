@@ -45,6 +45,8 @@ import {
 } from '@/components/ui/tooltip';
 import { ItemDialog } from './ItemDialog';
 import { SupplierCombobox } from './SupplierCombobox';
+import { EditReasonDialog } from '@/components/EditReasonDialog';
+import { useToast } from '@/components/ui/use-toast';
 
 const schema = z
   .object({
@@ -103,6 +105,11 @@ export function RequisitionFormPage() {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [dialogInitial, setDialogInitial] =
     useState<RequisitionItemForm | null>(null);
+  // Em edição, o backend exige motivo (mín. 5 chars). Guardamos o DTO
+  // pronto e abrimos um diálogo dedicado pra coletar o motivo.
+  const [pendingDto, setPendingDto] = useState<RequisitionInput | null>(null);
+  const [reasonOpen, setReasonOpen] = useState(false);
+  const { toast } = useToast();
 
   const {
     register,
@@ -225,25 +232,24 @@ export function RequisitionFormPage() {
         notes: it.notes,
       })),
     };
+    // Em edição, abre diálogo dedicado para o motivo. Só dispara o save
+    // depois que o usuário confirma. Criação segue direto.
+    if (isEdit) {
+      setPendingDto(dto);
+      setReasonOpen(true);
+      return;
+    }
+    await persist(dto, values.supplierErpCode);
+  }
+
+  /** Persiste a requisição (cria ou atualiza) — chamada em onSubmit/dialog. */
+  async function persist(dto: RequisitionInput, supplierErpCode: string) {
+    if (!activeCompany) return;
     try {
-      // Em edição, o backend exige motivo (mín. 5 chars). Pra MVP, prompt;
-      // refinamento (modal próprio) fica pra próxima iteração.
-      if (isEdit) {
-        const reason = window.prompt(
-          'Informe o motivo da edição (mín. 5 caracteres):',
-        );
-        if (!reason || reason.trim().length < 5) {
-          alert('Motivo obrigatório (mínimo 5 caracteres).');
-          return;
-        }
-        (dto as RequisitionInput & { editReason?: string }).editReason =
-          reason.trim();
-      }
       const saved = isEdit
         ? await updateMut.mutateAsync({ id: id!, dto })
         : await createMut.mutateAsync(dto);
 
-      // Abre pendências fiscais de vínculo para itens não vinculados.
       const pending = items.filter(
         (it) => it.fiscalMode === 'LINK' && it.itemErpCode,
       );
@@ -251,7 +257,7 @@ export function RequisitionFormPage() {
         pending.map((it) =>
           fiscalMut.mutateAsync({
             companyId: activeCompany.id,
-            supplierErpCode: values.supplierErpCode,
+            supplierErpCode,
             itemErpCode: it.itemErpCode as string,
             itemDescription: it.itemDescription,
             unit: it.unit,
@@ -260,20 +266,25 @@ export function RequisitionFormPage() {
       );
       const failed = results.filter((r) => r.status === 'rejected').length;
       if (failed > 0) {
-        alert(
-          `Requisição salva, mas ${failed} pendência(s) fiscal(is) não pôde(puderam) ser aberta(s).`,
-        );
+        toast({
+          title: 'Pendências fiscais',
+          description: `Requisição salva, mas ${failed} pendência(s) fiscal(is) não pôde(puderam) ser aberta(s).`,
+          variant: 'destructive',
+        });
       }
       navigate(`/requisicoes/${saved.id}`);
     } catch (err) {
       const msg = isAxiosError(err)
         ? (err.response?.data as { message?: string | string[] })?.message
         : null;
-      alert(
-        Array.isArray(msg)
+      toast({
+        title: 'Falha ao salvar',
+        description: Array.isArray(msg)
           ? msg.join('\n')
           : msg || 'Não foi possível salvar a requisição.',
-      );
+        variant: 'destructive',
+      });
+      throw err;
     }
   }
 
@@ -295,11 +306,11 @@ export function RequisitionFormPage() {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 pb-10">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
         <h2 className="text-xl font-semibold">
           {isEdit ? 'Editar requisição' : 'Nova requisição'}
         </h2>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button
             type="button"
             variant="outline"
@@ -626,6 +637,29 @@ export function RequisitionFormPage() {
         supplierCode={supplierErpCode}
         initial={dialogInitial}
         onConfirm={handleItemConfirm}
+      />
+
+      <EditReasonDialog
+        open={reasonOpen}
+        onOpenChange={(v) => {
+          setReasonOpen(v);
+          if (!v) setPendingDto(null);
+        }}
+        title="Motivo da edição"
+        description="A requisição volta para o fluxo de aprovação após salvar."
+        confirmLabel="Salvar e reenviar para aprovação"
+        pending={updateMut.isPending}
+        onConfirm={async (reason) => {
+          if (!pendingDto) return;
+          await persist(
+            { ...pendingDto, editReason: reason } as RequisitionInput & {
+              editReason?: string;
+            },
+            pendingDto.supplierErpCode,
+          );
+          setReasonOpen(false);
+          setPendingDto(null);
+        }}
       />
     </form>
   );
