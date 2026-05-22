@@ -32,9 +32,9 @@ jobs:
       - name: Install
         # `npm install` em vez de `npm ci` porque o lockfile é gerado em
         # Windows (drive de rede) e às vezes pula entradas optional de
-        # plataforma — npm ci no Linux quebra. Com --no-save preservamos
-        # o lockfile sem mudanças.
-        run: npm install --no-save --ignore-scripts
+        # plataforma — npm ci no Linux quebra. --no-save preserva o
+        # lockfile no repositório.
+        run: npm install --no-save
 
       # Prisma generate é necessário para o tsc compilar os types do client.
       # `npm ci --ignore-scripts` puxa o pacote mas não roda o postinstall.
@@ -73,9 +73,9 @@ jobs:
       - name: Install
         # `npm install` em vez de `npm ci` porque o lockfile é gerado em
         # Windows (drive de rede) e às vezes pula entradas optional de
-        # plataforma — npm ci no Linux quebra. Com --no-save preservamos
-        # o lockfile sem mudanças.
-        run: npm install --no-save --ignore-scripts
+        # plataforma — npm ci no Linux quebra. --no-save preserva o
+        # lockfile no repositório.
+        run: npm install --no-save
 
       - name: Type-check
         run: npx tsc -b --noEmit
