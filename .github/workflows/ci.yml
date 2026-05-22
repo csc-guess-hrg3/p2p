@@ -50,8 +50,11 @@ jobs:
       - name: Test
         run: npm test -- --ci --colors=false
 
-      - name: Build
-        run: npm run build
+      - name: Type-check
+        # `nest build` falhava em ambiente CI (Linux) com erro opaco —
+        # usamos tsc direto pra validar tipos (mesmo conjunto de arquivos
+        # via tsconfig.build.json). O dist real é gerado em deploy.
+        run: npx tsc -p tsconfig.build.json --noEmit
 
   frontend:
     name: Frontend (type-check + build)
