@@ -239,9 +239,14 @@ export class LinxErpService {
           ctb,
           // @P15 — TRANSPORTADORA. Trigger LXI_COMPRAS valida FK em
           // TRANSPORTADORAS; sem valor o trigger faz rollback (dá
-          // "The transaction ended in the trigger"). Config obrigatória
-          // em validateForConvert; trunc para varchar(25).
-          this.trunc(cfg.transportadoraPadrao, 25, 'TRANSPORTADORA') ?? '',
+          // "The transaction ended in the trigger"). O PO já valida
+          // existência no convert() — fallback pro default da empresa
+          // se o PO não tiver escolha explícita.
+          this.trunc(
+            po.transportadora ?? cfg.transportadoraPadrao,
+            25,
+            'TRANSPORTADORA',
+          ) ?? '',
         );
 
         // 3) Itens.

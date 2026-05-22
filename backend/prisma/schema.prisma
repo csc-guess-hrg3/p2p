@@ -489,6 +489,11 @@ model PurchaseOrder {
   buyerId          String    @db.UniqueIdentifier
   status           String    @default("DRAFT") @db.NVarChar(25)
   paymentCondition String?   @db.NVarChar(255)
+  /**
+   * Transportadora escolhida no convert (Linx.TRANSPORTADORAS.nome).
+   * Quando NULL, usa CompanyErpConfig.transportadoraPadrao na gravação.
+   */
+  transportadora   String?   @db.NVarChar(25)
   deliveryAddress  String?   @db.NVarChar(500)
   expectedDelivery DateTime?
   totalAmount      Decimal   @default(0) @db.Decimal(15, 2)

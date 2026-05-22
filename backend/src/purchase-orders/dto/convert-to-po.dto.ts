@@ -40,6 +40,14 @@ export class ConvertToPurchaseOrderDto {
   @IsString()
   paymentCondition?: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Transportadora (nome do cadastro Linx). Opcional — usa o padrão da empresa quando vazio.',
+  })
+  @IsOptional()
+  @IsString()
+  transportadora?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

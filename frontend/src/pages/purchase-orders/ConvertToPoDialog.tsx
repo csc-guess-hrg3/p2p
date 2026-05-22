@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { isAxiosError } from 'axios';
 import { useConvertToPurchaseOrder } from '@/lib/purchase-orders';
 import type { Requisition } from '@/lib/requisitions';
 import { useCompany } from '@/lib/company';
-import { usePaymentConditions } from '@/lib/integration';
+import { usePaymentConditions, useTransportadoras } from '@/lib/integration';
+import { useErpConfig } from '@/lib/admin';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -58,9 +59,22 @@ export function ConvertToPoDialog({ open, onOpenChange, requisition }: Props) {
   const { data: conditions = [] } = usePaymentConditions(
     activeCompany?.code,
   );
+  const { data: transportadoras = [] } = useTransportadoras(
+    activeCompany?.code,
+  );
+  // Default da empresa pra pré-selecionar a transportadora.
+  const { data: erpConfig } = useErpConfig(activeCompany?.id);
+  const defaultTransp = erpConfig?.config?.transportadoraPadrao ?? '';
   const [paymentCondition, setPaymentCondition] = useState(
     requisition.paymentConditionCode ?? '',
   );
+  const [transportadora, setTransportadora] = useState('');
+  // Quando a config da empresa carregar, pré-seleciona o default.
+  useEffect(() => {
+    if (defaultTransp && !transportadora) {
+      setTransportadora(defaultTransp);
+    }
+  }, [defaultTransp, transportadora]);
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [expectedDelivery, setExpectedDelivery] = useState('');
   const [fundRequestDueDate, setFundRequestDueDate] = useState('');
@@ -97,6 +111,7 @@ export function ConvertToPoDialog({ open, onOpenChange, requisition }: Props) {
       const po = await convertMut.mutateAsync({
         requisitionId: requisition.id,
         paymentCondition: payload,
+        transportadora: transportadora || undefined,
         deliveryAddress: deliveryAddress || undefined,
         expectedDelivery: expectedDelivery
           ? new Date(expectedDelivery).toISOString()
@@ -171,6 +186,29 @@ export function ConvertToPoDialog({ open, onOpenChange, requisition }: Props) {
                 onChange={(e) => setDeliveryAddress(e.target.value)}
                 placeholder="Opcional"
               />
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label>Transportadora</Label>
+              <Select
+                value={transportadora}
+                onValueChange={setTransportadora}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a transportadora" />
+                </SelectTrigger>
+                <SelectContent>
+                  {transportadoras.map((t) => (
+                    <SelectItem key={t.nome} value={t.nome}>
+                      {t.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {defaultTransp && transportadora === defaultTransp && (
+                <p className="text-xs text-muted-foreground">
+                  Padrão da empresa pré-selecionado.
+                </p>
+              )}
             </div>
             {isAdvance && (
               <div className="space-y-1.5">

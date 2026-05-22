@@ -50,6 +50,7 @@ export interface PurchaseOrder {
   supplierName: string;
   status: string;
   paymentCondition: string | null;
+  transportadora: string | null;
   deliveryAddress: string | null;
   expectedDelivery: string | null;
   totalAmount: string;
@@ -76,6 +77,7 @@ export interface PoItemAdjustment {
 export interface ConvertToPurchaseOrderInput {
   requisitionId: string;
   paymentCondition?: string;
+  transportadora?: string;
   deliveryAddress?: string;
   expectedDelivery?: string;
   fundRequestDueDate?: string;

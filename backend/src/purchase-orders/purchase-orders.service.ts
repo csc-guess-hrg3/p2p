@@ -104,13 +104,6 @@ export class PurchaseOrdersService {
       problems.push(
         `Empresa ${company.code} sem configuração de integração com o ERP.`,
       );
-    } else if (!company.erpConfig.transportadoraPadrao) {
-      // Trigger LXI_COMPRAS valida FK contra TRANSPORTADORAS — sem
-      // valor, dá "transaction ended in trigger". O admin configura
-      // em /admin → Integração ERP.
-      problems.push(
-        `Empresa ${company.code} sem transportadora padrão configurada.`,
-      );
     }
     for (const it of req.items) {
       const tag = `item "${it.itemDescription}"`;
@@ -208,6 +201,23 @@ export class PurchaseOrdersService {
       : null;
     this.validateForConvert(req, company, expectedDelivery);
 
+    // Transportadora: DTO (escolha do comprador no diálogo) ou fallback
+    // pra default da empresa (CompanyErpConfig.transportadoraPadrao).
+    // Pelo menos uma das duas precisa existir — o trigger LXI_COMPRAS
+    // do Linx faz rollback se o valor enviado não bater com FK de
+    // TRANSPORTADORAS, então é melhor falhar aqui com mensagem clara.
+    const transportadora =
+      dto.transportadora?.trim() ||
+      company.erpConfig?.transportadoraPadrao ||
+      null;
+    if (!transportadora) {
+      throw new BadRequestException(
+        'Transportadora obrigatória. Escolha uma no diálogo de conversão ' +
+          `ou configure a padrão da empresa ${company.code} em ` +
+          'Administração → Integração ERP → Transportadora padrão.',
+      );
+    }
+
     const priceOverride = new Map(
       (dto.items ?? []).map((i) => [i.requisitionItemId, i.unitPrice]),
     );
@@ -287,6 +297,7 @@ export class PurchaseOrdersService {
               status: PurchaseOrderStatus.APPROVED,
               approvedAt: now,
               paymentCondition: dto.paymentCondition ?? null,
+              transportadora,
               deliveryAddress: dto.deliveryAddress ?? null,
               expectedDelivery,
               totalAmount: Number(bucketTotal.toFixed(2)),
@@ -360,6 +371,40 @@ export class PurchaseOrdersService {
           where: { id: po.id },
           data: { deletedAt: new Date() },
         });
+        // Traduz erros conhecidos do trigger LXI_COMPRAS pra mensagens
+        // que o usuário consegue agir. O Linx devolve "Impossível Incluir
+        // #COMPRAS #porque #<TABELA> #não existe" no raiserror.
+        const raw = (err as Error)?.message ?? '';
+        const m = raw.match(
+          /porque\s*#?(FORNECEDORES|FILIAIS|MOEDAS|COND_ENT_PGTOS|TRANSPORTADORAS|PRODUCAO_PROGRAMA|COMPRAS_TIPOS|COMPRAS_STATUS|VENDAS|CTB_CENTRO_CUSTO_RATEIO|CTB_FILIAL_RATEIO)\b/i,
+        );
+        if (m) {
+          const friendly: Record<string, string> = {
+            FORNECEDORES: 'Fornecedor não cadastrado no Linx (TRANSPORTADORAS/FORNECEDORES).',
+            FILIAIS: 'Filial não cadastrada no Linx.',
+            MOEDAS: 'Moeda não cadastrada no Linx.',
+            COND_ENT_PGTOS: 'Condição de pagamento não cadastrada no Linx.',
+            TRANSPORTADORAS:
+              'Transportadora não cadastrada no Linx — verifique a escolhida no diálogo ou o padrão configurado em Administração → Integração ERP.',
+            PRODUCAO_PROGRAMA: 'Programa de produção não encontrado.',
+            COMPRAS_TIPOS: 'Tipo de compra não cadastrado no Linx.',
+            COMPRAS_STATUS: 'Status de compra inválido.',
+            VENDAS: 'Referência de venda não encontrada.',
+            CTB_CENTRO_CUSTO_RATEIO: 'Rateio de centro de custo inválido.',
+            CTB_FILIAL_RATEIO: 'Rateio de filial inválido.',
+          };
+          throw new BadRequestException(
+            friendly[m[1].toUpperCase()] ??
+              `Validação do Linx falhou: ${m[1]}.`,
+          );
+        }
+        if (raw.includes('transaction ended in the trigger')) {
+          throw new BadRequestException(
+            'O Linx rejeitou o pedido (trigger interna abortou). ' +
+              'Mensagem original: ' +
+              raw,
+          );
+        }
         throw err;
       }
     }
