@@ -45,8 +45,29 @@ export class LinxErpService {
    * em algumas tabelas e o sequencial declarado tem `TAMANHO=5`; usamos 5
    * (o que a procedure devolve).
    */
+  /**
+   * Padrão do Linx em colunas char(N) numéricas: o valor fica
+   * justificado à esquerda, completado com espaços (ex.: "60276   ").
+   * Antes usávamos padStart com '0' o que produzia "00060276" —
+   * inconsistente com o resto do banco. O SQL Server completa com
+   * espaços automaticamente, mas mantemos a função pra ser explícito
+   * e pra truncar se o número crescer além do tamanho da coluna.
+   */
   private pad(value: string | number, len: number): string {
-    return String(value).padStart(len, '0');
+    return String(value).slice(0, len);
+  }
+
+  /**
+   * Encaixa o número do P2P (OC-YYYY-NNNNNN, 14 chars) na coluna
+   * PEDIDO_COMPRA_ORIGEM (char(8)) preservando ano e sequencial:
+   * "OC-2026-000123" → "26000123".
+   */
+  private toPedidoOrigem(p2pNumber: string): string {
+    const m = p2pNumber.match(/^OC-(\d{4})-(\d+)$/);
+    if (!m) return p2pNumber.slice(0, 8); // fallback defensivo
+    const yy = m[1].slice(-2);
+    const seq = m[2].padStart(6, '0').slice(-6);
+    return `${yy}${seq}`;
   }
 
   /**
@@ -214,7 +235,8 @@ export class LinxErpService {
               TABELA_FILHA, OBS, REQUERIDO_POR, TIPO_COMPRA,
               STATUS_APROVACAO, DATA_APROVACAO, STATUS_COMPRA,
               NATUREZA_ENTRADA, APROVADOR_POR, LX_STATUS_COMPRA,
-              CTB_TIPO_OPERACAO, DATA_PARA_TRANSFERENCIA)
+              CTB_TIPO_OPERACAO, DATA_PARA_TRANSFERENCIA,
+              PEDIDO_COMPRA_ORIGEM)
            VALUES
              (@P1, @P2, @P3, @P3, @P3, @P4, @P15, N'R$',
               @P5, GETDATE(), GETDATE(), @P6,
@@ -222,7 +244,8 @@ export class LinxErpService {
               @P9, @P10, @P11, @P12,
               N'A', GETDATE(), N'A ',
               @P13, @P6, 1,
-              @P14, GETDATE())`,
+              @P14, GETDATE(),
+              @P16)`,
           pedido,
           this.trunc(po.supplierName, 25, 'FORNECEDOR') ?? '',
           this.trunc(po.branchName, 25, 'FILIAL') ?? '',
@@ -247,6 +270,9 @@ export class LinxErpService {
             25,
             'TRANSPORTADORA',
           ) ?? '',
+          // @P16 — PEDIDO_COMPRA_ORIGEM (char(8)): rastreio P2P↔Linx
+          // encurtado pra caber. OBS continua tendo o número P2P completo.
+          this.toPedidoOrigem(po.number),
         );
 
         // 3) Itens.
