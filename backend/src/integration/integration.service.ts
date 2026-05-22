@@ -137,6 +137,17 @@ export class IntegrationService {
       ORDER BY descricao`;
   }
 
+  /** Transportadoras ativas (TRANSPORTADORAS). */
+  async getTransportadoras(
+    company: string,
+  ): Promise<Array<{ nome: string }>> {
+    const c = this.assertCompany(company);
+    return this.prisma.$queryRaw<{ nome: string }[]>`
+      SELECT nome FROM dbo.v_p2p_transportadoras
+      WHERE empresa = ${c}
+      ORDER BY nome`;
+  }
+
   /** Condições de pagamento da empresa (COND_ENT_PGTOS). */
   async getPaymentConditions(
     company: string,

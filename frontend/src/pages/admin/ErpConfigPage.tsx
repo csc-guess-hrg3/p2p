@@ -12,6 +12,7 @@ import {
   useComprasTipos,
   useCtbTipoOperacao,
   useNaturezasEntrada,
+  useTransportadoras,
 } from '@/lib/integration';
 import { useUsers } from '@/lib/users';
 import { useTeams } from '@/lib/teams';
@@ -99,6 +100,8 @@ export function ErpConfigPage() {
   const users = usersPage?.data ?? [];
   // Times pra escolher quem reagenda PA — todos ativos.
   const { data: teams = [] } = useTeams();
+  // Transportadoras do ERP — uma é obrigatória pra gravação no Linx.
+  const { data: transportadoras = [] } = useTransportadoras(companyCode);
 
   const [form, setForm] = useState<FormState>(EMPTY);
   const [touched, setTouched] = useState(false);
@@ -279,11 +282,32 @@ export function ErpConfigPage() {
               </div>
               <div className="space-y-1.5">
                 <Label>Transportadora padrão</Label>
-                <Input
-                  value={form.transportadoraPadrao}
-                  onChange={(e) => patch('transportadoraPadrao', e.target.value)}
-                  placeholder="Opcional"
-                />
+                <Select
+                  value={form.transportadoraPadrao || '__none__'}
+                  onValueChange={(v) =>
+                    patch(
+                      'transportadoraPadrao',
+                      v === '__none__' ? '' : v,
+                    )
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione a transportadora" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">— Sem transportadora —</SelectItem>
+                    {transportadoras.map((t) => (
+                      <SelectItem key={t.nome} value={t.nome}>
+                        {t.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Obrigatória — o trigger LXI_COMPRAS rejeita o pedido sem
+                  transportadora preenchida. Lista vem do cadastro do Linx
+                  (TRANSPORTADORAS ativas).
+                </p>
               </div>
             </div>
           </section>

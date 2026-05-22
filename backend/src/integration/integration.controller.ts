@@ -73,6 +73,12 @@ export class IntegrationController {
     return this.integration.getPaymentConditions(company);
   }
 
+  @Get('transportadoras')
+  @ApiOperation({ summary: 'Lista as transportadoras ativas da empresa' })
+  transportadoras(@Param('company') company: string) {
+    return this.integration.getTransportadoras(company);
+  }
+
   @Get('suppliers/:supplierCode/items')
   @ApiOperation({ summary: 'Itens vinculados a um fornecedor' })
   supplierItems(

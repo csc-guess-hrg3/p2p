@@ -116,6 +116,13 @@ export function usePaymentConditions(company?: string) {
   );
 }
 
+/** Transportadoras ativas (cadastro TRANSPORTADORAS no Linx). */
+export function useTransportadoras(company?: string) {
+  return useQuery(
+    erpQuery<Array<{ nome: string }>>(company, 'transportadoras'),
+  );
+}
+
 /** Tipos de compra Linx (COMPRAS_TIPOS) — fluxo de consumíveis. */
 export function useComprasTipos(company?: string) {
   return useQuery(erpQuery<ErpCompraTipo[]>(company, 'compras-tipos'));
