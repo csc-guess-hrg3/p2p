@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Check, ExternalLink, X } from 'lucide-react';
+import { Check, Download, ExternalLink, X } from 'lucide-react';
 import {
   usePendingApprovals,
   type PendingApproval,
@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { usePagination } from '@/lib/use-pagination';
+import { exportToCsv } from '@/lib/csv';
 import { DecideDialog } from './DecideDialog';
 
 export function ApprovalsPage() {
@@ -30,11 +31,46 @@ export function ApprovalsPage() {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        {isLoading
-          ? 'Carregando…'
-          : `${steps.length} requisição(ões) aguardando sua decisão.`}
-      </p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">
+          {isLoading
+            ? 'Carregando…'
+            : `${steps.length} requisição(ões) aguardando sua decisão.`}
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            exportToCsv(
+              `aprovacoes-pendentes-${new Date().toISOString().slice(0, 10)}`,
+              [
+                {
+                  header: 'Número da requisição',
+                  value: (s) => s.requisition.number,
+                },
+                { header: 'Título', value: (s) => s.requisition.title },
+                {
+                  header: 'Solicitante',
+                  value: (s) => s.requisition.requester?.name ?? '',
+                },
+                {
+                  header: 'Nível',
+                  value: (s) => s.levelName ?? `Nível ${s.level}`,
+                },
+                {
+                  header: 'Valor',
+                  value: (s) => s.requisition.totalAmount,
+                },
+              ],
+              steps,
+            )
+          }
+          disabled={steps.length === 0}
+        >
+          <Download className="size-4" />
+          Exportar
+        </Button>
+      </div>
 
       <div className="rounded-lg border bg-card">
         <div className="overflow-x-auto">

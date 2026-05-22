@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Search } from 'lucide-react';
+import { AlertTriangle, Download, Search } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { usePaOrders } from '@/lib/product-orders-pa';
 import { formatCurrency, formatDate } from '@/lib/format';
@@ -23,6 +23,8 @@ import {
 } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { usePagination } from '@/lib/use-pagination';
+import { Button } from '@/components/ui/button';
+import { exportToCsv } from '@/lib/csv';
 
 /** Tradução dos códigos do COMPRAS_STATUS para rótulo e cor. */
 const STATUS_MAP: Record<
@@ -110,11 +112,39 @@ export function PaOrdersListPage() {
 
   return (
     <div className="space-y-4">
-      <div>
+      <div className="flex items-start justify-between gap-2">
         <p className="text-sm text-muted-foreground">
           Pedidos de compra de <strong>produto acabado</strong> — nascem no ERP
           e ficam aqui para aprovação do diretor da marca.
         </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            exportToCsv(
+              `produto-acabado-${new Date().toISOString().slice(0, 10)}`,
+              [
+                { header: 'Pedido', value: (r) => r.pedido },
+                { header: 'Fornecedor', value: (r) => r.fornecedor },
+                { header: 'Filial', value: (r) => r.filial },
+                {
+                  header: 'Status',
+                  value: (r) => r.status_efetivo ?? r.status_compra,
+                },
+                { header: 'Qtde', value: (r) => r.tot_qtde_original },
+                { header: 'Valor', value: (r) => r.tot_valor_original },
+                { header: 'Emissão', value: (r) => r.emissao },
+                { header: 'Próxima entrega', value: (r) => r.proxima_entrega },
+                { header: 'NF', value: (r) => r.first_nf },
+              ],
+              rows,
+            )
+          }
+          disabled={rows.length === 0}
+        >
+          <Download className="size-4" />
+          Exportar
+        </Button>
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row">

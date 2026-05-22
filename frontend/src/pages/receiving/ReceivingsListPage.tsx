@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search } from 'lucide-react';
+import { Download, Search } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { useReceivings } from '@/lib/receiving';
 import { formatDate } from '@/lib/format';
@@ -23,6 +23,8 @@ import {
 } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { usePagination } from '@/lib/use-pagination';
+import { Button } from '@/components/ui/button';
+import { exportToCsv } from '@/lib/csv';
 
 const STATUS_OPTIONS = [
   { value: 'ALL', label: 'Todos os status' },
@@ -49,9 +51,39 @@ export function ReceivingsListPage() {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        {data ? `${data.total} recebimento(s)` : 'Carregando…'}
-      </p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">
+          {data ? `${data.total} recebimento(s)` : 'Carregando…'}
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            exportToCsv(
+              `recebimentos-${new Date().toISOString().slice(0, 10)}`,
+              [
+                { header: 'Número', value: (r) => r.number },
+                {
+                  header: 'Pedido',
+                  value: (r) => r.purchaseOrder?.number ?? '',
+                },
+                {
+                  header: 'Recebido por',
+                  value: (r) => r.receivedBy?.name ?? '',
+                },
+                { header: 'Recebido em', value: (r) => r.receivedAt },
+                { header: 'Status', value: (r) => r.status },
+                { header: 'Confirmado em', value: (r) => r.confirmedAt },
+              ],
+              rows,
+            )
+          }
+          disabled={rows.length === 0}
+        >
+          <Download className="size-4" />
+          Exportar
+        </Button>
+      </div>
 
       <div className="flex flex-col gap-3 sm:flex-row">
         <div className="relative flex-1 sm:max-w-sm">

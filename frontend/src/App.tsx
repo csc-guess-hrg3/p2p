@@ -18,6 +18,7 @@ import { ReceivingDetailPage } from '@/pages/receiving/ReceivingDetailPage';
 import { PaOrdersListPage } from '@/pages/product-orders-pa/PaOrdersListPage';
 import { PaOrderDetailPage } from '@/pages/product-orders-pa/PaOrderDetailPage';
 import { DashboardPage } from '@/pages/DashboardPage';
+import { ReportsPage } from '@/pages/ReportsPage';
 import { AdminPage } from '@/pages/admin/AdminPage';
 import { ErpConfigPage } from '@/pages/admin/ErpConfigPage';
 import { SettingsPage } from '@/pages/admin/SettingsPage';
@@ -79,6 +80,7 @@ function App() {
                     path="pendencias-fiscais"
                     element={<FiscalQueuePage />}
                   />
+                  <Route path="relatorios" element={<ReportsPage />} />
                   <Route path="admin" element={<AdminPage />} />
                   <Route
                     path="admin/integracao-erp"

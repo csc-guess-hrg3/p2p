@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { AlertTriangle, Plus, Search } from 'lucide-react';
+import { AlertTriangle, Download, Plus, Search } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { useRequisitions } from '@/lib/requisitions';
 import { formatCurrency, formatDate } from '@/lib/format';
@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { usePagination } from '@/lib/use-pagination';
+import { exportToCsv } from '@/lib/csv';
 
 const STATUS_OPTIONS = [
   { value: 'ALL', label: 'Todos os status' },
@@ -57,12 +58,36 @@ export function RequisitionsListPage() {
         <p className="text-sm text-muted-foreground">
           {data ? `${data.total} requisição(ões)` : 'Carregando…'}
         </p>
-        <Button asChild>
-          <Link to="/requisicoes/nova">
-            <Plus className="size-4" />
-            Nova requisição
-          </Link>
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              exportToCsv(
+                `requisicoes-${new Date().toISOString().slice(0, 10)}`,
+                [
+                  { header: 'Número', value: (r) => r.number },
+                  { header: 'Título', value: (r) => r.title },
+                  { header: 'Fornecedor', value: (r) => r.supplierName },
+                  { header: 'Status', value: (r) => r.status },
+                  { header: 'Valor', value: (r) => r.totalAmount },
+                  { header: 'Criada em', value: (r) => r.createdAt },
+                ],
+                rows,
+              )
+            }
+            disabled={rows.length === 0}
+          >
+            <Download className="size-4" />
+            Exportar
+          </Button>
+          <Button asChild>
+            <Link to="/requisicoes/nova">
+              <Plus className="size-4" />
+              Nova requisição
+            </Link>
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row">

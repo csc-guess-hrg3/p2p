@@ -1,5 +1,6 @@
 import {
   LayoutDashboard,
+  FileBarChart,
   FileText,
   CheckSquare,
   ShoppingCart,
@@ -31,5 +32,6 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Pendências Fiscais',
     icon: ClipboardCheck,
   },
+  { to: '/relatorios', label: 'Relatórios', icon: FileBarChart },
   { to: '/admin', label: 'Administração', icon: Settings },
 ];

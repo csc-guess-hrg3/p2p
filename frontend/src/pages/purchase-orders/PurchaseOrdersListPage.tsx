@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Search } from 'lucide-react';
+import { AlertTriangle, Download, Search } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { usePurchaseOrders } from '@/lib/purchase-orders';
 import { formatCurrency, formatDate } from '@/lib/format';
@@ -23,6 +23,8 @@ import {
 } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { usePagination } from '@/lib/use-pagination';
+import { exportToCsv } from '@/lib/csv';
+import { Button } from '@/components/ui/button';
 
 const STATUS_OPTIONS = [
   { value: 'ALL', label: 'Todos os status' },
@@ -88,9 +90,35 @@ export function PurchaseOrdersListPage() {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        {data ? `${data.total} pedido(s) de compra` : 'Carregando…'}
-      </p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">
+          {data ? `${data.total} pedido(s) de compra` : 'Carregando…'}
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            exportToCsv(
+              `pedidos-compra-${new Date().toISOString().slice(0, 10)}`,
+              [
+                { header: 'Número', value: (po) => po.number },
+                { header: 'Fornecedor', value: (po) => po.supplierName },
+                { header: 'Filial', value: (po) => po.branchName },
+                { header: 'Comprador', value: (po) => po.buyer?.name ?? '' },
+                { header: 'Status', value: (po) => po.status },
+                { header: 'Valor', value: (po) => po.totalAmount },
+                { header: 'Entrega prevista', value: (po) => po.expectedDelivery },
+                { header: 'Criado em', value: (po) => po.createdAt },
+              ],
+              rows,
+            )
+          }
+          disabled={rows.length === 0}
+        >
+          <Download className="size-4" />
+          Exportar
+        </Button>
+      </div>
 
       <div className="flex flex-col gap-3 sm:flex-row">
         <div className="relative flex-1 sm:max-w-sm">

@@ -1,7 +1,13 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { isAxiosError } from 'axios';
-import { AlertTriangle, ClipboardList, FileText, Package } from 'lucide-react';
+import {
+  AlertTriangle,
+  ClipboardList,
+  Download,
+  FileText,
+  Package,
+} from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { useItems } from '@/lib/integration';
 import {
@@ -46,6 +52,7 @@ import {
 } from '@/components/ui/dialog';
 import { Pagination } from '@/components/ui/pagination';
 import { usePagination } from '@/lib/use-pagination';
+import { exportToCsv } from '@/lib/csv';
 
 const STATUS_OPTIONS = [
   { value: 'PENDING', label: 'Pendentes' },
@@ -148,18 +155,45 @@ function ItensTab({ companyCode }: { companyCode?: string }) {
             ? 'Pendências de vínculo de item — fila da equipe Fiscal.'
             : 'Suas pendências de vínculo de item.'}
         </p>
-        <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger className="w-44">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {STATUS_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              exportToCsv(
+                `pendencias-itens-fiscal-${new Date().toISOString().slice(0, 10)}`,
+                [
+                  { header: 'Item', value: (r) => r.itemDescription },
+                  { header: 'Código', value: (r) => r.itemErpCode ?? '' },
+                  { header: 'Fornecedor', value: (r) => r.supplierName },
+                  { header: 'Status', value: (r) => r.status },
+                  {
+                    header: 'Solicitante',
+                    value: (r) => r.requestedBy?.name ?? '',
+                  },
+                  { header: 'Aberta em', value: (r) => r.createdAt },
+                ],
+                rows,
+              )
+            }
+            disabled={rows.length === 0}
+          >
+            <Download className="size-4" />
+            Exportar
+          </Button>
+          <Select value={status} onValueChange={setStatus}>
+            <SelectTrigger className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {STATUS_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="rounded-lg border bg-card">

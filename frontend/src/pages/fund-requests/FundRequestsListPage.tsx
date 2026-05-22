@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search } from 'lucide-react';
+import { Download, Search } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { useFundRequests } from '@/lib/fund-requests';
 import { formatCurrency, formatDate } from '@/lib/format';
@@ -23,6 +23,8 @@ import {
 } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { usePagination } from '@/lib/use-pagination';
+import { Button } from '@/components/ui/button';
+import { exportToCsv } from '@/lib/csv';
 
 const STATUS_OPTIONS = [
   { value: 'ALL', label: 'Todos os status' },
@@ -50,9 +52,40 @@ export function FundRequestsListPage() {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        {data ? `${data.total} solicitação(ões) de verba` : 'Carregando…'}
-      </p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">
+          {data ? `${data.total} solicitação(ões) de verba` : 'Carregando…'}
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            exportToCsv(
+              `solicitacoes-verba-${new Date().toISOString().slice(0, 10)}`,
+              [
+                { header: 'Número', value: (sv) => sv.number },
+                { header: 'Título', value: (sv) => sv.title },
+                {
+                  header: 'Pedido vinculado',
+                  value: (sv) => sv.purchaseOrder?.number ?? '',
+                },
+                {
+                  header: 'Solicitante',
+                  value: (sv) => sv.requester?.name ?? '',
+                },
+                { header: 'Status', value: (sv) => sv.status },
+                { header: 'Valor', value: (sv) => sv.totalAmount },
+                { header: 'Criada em', value: (sv) => sv.createdAt },
+              ],
+              rows,
+            )
+          }
+          disabled={rows.length === 0}
+        >
+          <Download className="size-4" />
+          Exportar
+        </Button>
+      </div>
 
       <div className="flex flex-col gap-3 sm:flex-row">
         <div className="relative flex-1 sm:max-w-sm">
