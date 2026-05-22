@@ -226,6 +226,19 @@ export function RequisitionFormPage() {
       })),
     };
     try {
+      // Em edição, o backend exige motivo (mín. 5 chars). Pra MVP, prompt;
+      // refinamento (modal próprio) fica pra próxima iteração.
+      if (isEdit) {
+        const reason = window.prompt(
+          'Informe o motivo da edição (mín. 5 caracteres):',
+        );
+        if (!reason || reason.trim().length < 5) {
+          alert('Motivo obrigatório (mínimo 5 caracteres).');
+          return;
+        }
+        (dto as RequisitionInput & { editReason?: string }).editReason =
+          reason.trim();
+      }
       const saved = isEdit
         ? await updateMut.mutateAsync({ id: id!, dto })
         : await createMut.mutateAsync(dto);

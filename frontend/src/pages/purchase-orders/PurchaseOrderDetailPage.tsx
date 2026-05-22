@@ -3,17 +3,26 @@ import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft,
   Banknote,
+  CircleCheck,
+  CircleX,
   FileText,
+  History,
   PackageCheck,
+  Pencil,
   Scissors,
+  Send,
+  Undo2,
   XCircle,
 } from 'lucide-react';
 import {
   useCancelPurchaseOrder,
   usePurchaseOrder,
+  usePurchaseOrderHistory,
+  type PoHistoryEvent,
 } from '@/lib/purchase-orders';
 import { ReceiveDialog } from '@/pages/receiving/ReceiveDialog';
 import { CancelItemsDialog } from './CancelItemsDialog';
+import { EditPoDialog } from './EditPoDialog';
 import { AttachmentsSection } from '@/components/AttachmentsSection';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
@@ -47,7 +56,9 @@ export function PurchaseOrderDetailPage() {
   const { toast } = useToast();
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [cancelItemsOpen, setCancelItemsOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const cancelMut = useCancelPurchaseOrder();
+  const historyQ = usePurchaseOrderHistory(id);
 
   if (isLoading) {
     return (
@@ -87,6 +98,12 @@ export function PurchaseOrderDetailPage() {
   );
   const canCancelItems =
     !['CANCELLED', 'INTEGRATED'].includes(po.status) && hasOpenBalance;
+  // Edição: bloqueia se já recebeu ou se está fechado.
+  const anyReceived = (po.items ?? []).some(
+    (it) => Number(it.receivedQty) > 0,
+  );
+  const canEdit =
+    !['CANCELLED', 'FULLY_RECEIVED'].includes(po.status) && !anyReceived;
 
   async function handleCancel() {
     if (!po) return;
@@ -131,6 +148,12 @@ export function PurchaseOrderDetailPage() {
           </Link>
         </Button>
         <div className="flex flex-wrap items-center gap-2">
+          {canEdit && (
+            <Button variant="outline" onClick={() => setEditOpen(true)}>
+              <Pencil className="size-4" />
+              Editar
+            </Button>
+          )}
           {canCancelItems && (
             <Button
               variant="outline"
@@ -170,6 +193,13 @@ export function PurchaseOrderDetailPage() {
         <CancelItemsDialog
           open={cancelItemsOpen}
           onOpenChange={setCancelItemsOpen}
+          po={po}
+        />
+      )}
+      {editOpen && (
+        <EditPoDialog
+          open={editOpen}
+          onOpenChange={setEditOpen}
           po={po}
         />
       )}
@@ -319,6 +349,71 @@ export function PurchaseOrderDetailPage() {
           />
         </CardContent>
       </Card>
+
+      {historyQ.data && historyQ.data.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <History className="size-4" />
+              Histórico
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-3">
+              {historyQ.data.map((ev, i) => (
+                <HistoryRow key={`${ev.at}-${i}`} ev={ev} />
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
     </div>
+  );
+}
+
+function HistoryRow({ ev }: { ev: PoHistoryEvent }) {
+  const { Icon, color } = (() => {
+    switch (ev.kind) {
+      case 'created':
+        return { Icon: FileText, color: 'text-primary' };
+      case 'approved':
+      case 'step-approved':
+        return { Icon: CircleCheck, color: 'text-emerald-600' };
+      case 'sent':
+        return { Icon: Send, color: 'text-foreground' };
+      case 'integrated':
+        return { Icon: CircleCheck, color: 'text-primary' };
+      case 'received':
+        return { Icon: PackageCheck, color: 'text-foreground' };
+      case 'edited':
+        return { Icon: Pencil, color: 'text-warning' };
+      case 'revision':
+        return { Icon: Undo2, color: 'text-warning' };
+      case 'cancelled':
+      case 'step-rejected':
+        return { Icon: CircleX, color: 'text-destructive' };
+      default:
+        return { Icon: FileText, color: 'text-muted-foreground' };
+    }
+  })();
+  return (
+    <li className="flex gap-3">
+      <div className={`mt-0.5 ${color}`}>
+        <Icon className="size-4" />
+      </div>
+      <div className="flex-1 text-sm">
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <span className="font-medium">{ev.label}</span>
+          <span className="text-xs text-muted-foreground">
+            {formatDate(ev.at)}
+          </span>
+        </div>
+        {(ev.who || ev.detail) && (
+          <p className="text-xs text-muted-foreground">
+            {[ev.who, ev.detail].filter(Boolean).join(' · ')}
+          </p>
+        )}
+      </div>
+    </li>
   );
 }

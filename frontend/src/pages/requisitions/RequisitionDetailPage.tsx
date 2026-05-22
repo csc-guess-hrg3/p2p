@@ -293,6 +293,17 @@ export function RequisitionDetailPage() {
               />
             </div>
           )}
+          {req.status === 'REVISION' && req.revisionReason && (
+            <div className="col-span-3 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
+              <p className="mb-1 text-xs uppercase tracking-wide text-warning">
+                Devolvida para revisão
+              </p>
+              <p className="font-medium">{req.revisionReason}</p>
+              <p className="text-xs text-muted-foreground">
+                Edite a requisição e ressubmeta — o fluxo de aprovação reinicia.
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
 

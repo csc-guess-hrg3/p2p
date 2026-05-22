@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Check, Download, ExternalLink, X } from 'lucide-react';
+import { Check, Download, ExternalLink, Undo2, X } from 'lucide-react';
 import {
   usePendingApprovals,
   type PendingApproval,
@@ -19,6 +19,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { usePagination } from '@/lib/use-pagination';
 import { exportToCsv } from '@/lib/csv';
 import { DecideDialog } from './DecideDialog';
+import { RequestRevisionDialog } from './RequestRevisionDialog';
 
 export function ApprovalsPage() {
   const navigate = useNavigate();
@@ -28,6 +29,7 @@ export function ApprovalsPage() {
     step: PendingApproval;
     approved: boolean;
   } | null>(null);
+  const [revisionStep, setRevisionStep] = useState<PendingApproval | null>(null);
 
   return (
     <div className="space-y-4">
@@ -131,6 +133,15 @@ export function ApprovalsPage() {
                     <Button
                       size="sm"
                       variant="outline"
+                      onClick={() => setRevisionStep(s)}
+                      title="Devolver para o solicitante ajustar"
+                    >
+                      <Undo2 className="size-4 text-warning" />
+                      Revisão
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
                       onClick={() =>
                         setDecision({ step: s, approved: false })
                       }
@@ -167,6 +178,12 @@ export function ApprovalsPage() {
           step={decision.step}
           approved={decision.approved}
           onClose={() => setDecision(null)}
+        />
+      )}
+      {revisionStep && (
+        <RequestRevisionDialog
+          step={revisionStep}
+          onClose={() => setRevisionStep(null)}
         />
       )}
     </div>

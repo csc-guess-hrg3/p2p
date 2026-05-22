@@ -62,6 +62,9 @@ export interface PurchaseOrder {
   integratedAt: string | null;
   cancelledAt: string | null;
   cancellationReason: string | null;
+  lastEditReason: string | null;
+  lastEditedAt: string | null;
+  lastEditedById: string | null;
   createdAt: string;
   buyer?: { id: string; name: string };
   items?: PurchaseOrderItem[];
@@ -149,6 +152,48 @@ export function useCancelPurchaseOrder() {
       qc.invalidateQueries({ queryKey: ['purchase-orders'] });
       qc.invalidateQueries({ queryKey: ['purchase-order', data.id] });
     },
+  });
+}
+
+/** Edição do PC: volta pra fluxo de aprovação + atualiza Linx pra 'em estudo'. */
+export interface EditPoInput {
+  id: string;
+  reason: string;
+  paymentCondition?: string;
+  transportadora?: string;
+  deliveryAddress?: string;
+  expectedDelivery?: string;
+  items?: Array<{ id: string; unitPrice?: number; quantity?: number }>;
+}
+
+export function useEditPurchaseOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...payload }: EditPoInput) =>
+      (await api.post<PurchaseOrder>(`/purchase-orders/${id}/edit`, payload))
+        .data,
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['purchase-orders'] });
+      qc.invalidateQueries({ queryKey: ['purchase-order', data.id] });
+      qc.invalidateQueries({ queryKey: ['po-history', data.id] });
+    },
+  });
+}
+
+export interface PoHistoryEvent {
+  at: string;
+  kind: string;
+  label: string;
+  who?: string | null;
+  detail?: string | null;
+}
+
+export function usePurchaseOrderHistory(id?: string) {
+  return useQuery({
+    queryKey: ['po-history', id],
+    queryFn: async () =>
+      (await api.get<PoHistoryEvent[]>(`/purchase-orders/${id}/history`)).data,
+    enabled: !!id,
   });
 }
 

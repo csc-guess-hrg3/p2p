@@ -10,6 +10,7 @@ const STATUS_MAP: Record<string, { label: string; variant: Variant }> = {
   IN_APPROVAL: { label: 'Em aprovação', variant: 'warning' },
   APPROVED: { label: 'Aprovada', variant: 'success' },
   REJECTED: { label: 'Rejeitada', variant: 'destructive' },
+  REVISION: { label: 'Em revisão', variant: 'warning' },
   CONVERTED: { label: 'Convertida', variant: 'default' },
   CANCELLED: { label: 'Cancelada', variant: 'neutral' },
   // Pedido de Compra

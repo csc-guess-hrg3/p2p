@@ -25,6 +25,29 @@ export function usePendingApprovals() {
   });
 }
 
+/** Pedir revisão da requisição/PC — devolve pro solicitante com motivo. */
+export function useRequestRevision() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      stepId,
+      reason,
+    }: {
+      stepId: string;
+      reason: string;
+    }) =>
+      (await api.post(`/approvals/${stepId}/request-revision`, { reason }))
+        .data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['approvals'] });
+      qc.invalidateQueries({ queryKey: ['requisitions'] });
+      qc.invalidateQueries({ queryKey: ['requisition'] });
+      qc.invalidateQueries({ queryKey: ['purchase-orders'] });
+      qc.invalidateQueries({ queryKey: ['purchase-order'] });
+    },
+  });
+}
+
 /** Registra a decisão de uma etapa (aprovar/rejeitar). */
 export function useDecideApproval() {
   const qc = useQueryClient();

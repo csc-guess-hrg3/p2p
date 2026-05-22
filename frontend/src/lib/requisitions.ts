@@ -70,6 +70,10 @@ export interface Requisition {
   approvedAt: string | null;
   rejectedAt: string | null;
   rejectionReason: string | null;
+  revisionReason: string | null;
+  revisionRequestedAt: string | null;
+  lastEditReason: string | null;
+  lastEditedAt: string | null;
   createdAt: string;
   requester?: { id: string; name: string };
   items?: RequisitionItem[];
@@ -127,6 +131,8 @@ export interface RequisitionInput {
   contractRef?: string;
   quotationsCount?: number;
   tipoCompra?: string;
+  /** Em edição: motivo da alteração (obrigatório no backend, mín. 5 chars). */
+  editReason?: string;
   items: RequisitionItemInput[];
 }
 
