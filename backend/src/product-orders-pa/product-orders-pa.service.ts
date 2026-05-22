@@ -561,19 +561,18 @@ export class ProductOrdersPaService {
         who: header.aprovado_por ?? null,
       });
     }
-    // De-para de códigos do COMPRAS_STATUS_LOG pra rótulos legíveis,
-    // alinhado com o que a UI mostra na lista/badge de PA.
-    const STATUS_LABEL: Record<string, string> = {
-      P: 'Pendente aprovação',
-      E: 'Em estudo',
-      A: 'Aprovado',
-      R: 'Reprovado',
-      C: 'Cancelado',
-      CP: 'Cancelado parcial',
-      D: 'Entregue',
-      DP: 'Entregue parcial',
-      M: 'Microvix',
-    };
+    // De-para de status — vem direto do Linx (COMPRAS_STATUS) via
+    // view, sem hardcode. CP/D/DP nunca aparecem aqui porque são
+    // derivados do nosso lado (status_efetivo) e não vão pro log.
+    const statusRows = await this.prisma.$queryRaw<
+      { codigo: string; descricao: string }[]
+    >`SELECT codigo, descricao FROM dbo.v_p2p_compras_status`;
+    const statusLabel = new Map(
+      statusRows.map((s) => [
+        s.codigo.trim().toUpperCase(),
+        s.descricao.trim(),
+      ]),
+    );
     for (const log of statusLog) {
       // Não duplicar a aprovação principal (já adicionada via header).
       const dt = new Date(log.data_alteracao_status).getTime();
@@ -584,7 +583,7 @@ export class ProductOrdersPaService {
         continue;
       }
       const code = (log.status_compra ?? '').trim().toUpperCase();
-      const label = STATUS_LABEL[code] ?? code;
+      const label = statusLabel.get(code) ?? code;
       events.push({
         at: new Date(log.data_alteracao_status).toISOString(),
         kind: 'status',
