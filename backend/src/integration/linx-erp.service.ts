@@ -57,18 +57,6 @@ export class LinxErpService {
     return String(value).slice(0, len);
   }
 
-  /**
-   * Encaixa o número do P2P (OC-YYYY-NNNNNN, 14 chars) na coluna
-   * PEDIDO_COMPRA_ORIGEM (char(8)) preservando ano e sequencial:
-   * "OC-2026-000123" → "26000123".
-   */
-  private toPedidoOrigem(p2pNumber: string): string {
-    const m = p2pNumber.match(/^OC-(\d{4})-(\d+)$/);
-    if (!m) return p2pNumber.slice(0, 8); // fallback defensivo
-    const yy = m[1].slice(-2);
-    const seq = m[2].padStart(6, '0').slice(-6);
-    return `${yy}${seq}`;
-  }
 
   /**
    * Trunca para char(n) do Linx — emite warning quando corta, para o
@@ -191,7 +179,9 @@ export class LinxErpService {
     }
 
     const aprovador = user.name ?? user.adUsername ?? '';
-    const requeridoPor = aprovador;
+    // REQUERIDO_POR é login do usuário no Linx — não o nome amigável.
+    // Coincide com o LOGIN da tabela LINX_USERS (mesmo formato do AD).
+    const requeridoPor = user.adUsername ?? user.name ?? '';
     const total = Number(po.totalAmount);
     const start = Date.now();
 
@@ -236,7 +226,7 @@ export class LinxErpService {
               STATUS_APROVACAO, DATA_APROVACAO, STATUS_COMPRA,
               NATUREZA_ENTRADA, APROVADOR_POR, LX_STATUS_COMPRA,
               CTB_TIPO_OPERACAO, DATA_PARA_TRANSFERENCIA,
-              PEDIDO_COMPRA_ORIGEM)
+              ORIGEM_DA_COMPRA)
            VALUES
              (@P1, @P2, @P3, @P3, @P3, @P4, @P15, N'R$',
               @P5, GETDATE(), GETDATE(), @P6,
@@ -270,9 +260,9 @@ export class LinxErpService {
             25,
             'TRANSPORTADORA',
           ) ?? '',
-          // @P16 — PEDIDO_COMPRA_ORIGEM (char(8)): rastreio P2P↔Linx
-          // encurtado pra caber. OBS continua tendo o número P2P completo.
-          this.toPedidoOrigem(po.number),
+          // @P16 — ORIGEM_DA_COMPRA (varchar(15)): rastreio P2P↔Linx
+          // com o número P2P completo (ex.: "OC-2026-000123" — 14 chars).
+          this.trunc(po.number, 15, 'ORIGEM_DA_COMPRA') ?? '',
         );
 
         // 3) Itens.
