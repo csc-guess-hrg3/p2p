@@ -359,13 +359,28 @@ export class RequisitionsService {
         : {}),
     };
 
+    // Select enxuto: a tela só precisa desses campos. Trazer o modelo
+    // inteiro arrasta NVarChar(Max) (justification, rejectionReason,
+    // cancellationReason) — pesa muito em 50 linhas.
     const [data, total] = await Promise.all([
       this.prisma.requisition.findMany({
         where,
         skip,
         take,
         orderBy: { createdAt: 'desc' },
-        include: { requester: { select: { id: true, name: true } } },
+        select: {
+          id: true,
+          number: true,
+          title: true,
+          supplierName: true,
+          tipoNotaFiscal: true,
+          status: true,
+          totalAmount: true,
+          ctbTipoOperacao: true,
+          naturezaEntrada: true,
+          createdAt: true,
+          requester: { select: { id: true, name: true } },
+        },
       }),
       this.prisma.requisition.count({ where }),
     ]);
