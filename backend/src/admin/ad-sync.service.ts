@@ -290,7 +290,13 @@ function stringAttr(
     (x) => x.type.toLowerCase() === name.toLowerCase(),
   );
   if (!a) return null;
-  const v = (a as unknown as { values: string[] }).values?.[0];
+  // ldapjs expõe valores em `.values` ou `.vals` dependendo da versão
+  // e do tipo do atributo — tentamos ambos.
+  const bag = a as unknown as {
+    values?: string[];
+    vals?: Array<string | Buffer>;
+  };
+  const v = bag.values?.[0] ?? bag.vals?.[0];
   return v != null ? String(v) : null;
 }
 
