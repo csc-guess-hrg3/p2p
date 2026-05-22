@@ -55,3 +55,4 @@ Thumbs.db
 backend/inspect-*.js
 backend/inspect-*.out
 backend/test-views-*.js
+backend/scripts/explore-*.js
