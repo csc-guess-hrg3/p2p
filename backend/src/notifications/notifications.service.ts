@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 import { PrismaService } from '../prisma/prisma.service';
 import { SecretService } from '../common/crypto/secret.service';
@@ -20,9 +21,19 @@ interface CreateNotificationParams {
  * Notificações in-app + e-mail.
  *
  * In-app é o caminho padrão (toda criação grava em `notifications`).
- * E-mail é opcional (`sendEmail: true`) e usa o SMTP da empresa
- * configurado em CompanyErpConfig. Falha de e-mail não bloqueia o
- * registro in-app.
+ * E-mail é opcional (`sendEmail: true`).
+ *
+ * Estratégia SMTP (decisão 2026-05-25):
+ *  - Há **um único SMTP corporativo** configurado via env (`SMTP_HOST`,
+ *    `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`,
+ *    `SMTP_FROM_NAME`). Vale para todas as empresas (Guess, HRG3, …).
+ *  - O subject sempre é prefixado com `[CODIGO_EMPRESA]` para o
+ *    destinatário saber de qual empresa veio o evento.
+ *  - Se uma `CompanyErpConfig.smtp*` estiver preenchida no banco,
+ *    ela **sobrescreve** o global para aquela empresa específica (caso
+ *    raro — uma empresa precisar de servidor próprio). É o caminho de
+ *    escape, não o padrão.
+ *  - Falha de e-mail nunca bloqueia o registro in-app.
  */
 @Injectable()
 export class NotificationsService {
@@ -31,6 +42,7 @@ export class NotificationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly secrets: SecretService,
+    private readonly config: ConfigService,
   ) {}
 
   /** Cria notificação (e dispara e-mail se solicitado). */
@@ -105,37 +117,86 @@ export class NotificationsService {
     });
   }
 
-  /** Envia e-mail via SMTP da empresa — silencioso se config faltar. */
+  /**
+   * Resolve a configuração SMTP para uma empresa. Prioridade:
+   *   1. `company_erp_configs.smtp*` (override por empresa) — se host
+   *      e from estiverem preenchidos.
+   *   2. envs `SMTP_*` (caminho normal — único SMTP corporativo).
+   * Retorna null se nenhum dos dois estiver configurado.
+   */
+  private resolveSmtpConfig(erpCfg: {
+    smtpHost: string | null;
+    smtpPort: number | null;
+    smtpSecure: boolean | null;
+    smtpUser: string | null;
+    smtpPassword: string | null;
+    smtpFrom: string | null;
+    smtpFromName: string | null;
+  } | null) {
+    if (erpCfg?.smtpHost && erpCfg.smtpPort && erpCfg.smtpFrom) {
+      return {
+        host: erpCfg.smtpHost,
+        port: erpCfg.smtpPort,
+        secure: erpCfg.smtpSecure ?? false,
+        user: erpCfg.smtpUser ?? null,
+        password: this.secrets.decrypt(erpCfg.smtpPassword) ?? '',
+        from: erpCfg.smtpFrom,
+        fromName: erpCfg.smtpFromName ?? null,
+        source: 'company' as const,
+      };
+    }
+    const host = this.config.get<string>('SMTP_HOST');
+    const port = Number(this.config.get<string>('SMTP_PORT') ?? 0);
+    const from = this.config.get<string>('SMTP_FROM');
+    if (!host || !port || !from) return null;
+    return {
+      host,
+      port,
+      secure: this.config.get<string>('SMTP_SECURE') === 'true',
+      user: this.config.get<string>('SMTP_USER') ?? null,
+      password: this.config.get<string>('SMTP_PASSWORD') ?? '',
+      from,
+      fromName: this.config.get<string>('SMTP_FROM_NAME') ?? 'P2P',
+      source: 'env' as const,
+    };
+  }
+
+  /** Envia e-mail via SMTP único corporativo; silencioso se nada configurado. */
   private async sendEmail(params: CreateNotificationParams): Promise<void> {
     const company = await this.prisma.company.findUnique({
       where: { id: params.companyId },
       include: { erpConfig: true },
     });
-    const cfg = company?.erpConfig;
-    if (!cfg?.smtpHost || !cfg?.smtpPort || !cfg?.smtpFrom) return;
+    const smtp = this.resolveSmtpConfig(company?.erpConfig ?? null);
+    if (!smtp) {
+      this.logger.debug(
+        `SMTP não configurado — pulando e-mail (notif ${params.type})`,
+      );
+      return;
+    }
     const user = await this.prisma.user.findUnique({
       where: { id: params.userId },
       select: { name: true, email: true, status: true },
     });
     if (!user || user.status !== 'ACTIVE' || !user.email) return;
 
-    const smtpPass = this.secrets.decrypt(cfg.smtpPassword) ?? '';
     const transporter = nodemailer.createTransport({
-      host: cfg.smtpHost,
-      port: cfg.smtpPort,
-      secure: cfg.smtpSecure,
-      auth: cfg.smtpUser
-        ? { user: cfg.smtpUser, pass: smtpPass }
-        : undefined,
+      host: smtp.host,
+      port: smtp.port,
+      secure: smtp.secure,
+      auth: smtp.user ? { user: smtp.user, pass: smtp.password } : undefined,
     });
     const link = this.linkFor(params.entityType, params.entityId);
     const linkLine = link
       ? `\n\nAcesse: https://p2p.hrg3.com.br${link}\n`
       : '';
+    // Subject prefixado com a empresa, pra o destinatário identificar de
+    // qual contexto veio (Guess vs HRG3 num único inbox).
+    const prefix = company?.code ? `[${company.code}] ` : '';
     await transporter.sendMail({
-      from: `"${cfg.smtpFromName ?? company?.name ?? 'P2P'}" <${cfg.smtpFrom}>`,
+      from: `"${smtp.fromName ?? company?.name ?? 'P2P'}" <${smtp.from}>`,
       to: user.email,
-      subject: params.title,
+      subject: `${prefix}${params.title}`,
       text: `Olá ${user.name},\n\n${params.body}${linkLine}\n\nMensagem automática.`,
     });
   }

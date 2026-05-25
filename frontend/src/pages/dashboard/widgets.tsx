@@ -56,17 +56,43 @@ const STATUS_LABEL: Record<string, string> = {
   CANCELLED: 'Cancelado',
 };
 
-// Palette consistente com a paleta primária do app.
+// Palette consistente com a paleta primária do app — usada como fallback
+// quando o status não tem cor mapeada em STATUS_COLORS.
 const PIE_COLORS = [
   '#2563eb', // blue
-  '#16a34a', // green
-  '#f59e0b', // amber
-  '#dc2626', // red
   '#a855f7', // purple
   '#0891b2', // cyan
-  '#64748b', // slate
   '#facc15', // yellow
+  '#ec4899', // pink
+  '#14b8a6', // teal
+  '#64748b', // slate
+  '#f97316', // orange
 ];
+
+// Cor determinística por status — espelha as variantes do StatusBadge.
+// Verde = sucesso (aprovado/recebido), vermelho = falha (cancelado/rejeitado),
+// amarelo = em andamento, azul = informação.
+const STATUS_COLORS: Record<string, string> = {
+  APPROVED: '#16a34a',           // verde
+  FULLY_RECEIVED: '#16a34a',     // verde
+  INTEGRATED: '#16a34a',         // verde
+  CONFIRMED: '#16a34a',          // verde
+  CANCELLED: '#dc2626',          // vermelho
+  REJECTED: '#dc2626',           // vermelho
+  PARTIALLY_RECEIVED: '#f59e0b', // âmbar
+  PENDING_ERP: '#f59e0b',        // âmbar
+  IN_APPROVAL: '#f59e0b',        // âmbar
+  REVISION: '#f59e0b',           // âmbar
+  DIVERGENT: '#f59e0b',          // âmbar
+  SENT_TO_SUPPLIER: '#2563eb',   // azul
+  SUBMITTED: '#2563eb',          // azul
+  CONVERTED: '#2563eb',          // azul
+  DRAFT: '#64748b',              // cinza
+};
+
+function colorForStatus(status: string, index: number): string {
+  return STATUS_COLORS[status] ?? PIE_COLORS[index % PIE_COLORS.length];
+}
 
 /* ============================================================
  * WIDGET 1 — Tendência mensal
@@ -189,6 +215,7 @@ export function OrdersByStatusChart({ companyId }: { companyId?: string }) {
   const { data = [], isLoading } = useOrdersByStatus(companyId);
   const chartData = data.map((d) => ({
     status: STATUS_LABEL[d.status] ?? d.status,
+    rawStatus: d.status,
     value: d.count,
     total: d.total,
   }));
@@ -220,8 +247,14 @@ export function OrdersByStatusChart({ companyId }: { companyId?: string }) {
                 innerRadius={55}
                 outerRadius={90}
               >
-                {chartData.map((_, i) => (
-                  <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                {chartData.map((d, i) => (
+                  <Cell
+                    key={i}
+                    fill={colorForStatus(
+                      (d as { rawStatus?: string }).rawStatus ?? '',
+                      i,
+                    )}
+                  />
                 ))}
               </Pie>
               <Tooltip
