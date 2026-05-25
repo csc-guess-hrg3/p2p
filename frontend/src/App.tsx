@@ -54,12 +54,12 @@ function App() {
                     path="requisicoes/:id/editar"
                     element={<RequisitionFormPage />}
                   />
-                  {/* Aprovações — Admin/Manager + equipes com módulo APPROVALS. */}
+                  {/* Aprovações — Admin/Manager (aprovador) e Operador
+                      (solicitante vendo onde a requisição está). */}
                   <Route
                     element={
                       <RequireProfile
-                        roles={['ADMIN', 'MANAGER']}
-                        module="APPROVALS"
+                        roles={['ADMIN', 'MANAGER', 'OPERATOR']}
                       />
                     }
                   >

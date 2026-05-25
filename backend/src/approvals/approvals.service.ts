@@ -201,6 +201,55 @@ export class ApprovalsService {
     return active;
   }
 
+  /**
+   * Lista as requisições do próprio usuário que estão aguardando aprovação
+   * — visão do solicitante. Mostra em que nível paramos e quem é o
+   * aprovador atual, pra ele saber por quem está esperando.
+   */
+  async mineWaitingApproval(user: AuthenticatedUser) {
+    const reqs = await this.prisma.requisition.findMany({
+      where: {
+        requesterId: user.id,
+        status: { in: ['SUBMITTED', 'IN_APPROVAL', 'REVISION'] },
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        number: true,
+        title: true,
+        totalAmount: true,
+        status: true,
+        submittedAt: true,
+        currentTierLevel: true,
+        approvalSteps: {
+          where: { status: ApprovalStepStatus.PENDING },
+          orderBy: { level: 'asc' },
+          select: {
+            level: true,
+            levelName: true,
+            assignedApprover: { select: { id: true, name: true } },
+          },
+        },
+      },
+      orderBy: { submittedAt: 'desc' },
+    });
+    return reqs.map((r) => {
+      // Step ativo = primeiro pendente (menor level).
+      const active = r.approvalSteps[0] ?? null;
+      return {
+        id: r.id,
+        number: r.number,
+        title: r.title,
+        totalAmount: r.totalAmount,
+        status: r.status,
+        submittedAt: r.submittedAt,
+        currentLevel: active?.level ?? r.currentTierLevel ?? null,
+        currentLevelName: active?.levelName ?? null,
+        currentApprover: active?.assignedApprover ?? null,
+      };
+    });
+  }
+
   /** Registra a decisão (aprovar/rejeitar) de um step. */
   async decide(
     user: AuthenticatedUser,

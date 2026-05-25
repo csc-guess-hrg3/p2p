@@ -286,17 +286,23 @@ export function MyActionsCard({ companyId }: { companyId?: string }) {
   const profile = user?.profile;
   const isApprover = profile === 'ADMIN' || profile === 'MANAGER';
   const isFiscal = profile === 'ADMIN' || profile === 'REVIEWER';
+  const isOperator = profile === 'OPERATOR';
   const extras = user?.extraModules ?? [];
   const canSeePa = isApprover || extras.includes('PA');
   const canSeeFiscal = isFiscal || extras.includes('FISCAL_QUEUE');
-  const canSeeApprovals = isApprover || extras.includes('APPROVALS');
 
   // Cada item carrega quem pode vê-lo. Removemos antes de renderizar pra
   // não mostrar contagens que o perfil nem sequer tem como executar.
   const items = [
-    canSeeApprovals && {
+    isApprover && {
       label: 'Aprovações aguardando você',
       count: data?.approvalsPending ?? 0,
+      icon: CheckSquare,
+      to: '/aprovacoes',
+    },
+    isOperator && {
+      label: 'Minhas requisições em aprovação',
+      count: data?.myInApproval ?? 0,
       icon: CheckSquare,
       to: '/aprovacoes',
     },

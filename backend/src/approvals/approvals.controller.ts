@@ -15,9 +15,17 @@ export class ApprovalsController {
   constructor(private readonly approvals: ApprovalsService) {}
 
   @Get('pending')
-  @ApiOperation({ summary: 'Minhas aprovações pendentes' })
+  @ApiOperation({ summary: 'Minhas aprovações pendentes (aprovador)' })
   pending(@CurrentUser() user: AuthenticatedUser) {
     return this.approvals.pendingForUser(user);
+  }
+
+  @Get('mine-waiting')
+  @ApiOperation({
+    summary: 'Minhas requisições aguardando aprovação (solicitante)',
+  })
+  mineWaiting(@CurrentUser() user: AuthenticatedUser) {
+    return this.approvals.mineWaitingApproval(user);
   }
 
   @Post(':stepId/decide')

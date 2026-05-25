@@ -25,6 +25,27 @@ export function usePendingApprovals() {
   });
 }
 
+/** Visão do solicitante: requisições próprias aguardando o aprovador. */
+export interface MineWaitingApproval {
+  id: string;
+  number: string;
+  title: string;
+  totalAmount: string;
+  status: string;
+  submittedAt: string | null;
+  currentLevel: number | null;
+  currentLevelName: string | null;
+  currentApprover: { id: string; name: string } | null;
+}
+
+export function useMineWaitingApproval() {
+  return useQuery({
+    queryKey: ['approvals', 'mine-waiting'],
+    queryFn: async () =>
+      (await api.get<MineWaitingApproval[]>('/approvals/mine-waiting')).data,
+  });
+}
+
 /** Pedir revisão da requisição/PC — devolve pro solicitante com motivo. */
 export function useRequestRevision() {
   const qc = useQueryClient();

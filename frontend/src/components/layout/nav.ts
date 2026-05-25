@@ -24,15 +24,13 @@ export type Module =
   | 'PA'
   | 'FISCAL_QUEUE'
   | 'REPORTS'
-  | 'RECEIVING'
-  | 'APPROVALS';
+  | 'RECEIVING';
 
 export const MODULE_LABEL: Record<Module, string> = {
   PA: 'Produto Acabado',
   FISCAL_QUEUE: 'Pendências Fiscais',
   REPORTS: 'Relatórios',
   RECEIVING: 'Recebimentos',
-  APPROVALS: 'Aprovações',
 };
 
 export interface NavItem {
@@ -54,11 +52,14 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true, roles: ALL },
   { to: '/requisicoes', label: 'Requisições', icon: FileText, roles: ALL },
   {
+    // Aprovações é módulo padrão. O conteúdo difere por perfil:
+    //  - Admin/Manager: requisições que precisam da decisão deles.
+    //  - Operador: requisições próprias aguardando o gestor decidir.
+    // Reviewer não tem caso de uso (não submete nem aprova).
     to: '/aprovacoes',
     label: 'Aprovações',
     icon: CheckSquare,
-    roles: APPROVERS,
-    module: 'APPROVALS',
+    roles: ['ADMIN', 'MANAGER', 'OPERATOR'],
   },
   {
     to: '/pedidos',

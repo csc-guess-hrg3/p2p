@@ -275,11 +275,23 @@ export class DashboardService {
       },
     });
 
+    // 5) Requisições do próprio usuário em aprovação (solicitante quer
+    //    saber por onde anda a fila).
+    const myInApproval = await this.prisma.requisition.count({
+      where: {
+        companyId: { in: companyIds },
+        requesterId: user.id,
+        status: { in: ['SUBMITTED', 'IN_APPROVAL', 'REVISION'] },
+        deletedAt: null,
+      },
+    });
+
     return {
       approvalsPending,
       paPending,
       fiscalPending,
       myDraftRequisitions,
+      myInApproval,
     };
   }
 

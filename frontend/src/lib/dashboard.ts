@@ -120,6 +120,8 @@ export interface MyActions {
   paPending: number;
   fiscalPending: number;
   myDraftRequisitions: number;
+  /** Operador: requisições próprias em SUBMITTED/IN_APPROVAL/REVISION. */
+  myInApproval?: number;
 }
 
 export function useOrdersByMonth(companyId?: string) {
