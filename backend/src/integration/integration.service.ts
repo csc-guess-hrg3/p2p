@@ -194,10 +194,17 @@ export class IntegrationService {
       ORDER BY descricao`;
   }
 
-  /** Templates de rateio de filial, com as linhas agrupadas. */
+  /**
+   * Templates de rateio de filial, com as linhas agrupadas.
+   * Se `teamId` for fornecido, intercala com a allowlist da equipe
+   * (`team_branch_rateios`) — só retorna os rateios liberados. Útil para
+   * o combo do formulário não mostrar opção que o usuário não pode usar.
+   * Admin sem equipe (teamId=null) recebe tudo.
+   */
   async getBranchRateios(
     company: string,
     onlyActive = true,
+    teamId: string | null = null,
   ): Promise<ErpRateio[]> {
     const c = this.assertCompany(company);
     const rows = await this.prisma.$queryRaw<
@@ -216,13 +223,21 @@ export class IntegrationService {
       WHERE empresa = ${c}
         ${onlyActive ? Prisma.sql`AND rateio_inativo = 0` : Prisma.empty}
       ORDER BY rateio_descricao`;
-    return this.groupRateios(rows, false);
+    const all = this.groupRateios(rows, false);
+    if (!teamId) return all;
+    const allowed = await this.prisma.teamBranchRateio.findMany({
+      where: { teamId },
+      select: { branchRateioCode: true },
+    });
+    const allowedSet = new Set(allowed.map((r) => r.branchRateioCode));
+    return all.filter((r) => allowedSet.has(r.codigo));
   }
 
   /** Templates de rateio de centro de custo, com as linhas agrupadas. */
   async getCostCenterRateios(
     company: string,
     onlyActive = true,
+    teamId: string | null = null,
   ): Promise<ErpRateio[]> {
     const c = this.assertCompany(company);
     const rows = await this.prisma.$queryRaw<
@@ -242,7 +257,14 @@ export class IntegrationService {
       WHERE empresa = ${c}
         ${onlyActive ? Prisma.sql`AND rateio_inativo = 0` : Prisma.empty}
       ORDER BY rateio_descricao`;
-    return this.groupRateios(rows, true);
+    const all = this.groupRateios(rows, true);
+    if (!teamId) return all;
+    const allowed = await this.prisma.teamCostCenterRateio.findMany({
+      where: { teamId },
+      select: { costCenterRateioCode: true },
+    });
+    const allowedSet = new Set(allowed.map((r) => r.costCenterRateioCode));
+    return all.filter((r) => allowedSet.has(r.codigo));
   }
 
   // ----------------------------------------------------------------

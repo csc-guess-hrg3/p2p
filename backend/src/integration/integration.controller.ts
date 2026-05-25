@@ -2,6 +2,8 @@ import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { IntegrationService } from './integration.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/auth.types';
 
 /**
  * Endpoints de leitura dos dados de referência do ERP.
@@ -94,26 +96,40 @@ export class IntegrationController {
   }
 
   @Get('branch-rateios')
-  @ApiOperation({ summary: 'Lista os templates de rateio de filial' })
+  @ApiOperation({
+    summary: 'Lista os templates de rateio de filial',
+    description:
+      'Por padrão devolve só os rateios liberados para a equipe do usuário. Admin sem equipe vê tudo. Use scope=all para ver todos (uso administrativo).',
+  })
   branchRateios(
+    @CurrentUser() user: AuthenticatedUser,
     @Param('company') company: string,
     @Query('includeInactive') includeInactive?: string,
+    @Query('scope') scope?: 'all' | 'mine',
   ) {
     return this.integration.getBranchRateios(
       company,
       includeInactive !== 'true',
+      scope === 'all' ? null : user.teamId,
     );
   }
 
   @Get('cc-rateios')
-  @ApiOperation({ summary: 'Lista os templates de rateio de centro de custo' })
+  @ApiOperation({
+    summary: 'Lista os templates de rateio de centro de custo',
+    description:
+      'Por padrão devolve só os rateios liberados para a equipe do usuário. Admin sem equipe vê tudo. Use scope=all para ver todos.',
+  })
   ccRateios(
+    @CurrentUser() user: AuthenticatedUser,
     @Param('company') company: string,
     @Query('includeInactive') includeInactive?: string,
+    @Query('scope') scope?: 'all' | 'mine',
   ) {
     return this.integration.getCostCenterRateios(
       company,
       includeInactive !== 'true',
+      scope === 'all' ? null : user.teamId,
     );
   }
 

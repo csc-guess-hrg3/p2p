@@ -96,12 +96,43 @@ export function useAccounts(company?: string) {
   return useQuery(erpQuery<ErpAccount[]>(company, 'accounts'));
 }
 
-export function useBranchRateios(company?: string) {
-  return useQuery(erpQuery<ErpRateio[]>(company, 'branch-rateios'));
+/**
+ * Templates de rateio liberados para a equipe do usuário. O backend
+ * filtra automaticamente; passe `scope='all'` em telas administrativas
+ * que precisam ver tudo (ex.: /admin/equipes definindo a allowlist).
+ */
+export function useBranchRateios(
+  company?: string,
+  scope: 'mine' | 'all' = 'mine',
+) {
+  return useQuery({
+    queryKey: ['erp', company, 'branch-rateios', scope],
+    queryFn: async () =>
+      (
+        await api.get<ErpRateio[]>(
+          `/integration/${company}/branch-rateios${scope === 'all' ? '?scope=all' : ''}`,
+        )
+      ).data,
+    enabled: !!company,
+    staleTime: 5 * 60_000,
+  });
 }
 
-export function useCcRateios(company?: string) {
-  return useQuery(erpQuery<ErpRateio[]>(company, 'cc-rateios'));
+export function useCcRateios(
+  company?: string,
+  scope: 'mine' | 'all' = 'mine',
+) {
+  return useQuery({
+    queryKey: ['erp', company, 'cc-rateios', scope],
+    queryFn: async () =>
+      (
+        await api.get<ErpRateio[]>(
+          `/integration/${company}/cc-rateios${scope === 'all' ? '?scope=all' : ''}`,
+        )
+      ).data,
+    enabled: !!company,
+    staleTime: 5 * 60_000,
+  });
 }
 
 /** Catálogo completo de itens da empresa. */
