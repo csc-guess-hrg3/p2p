@@ -18,6 +18,7 @@ import {
 import { AuthenticatedUser } from '../auth/auth.types';
 import { LinxErpService } from '../integration/linx-erp.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ApprovalEngineService } from './approval-engine.service';
 
 interface StartApprovalParams {
   companyId: string;
@@ -49,130 +50,8 @@ export class ApprovalsService {
     private readonly prisma: PrismaService,
     private readonly linx: LinxErpService,
     private readonly notifications: NotificationsService,
+    private readonly engine: ApprovalEngineService,
   ) {}
-
-  /** Filtro Prisma para os steps do mesmo documento. */
-  private entityFilter(step: {
-    requisitionId: string | null;
-    purchaseOrderId: string | null;
-    fundRequestId: string | null;
-  }): Prisma.ApprovalStepWhereInput {
-    if (step.requisitionId) return { requisitionId: step.requisitionId };
-    if (step.purchaseOrderId)
-      return { purchaseOrderId: step.purchaseOrderId };
-    return { fundRequestId: step.fundRequestId };
-  }
-
-  /**
-   * IDs sob os quais o usuário pode aprovar: ele mesmo + os delegantes
-   * que estão com delegação ativa para ele neste momento.
-   */
-  private async getActingApproverIds(userId: string): Promise<string[]> {
-    const now = new Date();
-    const delegations = await this.prisma.delegation.findMany({
-      where: {
-        delegateId: userId,
-        active: true,
-        startsAt: { lte: now },
-        endsAt: { gte: now },
-      },
-      select: { delegatorId: true },
-    });
-    return [userId, ...delegations.map((d) => d.delegatorId)];
-  }
-
-  /**
-   * Checa se o usuário pode decidir o step — três modos:
-   *  1. Step com `assignedApproverId` fixo → user precisa ser ele (ou
-   *     delegado dele) — comportamento clássico.
-   *  2. Step sem `assignedApproverId` mas com TeamApprovalLevel.requiredPositionId →
-   *     user precisa ter aquele cargo (position).
-   *  3. Step + level com `scopeByBranch=true` → além do cargo, user precisa
-   *     estar atribuído à filial da requisição (`branch_assignments`).
-   */
-  private async userCanDecideStep(
-    userId: string,
-    step: {
-      assignedApproverId: string | null;
-      teamApprovalLevelId: string | null;
-      requisitionId: string | null;
-      purchaseOrderId: string | null;
-      fundRequestId: string | null;
-      companyId: string;
-    },
-  ): Promise<boolean> {
-    // Modo 1 — aprovador fixo + delegação
-    if (step.assignedApproverId) {
-      const ids = await this.getActingApproverIds(userId);
-      return ids.includes(step.assignedApproverId);
-    }
-    // Modos 2 e 3 — aprovador dinâmico via cargo (+ filial opcional)
-    if (!step.teamApprovalLevelId) return false;
-    const level = await this.prisma.teamApprovalLevel.findUnique({
-      where: { id: step.teamApprovalLevelId },
-      select: { requiredPositionId: true, scopeByBranch: true },
-    });
-    if (!level?.requiredPositionId) return false;
-
-    const me = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { positionId: true },
-    });
-    if (me?.positionId !== level.requiredPositionId) return false;
-
-    if (!level.scopeByBranch) return true;
-    // Resolve filial do documento e checa assignment.
-    const branchCode = await this.resolveBranchCode(step);
-    if (!branchCode) return false;
-    const assignment = await this.prisma.userBranchAssignment.findUnique({
-      where: {
-        userId_companyId_branchErpCode: {
-          userId,
-          companyId: step.companyId,
-          branchErpCode: branchCode,
-        },
-      },
-    });
-    return !!assignment;
-  }
-
-  /** Filial do documento associado ao step (req/po/sv → branchErpCode). */
-  private async resolveBranchCode(step: {
-    requisitionId: string | null;
-    purchaseOrderId: string | null;
-    fundRequestId: string | null;
-  }): Promise<string | null> {
-    if (step.requisitionId) {
-      const r = await this.prisma.requisition.findUnique({
-        where: { id: step.requisitionId },
-        select: { branchErpCode: true },
-      });
-      return r?.branchErpCode ?? null;
-    }
-    if (step.purchaseOrderId) {
-      const p = await this.prisma.purchaseOrder.findUnique({
-        where: { id: step.purchaseOrderId },
-        select: { branchErpCode: true },
-      });
-      return p?.branchErpCode ?? null;
-    }
-    // SV não tem branchErpCode direto — usa o da PO ou Requisição vinculada.
-    if (step.fundRequestId) {
-      const sv = await this.prisma.fundRequest.findUnique({
-        where: { id: step.fundRequestId },
-        select: {
-          purchaseOrder: { select: { branchErpCode: true } },
-          requisition: { select: { branchErpCode: true } },
-        },
-      });
-      return (
-        sv?.purchaseOrder?.branchErpCode ??
-        sv?.requisition?.branchErpCode ??
-        null
-      );
-    }
-    return null;
-  }
 
   /** Notifica o aprovador de um nível que há documento aguardando-o. */
   private async notifyApprover(
@@ -262,7 +141,7 @@ export class ApprovalsService {
 
   /** Lista os steps pendentes que o usuário pode decidir agora. */
   async pendingForUser(user: AuthenticatedUser) {
-    const approverIds = await this.getActingApproverIds(user.id);
+    const approverIds = await this.engine.getActingApproverIds(user.id);
 
     const steps = await this.prisma.approvalStep.findMany({
       where: {
@@ -289,7 +168,7 @@ export class ApprovalsService {
     for (const step of steps) {
       const lowerPending = await this.prisma.approvalStep.count({
         where: {
-          ...this.entityFilter(step),
+          ...this.engine.entityFilter(step),
           level: { lt: step.level },
           status: ApprovalStepStatus.PENDING,
         },
@@ -367,20 +246,20 @@ export class ApprovalsService {
     // ou (na cadeia dinâmica — Fase 1) ter o cargo + filial correspondentes
     // ao nível. Quando o step não tem assignedApproverId (aprovador dinâmico
     // ainda não resolvido), checamos position+branch.
-    const allowed = await this.userCanDecideStep(user.id, step);
+    const allowed = await this.engine.userCanDecideStep(user.id, step);
     if (!allowed) {
       throw new ForbiddenException('Você não é o aprovador desta etapa.');
     }
 
     // RN-ALC-03: o solicitante nunca aprova o próprio documento.
-    const requesterId = await this.documentRequester(step);
+    const requesterId = await this.engine.documentRequester(step);
     if (requesterId && requesterId === user.id) {
       throw new ForbiddenException(
         'Você não pode aprovar um documento que você mesmo solicitou.',
       );
     }
 
-    const filter = this.entityFilter(step);
+    const filter = this.engine.entityFilter(step);
     const lowerPending = await this.prisma.approvalStep.count({
       where: {
         ...filter,
@@ -408,9 +287,9 @@ export class ApprovalsService {
 
     if (!approved) {
       await this.updateEntityStatus(step, false, comments);
-      const rejectedRequesterId = await this.documentRequester(step);
+      const rejectedRequesterId = await this.engine.documentRequester(step);
       if (rejectedRequesterId) {
-        const docNum = await this.documentNumber(step);
+        const docNum = await this.engine.documentNumber(step);
         await this.notifications.create({
           companyId: step.companyId,
           userId: rejectedRequesterId,
@@ -451,7 +330,7 @@ export class ApprovalsService {
           next.requisitionId ??
             next.purchaseOrderId ??
             (next.fundRequestId as string),
-          await this.documentNumber(step),
+          await this.engine.documentNumber(step),
         );
       }
       await this.updateEntityCurrentLevel(step, next.level);
@@ -459,9 +338,9 @@ export class ApprovalsService {
     }
 
     await this.updateEntityStatus(step, true);
-    const approvedRequesterId = await this.documentRequester(step);
+    const approvedRequesterId = await this.engine.documentRequester(step);
     if (approvedRequesterId) {
-      const docNum = await this.documentNumber(step);
+      const docNum = await this.engine.documentNumber(step);
       await this.notifications.create({
         companyId: step.companyId,
         userId: approvedRequesterId,
@@ -503,12 +382,12 @@ export class ApprovalsService {
     if (step.status !== ApprovalStepStatus.PENDING) {
       throw new BadRequestException('Esta etapa já foi decidida.');
     }
-    const allowed = await this.userCanDecideStep(user.id, step);
+    const allowed = await this.engine.userCanDecideStep(user.id, step);
     if (!allowed) {
       throw new ForbiddenException('Você não é o aprovador desta etapa.');
     }
 
-    const filter = this.entityFilter(step);
+    const filter = this.engine.entityFilter(step);
     const now = new Date();
 
     await this.prisma.$transaction(async (tx) => {
@@ -550,9 +429,9 @@ export class ApprovalsService {
       }
     });
     // Notifica o requisitante/comprador que o doc voltou pra ajuste.
-    const requesterId = await this.documentRequester(step);
+    const requesterId = await this.engine.documentRequester(step);
     if (requesterId) {
-      const docNum = await this.documentNumber(step);
+      const docNum = await this.engine.documentNumber(step);
       await this.notifications.create({
         companyId: step.companyId,
         userId: requesterId,
@@ -566,60 +445,6 @@ export class ApprovalsService {
       });
     }
     return { result: 'REVISION' as const };
-  }
-
-  /** Solicitante/comprador do documento (para RN-ALC-03). */
-  private async documentRequester(step: {
-    requisitionId: string | null;
-    purchaseOrderId: string | null;
-    fundRequestId: string | null;
-  }): Promise<string | null> {
-    if (step.requisitionId) {
-      const r = await this.prisma.requisition.findUnique({
-        where: { id: step.requisitionId },
-        select: { requesterId: true },
-      });
-      return r?.requesterId ?? null;
-    }
-    if (step.purchaseOrderId) {
-      const p = await this.prisma.purchaseOrder.findUnique({
-        where: { id: step.purchaseOrderId },
-        select: { buyerId: true },
-      });
-      return p?.buyerId ?? null;
-    }
-    const f = await this.prisma.fundRequest.findUnique({
-      where: { id: step.fundRequestId as string },
-      select: { requesterId: true },
-    });
-    return f?.requesterId ?? null;
-  }
-
-  /** Número do documento (para mensagens de notificação). */
-  private async documentNumber(step: {
-    requisitionId: string | null;
-    purchaseOrderId: string | null;
-    fundRequestId: string | null;
-  }): Promise<string> {
-    if (step.requisitionId) {
-      const r = await this.prisma.requisition.findUnique({
-        where: { id: step.requisitionId },
-        select: { number: true },
-      });
-      return r?.number ?? '';
-    }
-    if (step.purchaseOrderId) {
-      const p = await this.prisma.purchaseOrder.findUnique({
-        where: { id: step.purchaseOrderId },
-        select: { number: true },
-      });
-      return p?.number ?? '';
-    }
-    const f = await this.prisma.fundRequest.findUnique({
-      where: { id: step.fundRequestId as string },
-      select: { number: true },
-    });
-    return f?.number ?? '';
   }
 
   /** Atualiza o nível de aprovação corrente do documento. */

@@ -43,10 +43,14 @@ describe('ApprovalsService.decide', () => {
     notifCreate = jest.fn();
     const linxStub = { markPedidoAprovado: jest.fn() } as unknown as import('../integration/linx-erp.service').LinxErpService;
     const notifStub = { create: notifCreate } as unknown as import('../notifications/notifications.service').NotificationsService;
+    const engine = new (require('./approval-engine.service').ApprovalEngineService)(
+      prisma as unknown as PrismaService,
+    );
     service = new ApprovalsService(
       prisma as unknown as PrismaService,
       linxStub,
       notifStub,
+      engine,
     );
     // Solicitante diferente do aprovador por padrão.
     prisma.requisition.findUnique.mockResolvedValue({ requesterId: 'someone-else' });
