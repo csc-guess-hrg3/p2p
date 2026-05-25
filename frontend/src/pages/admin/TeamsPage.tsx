@@ -16,6 +16,7 @@ import {
   useSetApprovalLevels,
   useTeam,
   useTeams,
+  useSetTeamModules,
   useUpdateTeam,
   type ApprovalLevelInput,
 } from '@/lib/teams';
@@ -25,6 +26,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { CurrencyInput } from '@/components/ui/currency-input';
 import { Label } from '@/components/ui/label';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import { MODULE_LABEL, type Module } from '@/components/layout/nav';
 import { useToast } from '@/components/ui/use-toast';
 import {
   Dialog,
@@ -351,6 +358,7 @@ export function TeamsPage() {
   const { data: teams = [], isLoading } = useTeams();
   const { data: usersPage } = useUsers({ status: 'ACTIVE' });
   const updateMut = useUpdateTeam();
+  const modulesMut = useSetTeamModules();
   const deactivateMut = useDeactivateTeam();
   const [levelsOpenFor, setLevelsOpenFor] = useState<string | null>(null);
 
@@ -398,6 +406,9 @@ export function TeamsPage() {
               <TableRow>
                 <TableHead>Nome</TableHead>
                 <TableHead>Níveis de aprovação</TableHead>
+                <TableHead title="Módulos extras liberados para os membros da equipe">
+                  Módulos extras
+                </TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead />
               </TableRow>
@@ -405,14 +416,14 @@ export function TeamsPage() {
             <TableBody>
               {isLoading && (
                 <TableRow>
-                  <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
                     Carregando…
                   </TableCell>
                 </TableRow>
               )}
               {!isLoading && teams.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
                     Nenhuma equipe cadastrada.
                   </TableCell>
                 </TableRow>
@@ -431,6 +442,16 @@ export function TeamsPage() {
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {(t.approvalLevels?.length ?? 0)} nível(eis)
+                  </TableCell>
+                  <TableCell>
+                    <TeamModulesCell
+                      teamId={t.id}
+                      current={(t.moduleAccess ?? []).map((m) => m.module)}
+                      onSave={(modules) =>
+                        modulesMut.mutate({ id: t.id, modules })
+                      }
+                      busy={modulesMut.isPending}
+                    />
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {t.active ? 'Ativa' : 'Inativa'}
@@ -471,5 +492,91 @@ export function TeamsPage() {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * Célula com botão "Selecionar (N)" que abre um popover com checkboxes
+ * dos módulos conhecidos. Persiste no `onSave` quando o usuário clica
+ * fora ou aperta "Aplicar".
+ */
+function TeamModulesCell({
+  current,
+  onSave,
+  busy,
+}: {
+  teamId: string;
+  current: string[];
+  onSave: (modules: string[]) => void;
+  busy: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<string[]>(current);
+  // Sincroniza quando o usuário abre o popover (poderia ter mudado fora).
+  useEffect(() => {
+    if (open) setDraft(current);
+  }, [open, current]);
+  const KEYS = Object.keys(MODULE_LABEL) as Module[];
+  function toggle(m: Module, checked: boolean) {
+    setDraft((d) => (checked ? [...d, m] : d.filter((x) => x !== m)));
+  }
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="h-8 min-w-44 justify-start">
+          {current.length === 0 ? (
+            <span className="text-muted-foreground">Nenhum</span>
+          ) : (
+            <span className="truncate">
+              {current
+                .map((m) => MODULE_LABEL[m as Module] ?? m)
+                .join(', ')}
+            </span>
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-64 p-3">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Liberar módulos
+        </p>
+        <ul className="space-y-1.5">
+          {KEYS.map((m) => (
+            <li key={m}>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={draft.includes(m)}
+                  onChange={(e) => toggle(m, e.target.checked)}
+                />
+                {MODULE_LABEL[m]}
+              </label>
+            </li>
+          ))}
+        </ul>
+        <div className="mt-3 flex justify-end gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setDraft(current);
+              setOpen(false);
+            }}
+            disabled={busy}
+          >
+            Cancelar
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              onSave(draft);
+              setOpen(false);
+            }}
+            disabled={busy}
+          >
+            Aplicar
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }

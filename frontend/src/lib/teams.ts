@@ -16,6 +16,8 @@ export interface AdminTeam {
   managerId: string | null;
   isFiscal: boolean;
   active: boolean;
+  /** Módulos extras liberados (PA, FISCAL_QUEUE, REPORTS, RECEIVING, APPROVALS). */
+  moduleAccess?: Array<{ module: string }>;
   createdAt: string;
   updatedAt: string;
   approvalLevels?: ApprovalLevel[];
@@ -56,6 +58,24 @@ export function useUpdateTeam() {
       id: string;
       patch: { name?: string; active?: boolean };
     }) => (await api.patch<AdminTeam>(`/teams/${id}`, patch)).data,
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['teams'] });
+      qc.invalidateQueries({ queryKey: ['team', data.id] });
+    },
+  });
+}
+
+export function useSetTeamModules() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      modules,
+    }: {
+      id: string;
+      modules: string[];
+    }) =>
+      (await api.put<AdminTeam>(`/teams/${id}/modules`, { modules })).data,
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['teams'] });
       qc.invalidateQueries({ queryKey: ['team', data.id] });

@@ -15,6 +15,7 @@ import { CreateTeamDto } from './dto/create-team.dto';
 import { UpdateTeamDto } from './dto/update-team.dto';
 import { SetTeamRateiosDto } from './dto/set-team-rateios.dto';
 import { SetApprovalLevelsDto } from './dto/set-approval-levels.dto';
+import { SetTeamModulesDto } from './dto/set-team-modules.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -67,6 +68,16 @@ export class TeamsController {
   @ApiOperation({ summary: 'Define os rateios de centro de custo da equipe' })
   setCcRateios(@Param('id') id: string, @Body() dto: SetTeamRateiosDto) {
     return this.teams.setCostCenterRateios(id, dto.rateios);
+  }
+
+  @Put(':id/modules')
+  @ApiOperation({
+    summary: 'Define os módulos extras liberados pra equipe',
+    description:
+      'Lista de chaves de módulo (PA, FISCAL_QUEUE, REPORTS, RECEIVING, APPROVALS). Substitui o conjunto.',
+  })
+  setModules(@Param('id') id: string, @Body() dto: SetTeamModulesDto) {
+    return this.teams.setModules(id, dto.modules);
   }
 
   @Put(':id/approval-levels')

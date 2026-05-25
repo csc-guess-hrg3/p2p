@@ -195,8 +195,24 @@ model Team {
   approvalLevels    TeamApprovalLevel[]
   requisitions      Requisition[]
   paReschedulerFor  CompanyErpConfig[] @relation("PaReschedulerTeam")
+  moduleAccess      TeamModuleAccess[]
 
   @@map("teams")
+}
+
+// Módulos extras liberados para uma equipe (além do que o perfil já vê).
+// Ex.: equipe de Compras com OPERATORs ganha o módulo PA; equipe Fiscal
+// com OPERATORs ganha FISCAL_QUEUE. Admin/Manager continuam vendo os
+// módulos restritos pelo perfil.
+model TeamModuleAccess {
+  teamId    String   @db.UniqueIdentifier
+  module    String   @db.NVarChar(40)   // PA | FISCAL_QUEUE | REPORTS | RECEIVING | APPROVALS
+  createdAt DateTime @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onUpdate: NoAction, onDelete: Cascade)
+
+  @@id([teamId, module])
+  @@map("team_module_access")
 }
 
 // ============================================================

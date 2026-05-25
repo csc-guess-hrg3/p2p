@@ -11,6 +11,20 @@ import { UpdateTeamDto } from './dto/update-team.dto';
 import { TeamRateioEntryDto } from './dto/set-team-rateios.dto';
 import { ApprovalLevelEntryDto } from './dto/set-approval-levels.dto';
 
+/**
+ * Módulos que podem ser liberados por equipe (além do que o perfil já vê).
+ * O array é tratado como allowlist no setModules — qualquer outro valor
+ * é rejeitado pra evitar lixo na tabela.
+ */
+export const KNOWN_MODULES = [
+  'PA',
+  'FISCAL_QUEUE',
+  'REPORTS',
+  'RECEIVING',
+  'APPROVALS',
+] as const;
+export type ModuleKey = (typeof KNOWN_MODULES)[number];
+
 @Injectable()
 export class TeamsService {
   constructor(
@@ -26,7 +40,10 @@ export class TeamsService {
     return this.prisma.team.findMany({
       where: { deletedAt: null },
       orderBy: { name: 'asc' },
-      include: { _count: { select: { members: true } } },
+      include: {
+        _count: { select: { members: true } },
+        moduleAccess: { select: { module: true } },
+      },
     });
   }
 
@@ -42,6 +59,7 @@ export class TeamsService {
         },
         manager: { select: { id: true, name: true } },
         members: { select: { id: true, name: true, adUsername: true } },
+        moduleAccess: { select: { module: true } },
       },
     });
     if (!team || team.deletedAt) {
@@ -71,6 +89,34 @@ export class TeamsService {
         ...(dto.active !== undefined ? { active: dto.active } : {}),
       },
     });
+  }
+
+  /**
+   * Define os módulos liberados pra equipe. Substitui o conjunto inteiro;
+   * `modules` vazio remove tudo. Valores fora de KNOWN_MODULES rejeitam.
+   */
+  async setModules(id: string, modules: string[]) {
+    await this.findOne(id);
+    const invalid = modules.filter(
+      (m) => !KNOWN_MODULES.includes(m as ModuleKey),
+    );
+    if (invalid.length > 0) {
+      throw new BadRequestException(
+        `Módulo(s) desconhecido(s): ${invalid.join(', ')}.`,
+      );
+    }
+    const unique = Array.from(new Set(modules));
+    await this.prisma.$transaction([
+      this.prisma.teamModuleAccess.deleteMany({ where: { teamId: id } }),
+      ...(unique.length > 0
+        ? [
+            this.prisma.teamModuleAccess.createMany({
+              data: unique.map((m) => ({ teamId: id, module: m })),
+            }),
+          ]
+        : []),
+    ]);
+    return this.findOne(id);
   }
 
   /** Define a cadeia de aprovação da equipe (substitui o conjunto). */

@@ -286,23 +286,29 @@ export function MyActionsCard({ companyId }: { companyId?: string }) {
   const profile = user?.profile;
   const isApprover = profile === 'ADMIN' || profile === 'MANAGER';
   const isFiscal = profile === 'ADMIN' || profile === 'REVIEWER';
+  const extras = user?.extraModules ?? [];
+  const canSeePa = isApprover || extras.includes('PA');
+  const canSeeFiscal = isFiscal || extras.includes('FISCAL_QUEUE');
+  const canSeeApprovals = isApprover || extras.includes('APPROVALS');
 
   // Cada item carrega quem pode vê-lo. Removemos antes de renderizar pra
   // não mostrar contagens que o perfil nem sequer tem como executar.
   const items = [
-    isApprover && {
+    canSeeApprovals && {
       label: 'Aprovações aguardando você',
       count: data?.approvalsPending ?? 0,
       icon: CheckSquare,
       to: '/aprovacoes',
     },
-    isApprover && {
-      label: 'Pedidos PA pra aprovar',
+    canSeePa && {
+      label: isApprover
+        ? 'Pedidos PA pra aprovar'
+        : 'Pedidos PA em andamento',
       count: data?.paPending ?? 0,
       icon: Shirt,
       to: '/pedidos-pa?status=E',
     },
-    isFiscal && {
+    canSeeFiscal && {
       label: 'Pendências fiscais',
       count: data?.fiscalPending ?? 0,
       icon: Users,

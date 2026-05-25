@@ -28,7 +28,9 @@ function Wordmark() {
 
 export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
   const { user } = useAuth();
-  const items = NAV_ITEMS.filter((i) => canSeeNav(i, user?.profile));
+  const items = NAV_ITEMS.filter((i) =>
+    canSeeNav(i, user?.profile, { extraModules: user?.extraModules }),
+  );
   return (
     <>
       {/* Backdrop só em mobile, quando drawer aberto. Clique fora fecha. */}

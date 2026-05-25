@@ -179,9 +179,23 @@ export class AuthService {
   async meWithExtras(user: AuthenticatedUser) {
     const row = await this.prisma.user.findUnique({
       where: { id: user.id },
-      select: { canSwitchEnv: true },
+      select: {
+        canSwitchEnv: true,
+        team: {
+          select: { moduleAccess: { select: { module: true } } },
+        },
+      },
     });
-    return { ...user, canSwitchEnv: row?.canSwitchEnv ?? false };
+    // Lista de módulos extras liberados via equipe do usuário. Admin
+    // gerencia em /admin/equipes. Frontend faz UNIÃO com o que o perfil
+    // já vê por padrão.
+    const extraModules =
+      row?.team?.moduleAccess.map((m) => m.module) ?? [];
+    return {
+      ...user,
+      canSwitchEnv: row?.canSwitchEnv ?? false,
+      extraModules,
+    };
   }
 
   /** Lista os usuários demo disponíveis (para o seletor do frontend). */

@@ -54,11 +54,27 @@ function App() {
                     path="requisicoes/:id/editar"
                     element={<RequisitionFormPage />}
                   />
-                  {/* Aprovações + PA — só aprovadores (Admin/Manager). */}
+                  {/* Aprovações — Admin/Manager + equipes com módulo APPROVALS. */}
                   <Route
-                    element={<RequireProfile roles={['ADMIN', 'MANAGER']} />}
+                    element={
+                      <RequireProfile
+                        roles={['ADMIN', 'MANAGER']}
+                        module="APPROVALS"
+                      />
+                    }
                   >
                     <Route path="aprovacoes" element={<ApprovalsPage />} />
+                  </Route>
+
+                  {/* PA — Admin/Manager + equipes com módulo PA (Compras). */}
+                  <Route
+                    element={
+                      <RequireProfile
+                        roles={['ADMIN', 'MANAGER']}
+                        module="PA"
+                      />
+                    }
+                  >
                     <Route path="pedidos-pa" element={<PaOrdersListPage />} />
                     <Route
                       path="pedidos-pa/:pedido"
@@ -80,11 +96,12 @@ function App() {
                     element={<FundRequestDetailPage />}
                   />
 
-                  {/* Recebimentos — Admin/Manager/Operador (Revisor não). */}
+                  {/* Recebimentos — Admin/Manager/Operador + equipes com RECEIVING. */}
                   <Route
                     element={
                       <RequireProfile
                         roles={['ADMIN', 'MANAGER', 'OPERATOR']}
+                        module="RECEIVING"
                       />
                     }
                   >
@@ -98,9 +115,14 @@ function App() {
                     />
                   </Route>
 
-                  {/* Pendências Fiscais — Admin/Revisor. */}
+                  {/* Pendências Fiscais — Admin/Revisor + equipes com FISCAL_QUEUE. */}
                   <Route
-                    element={<RequireProfile roles={['ADMIN', 'REVIEWER']} />}
+                    element={
+                      <RequireProfile
+                        roles={['ADMIN', 'REVIEWER']}
+                        module="FISCAL_QUEUE"
+                      />
+                    }
                   >
                     <Route
                       path="pendencias-fiscais"
@@ -108,11 +130,12 @@ function App() {
                     />
                   </Route>
 
-                  {/* Relatórios — Admin/Manager/Revisor (Operador não). */}
+                  {/* Relatórios — Admin/Manager/Revisor + equipes com REPORTS. */}
                   <Route
                     element={
                       <RequireProfile
                         roles={['ADMIN', 'MANAGER', 'REVIEWER']}
+                        module="REPORTS"
                       />
                     }
                   >

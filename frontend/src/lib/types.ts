@@ -11,6 +11,11 @@ export interface AuthUser {
   companyIds: string[];
   /** Admin sempre true; demais perfis dependem da flag liberada pelo Admin. */
   canSwitchEnv?: boolean;
+  /**
+   * Módulos extras liberados pela equipe do usuário — destravam itens de
+   * menu/rota que o perfil sozinho não veria. Ex.: 'PA', 'FISCAL_QUEUE'.
+   */
+  extraModules?: string[];
 }
 
 export interface Company {
