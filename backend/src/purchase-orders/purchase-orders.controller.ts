@@ -10,6 +10,9 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { PurchaseOrderHistoryService } from './purchase-order-history.service';
+import { PurchaseOrderConverterService } from './purchase-order-converter.service';
+import { PurchaseOrderEditorService } from './purchase-order-editor.service';
+import { PurchaseOrderCancellerService } from './purchase-order-canceller.service';
 import { ConvertToPurchaseOrderDto } from './dto/convert-to-po.dto';
 import { QueryPurchaseOrdersDto } from './dto/query-purchase-orders.dto';
 import { SendToSupplierDto } from './dto/send-to-supplier.dto';
@@ -28,6 +31,9 @@ export class PurchaseOrdersController {
   constructor(
     private readonly purchaseOrders: PurchaseOrdersService,
     private readonly historyService: PurchaseOrderHistoryService,
+    private readonly converter: PurchaseOrderConverterService,
+    private readonly editor: PurchaseOrderEditorService,
+    private readonly canceller: PurchaseOrderCancellerService,
   ) {}
 
   @Post()
@@ -38,7 +44,7 @@ export class PurchaseOrdersController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ConvertToPurchaseOrderDto,
   ) {
-    return this.purchaseOrders.convert(user, dto);
+    return this.converter.convert(user, dto);
   }
 
   @Get()
@@ -85,7 +91,7 @@ export class PurchaseOrdersController {
     @Param('id') id: string,
     @Body() dto: CancelPurchaseOrderDto,
   ) {
-    return this.purchaseOrders.cancel(user, id, dto.cancellationReason);
+    return this.canceller.cancel(user, id, dto.cancellationReason);
   }
 
   @Post(':id/edit')
@@ -98,7 +104,7 @@ export class PurchaseOrdersController {
     @Param('id') id: string,
     @Body() dto: EditPurchaseOrderDto,
   ) {
-    return this.purchaseOrders.edit(user, id, dto);
+    return this.editor.edit(user, id, dto);
   }
 
   @Get(':id/history')
@@ -119,7 +125,7 @@ export class PurchaseOrdersController {
     @Param('id') id: string,
     @Body() dto: CancelPurchaseOrderItemsDto,
   ) {
-    return this.purchaseOrders.cancelItems(user, id, {
+    return this.canceller.cancelItems(user, id, {
       itemIds: dto.itemIds,
       reason: dto.reason,
     });
