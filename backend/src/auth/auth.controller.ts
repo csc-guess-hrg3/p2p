@@ -13,11 +13,36 @@ import { Throttle } from '@nestjs/throttler';
 import { ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
+import { LocalAuthService, PASSWORD_POLICY } from './local-auth.service';
 import { LoginDto, RefreshDto } from './dto/login.dto';
 import { LdapAuthGuard } from './guards/ldap-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import type { AuthenticatedUser } from './auth.types';
+
+class LocalLoginDto {
+  @ApiProperty({ description: 'E-mail corporativo ou CPF (só dígitos).' })
+  @IsString()
+  @IsNotEmpty()
+  identifier!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  password!: string;
+}
+
+class SetupPasswordDto {
+  @ApiProperty({ description: 'Token recebido por e-mail.' })
+  @IsString()
+  @IsNotEmpty()
+  token!: string;
+
+  @ApiProperty({ description: PASSWORD_POLICY.description })
+  @IsString()
+  @IsNotEmpty()
+  password!: string;
+}
 
 class DemoLoginDto {
   @ApiProperty({
@@ -54,7 +79,10 @@ function cookieOptions(extra: { maxAgeMs: number }): {
 @ApiTags('Autenticação')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly localAuth: LocalAuthService,
+  ) {}
 
   /**
    * Login via Active Directory. O LdapAuthGuard autentica contra o AD;
@@ -81,6 +109,51 @@ export class AuthController {
     res.cookie('p2p_token', tokens.accessToken, cookieOptions({ maxAgeMs: 8 * 60 * 60 * 1000 })); // 8h
     res.cookie('p2p_refresh', tokens.refreshToken, cookieOptions({ maxAgeMs: 7 * 24 * 60 * 60 * 1000 })); // 7d
     return tokens;
+  }
+
+  /**
+   * Login local (usuários fora do AD — supervisores e vendedores).
+   * `identifier` aceita e-mail corporativo ou CPF (só dígitos).
+   */
+  @Post('login-local')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @ApiOperation({
+    summary: 'Login com e-mail/CPF + senha (usuários locais, fora do AD)',
+  })
+  @ApiBody({ type: LocalLoginDto })
+  async loginLocal(
+    @Body() dto: LocalLoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const userId = await this.localAuth.login(dto.identifier, dto.password);
+    const tokens = await this.authService.issueTokens(userId);
+    res.cookie(
+      'p2p_token',
+      tokens.accessToken,
+      cookieOptions({ maxAgeMs: 8 * 60 * 60 * 1000 }),
+    );
+    res.cookie(
+      'p2p_refresh',
+      tokens.refreshToken,
+      cookieOptions({ maxAgeMs: 7 * 24 * 60 * 60 * 1000 }),
+    );
+    return tokens;
+  }
+
+  /** Endpoint público: define/redefine senha a partir do token do e-mail. */
+  @Post('setup-password')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Define a senha a partir do token de e-mail' })
+  async setupPassword(@Body() dto: SetupPasswordDto) {
+    await this.localAuth.setPassword(dto.token, dto.password);
+    return { ok: true };
+  }
+
+  /** Regras de complexidade (front mostra na tela de definição). */
+  @Get('password-policy')
+  @ApiOperation({ summary: 'Regras de complexidade da senha' })
+  passwordPolicy() {
+    return PASSWORD_POLICY;
   }
 
   @Post('refresh')
