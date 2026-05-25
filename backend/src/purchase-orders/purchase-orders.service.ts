@@ -88,8 +88,26 @@ export class PurchaseOrdersService {
    * críptico depois.
    */
   private validateForConvert(
-    req: any,
-    company: any,
+    req: {
+      tipoCompra: string | null;
+      ctbTipoOperacao: number | null;
+      naturezaEntrada: string | null;
+      paymentConditionCode: string | null;
+      items: Array<{
+        itemDescription: string;
+        itemErpCode: string | null;
+        accountingAccount: string | null;
+        branchRateioCode: string | null;
+        costCenterRateioCode: string | null;
+        unit: string | null;
+        // Prisma Decimal / number / string — usamos Number() na checagem
+        quantity: { toString: () => string } | number | string;
+      }>;
+    },
+    company: {
+      code: string;
+      erpConfig: unknown | null;
+    },
     expectedDelivery: Date | null,
   ): void {
     const problems: string[] = [];

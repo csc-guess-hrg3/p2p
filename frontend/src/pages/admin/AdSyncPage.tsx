@@ -13,6 +13,7 @@ import {
   type AdTeamSuggestion,
 } from '@/lib/ad-sync';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
@@ -235,14 +236,15 @@ export function AdSyncPage() {
           ) : (
             <div className="space-y-3">
               <label className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm font-medium">
-                <input
-                  type="checkbox"
-                  checked={allTeamsChecked}
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  ref={(el: any) => {
-                    if (el) el.indeterminate = !allTeamsChecked && anyChecked;
-                  }}
-                  onChange={(e) => toggleAll(e.target.checked)}
+                <Checkbox
+                  checked={
+                    allTeamsChecked
+                      ? true
+                      : anyChecked
+                        ? 'indeterminate'
+                        : false
+                  }
+                  onCheckedChange={(v) => toggleAll(v === true)}
                 />
                 Selecionar todos
                 <span className="ml-auto text-xs font-normal text-muted-foreground">
@@ -263,10 +265,9 @@ export function AdSyncPage() {
                   <div key={key} className="rounded-lg border">
                     <div className="flex items-center gap-3 border-b px-3 py-2">
                       <label className="flex items-center gap-2 text-xs font-medium">
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           checked={allChecked}
-                          onChange={(e) => toggleTeam(t, e.target.checked)}
+                          onCheckedChange={(v) => toggleTeam(t, v === true)}
                         />
                         Selecionar equipe
                       </label>
@@ -288,11 +289,10 @@ export function AdSyncPage() {
                           key={u.login}
                           className="flex items-center gap-3 px-3 py-1.5 text-sm"
                         >
-                          <input
-                            type="checkbox"
+                          <Checkbox
                             checked={!!sel?.userLogins.has(u.login)}
-                            onChange={(e) =>
-                              toggleUser(t, u.login, e.target.checked)
+                            onCheckedChange={(v) =>
+                              toggleUser(t, u.login, v === true)
                             }
                           />
                           <span className="font-medium">{u.name}</span>

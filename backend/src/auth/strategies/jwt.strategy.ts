@@ -20,10 +20,7 @@ import { AuthenticatedUser, JwtPayload } from '../auth.types';
  * dois ambientes já que ambos compartilham o JWT_SECRET.
  */
 function fromCookie(req: Request): string | null {
-  type CookieMap = Record<string, string | undefined>;
-  const cookies = ((req as unknown as { cookies?: CookieMap }).cookies ??
-    {}) as CookieMap;
-  return cookies.p2p_token ?? null;
+  return req.cookies?.p2p_token ?? null;
 }
 
 @Injectable()

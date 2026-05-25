@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -31,6 +32,7 @@ const RECEIVABLE_PO_STATUS: string[] = [
 
 @Injectable()
 export class ReceivingService {
+  private readonly logger = new Logger(ReceivingService.name);
   constructor(
     private readonly prisma: PrismaService,
     private readonly numbering: NumberingService,
@@ -312,8 +314,12 @@ export class ReceivingService {
           });
         }
       }
-    } catch {
-      /* notificação é best-effort */
+    } catch (err) {
+      // Notificação é best-effort — falha não trava o confirm. Logamos
+      // pra que problemas reais (SMTP fora do ar, etc.) sejam visíveis.
+      this.logger.warn(
+        `Falha ao notificar do recebimento ${id}: ${(err as Error).message}`,
+      );
     }
 
     return this.findOne(user, id);

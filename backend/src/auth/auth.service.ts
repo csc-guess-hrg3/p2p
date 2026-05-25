@@ -223,7 +223,8 @@ export class AuthService {
         { secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET') },
       );
       sub = decoded.sub;
-    } catch {
+    } catch (err) {
+      this.logger.debug(`Refresh inválido: ${(err as Error).message}`);
       throw new UnauthorizedException('Refresh token inválido ou expirado.');
     }
 

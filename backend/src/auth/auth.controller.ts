@@ -165,10 +165,8 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     // Prioriza o refresh token vindo do cookie httpOnly; cai no body como fallback.
-    type CookieMap = Record<string, string | undefined>;
-    const cookies = ((req as unknown as { cookies?: CookieMap }).cookies ??
-      {}) as CookieMap;
-    const refreshToken: string | undefined = cookies.p2p_refresh ?? dto.refreshToken;
+    const refreshToken: string | undefined =
+      req.cookies?.p2p_refresh ?? dto.refreshToken;
     if (!refreshToken) {
       // Mantemos o erro consistente com o service.
       return this.authService.refresh('');

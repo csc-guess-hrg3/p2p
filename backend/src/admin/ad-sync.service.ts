@@ -224,8 +224,12 @@ export class AdSyncService {
     } finally {
       try {
         client.unbind();
-      } catch {
-        /* ignore */
+      } catch (err) {
+        // unbind falha quando a conexão já caiu — não é problema; só logamos
+        // pra diagnosticar problemas reais de rede/auth.
+        this.logger.debug(
+          `ldap.unbind ignorado: ${(err as Error).message}`,
+        );
       }
     }
   }

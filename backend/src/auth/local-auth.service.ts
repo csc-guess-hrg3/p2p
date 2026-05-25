@@ -11,7 +11,6 @@ import * as crypto from 'crypto';
 import * as nodemailer from 'nodemailer';
 import { PrismaService } from '../prisma/prisma.service';
 import { UserStatus } from '../common/enums';
-import { SecretService } from '../common/crypto/secret.service';
 
 const TOKEN_LIFETIME_HOURS = 24;
 const BCRYPT_ROUNDS = 10;
@@ -71,7 +70,6 @@ export class LocalAuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
-    private readonly secrets: SecretService,
   ) {}
 
   /**
@@ -273,6 +271,3 @@ export class LocalAuthService {
   }
 }
 
-// secrets é injetado caso futuramente precisemos descriptografar SMTP por
-// empresa (hoje usamos só SMTP global do env).
-void (LocalAuthService as unknown as { _unused?: typeof SecretService });

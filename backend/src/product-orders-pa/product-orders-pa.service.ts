@@ -715,7 +715,3 @@ export class ProductOrdersPaService {
     return { grade, rows };
   }
 }
-
-// Mantém ForbiddenException importado caso a checagem de escopo
-// (assertUserHasCompany) vire mais estrita em fases futuras.
-void ForbiddenException;

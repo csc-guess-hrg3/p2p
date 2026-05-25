@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { isAxiosError } from 'axios';
 import {
   AlertTriangle,
-  ClipboardList,
   Download,
   FileText,
   Package,
@@ -437,7 +436,3 @@ export function FiscalQueuePage() {
     </Tabs>
   );
 }
-
-// `ClipboardList` importado pra manter consistência com o resto do app
-// caso futuras seções queiram reaproveitar (ex.: anexos / auditoria fiscal).
-void ClipboardList;

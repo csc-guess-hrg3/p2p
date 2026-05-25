@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import * as fs from 'fs/promises';
@@ -36,6 +37,7 @@ type ParentKind = 'requisition' | 'purchaseOrder' | 'receiving' | 'fundRequest';
 
 @Injectable()
 export class AttachmentsService {
+  private readonly logger = new Logger(AttachmentsService.name);
   private readonly uploadRoot =
     process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
 
@@ -189,11 +191,14 @@ export class AttachmentsService {
     }
     const abs = path.join(this.uploadRoot, att.storageKey);
     await this.prisma.attachment.delete({ where: { id: attachmentId } });
-    // best-effort: se o arquivo já sumiu, ignora.
+    // best-effort: se o arquivo já sumiu, ignora — só logamos pra
+    // diagnosticar problemas de permissão/storage corrompido.
     try {
       await fs.unlink(abs);
-    } catch {
-      /* noop */
+    } catch (err) {
+      this.logger.debug(
+        `Falha ao remover ${abs}: ${(err as Error).message}`,
+      );
     }
     return { ok: true };
   }
