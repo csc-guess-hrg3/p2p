@@ -43,10 +43,14 @@ function buildService(prisma: PrismaMock) {
   const settings = {
     getNumber: jest.fn().mockResolvedValue(2), // tolerância 2%
   } as unknown as SettingsService;
+  const notifications = {
+    create: jest.fn().mockResolvedValue(undefined),
+  } as unknown as import('../notifications/notifications.service').NotificationsService;
   return new ReceivingService(
     prisma as unknown as PrismaService,
     numbering,
     settings,
+    notifications,
   );
 }
 

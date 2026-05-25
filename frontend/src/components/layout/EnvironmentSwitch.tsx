@@ -28,10 +28,11 @@ export function EnvironmentSwitch() {
   const current = getEnvironment();
   const isHml = current === 'HML';
 
-  // Apenas Admin pode alternar entre PROD e HML — usuários comuns sempre
-  // operam no ambiente de produção. Mantemos um indicador discreto quando
-  // o admin está em HML pra não esquecer (cor de aviso).
-  if (user?.profile !== 'ADMIN') return null;
+  // Admin sempre pode alternar; demais perfis só com a flag `canSwitchEnv`
+  // liberada pelo Admin (ex.: equipe de QA). Quando o switch está em HML,
+  // mostramos cor de aviso pra não esquecer.
+  const canSwitch = user?.profile === 'ADMIN' || user?.canSwitchEnv === true;
+  if (!canSwitch) return null;
 
   function change(env: AppEnv) {
     if (env === current) return;

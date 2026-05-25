@@ -80,6 +80,9 @@ export class UsersService {
         ...(dto.profile !== undefined ? { profile: dto.profile } : {}),
         ...(dto.status !== undefined ? { status: dto.status } : {}),
         ...(dto.teamId !== undefined ? { teamId: dto.teamId } : {}),
+        ...(dto.canSwitchEnv !== undefined
+          ? { canSwitchEnv: dto.canSwitchEnv }
+          : {}),
       },
     });
   }

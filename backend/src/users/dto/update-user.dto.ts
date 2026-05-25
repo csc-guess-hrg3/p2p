@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString } from 'class-validator';
 import { UserProfile, UserStatus } from '../../common/enums';
 
 export class UpdateUserDto {
@@ -24,4 +24,12 @@ export class UpdateUserDto {
   @IsOptional()
   @IsString()
   teamId?: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      'Permite ao usuário alternar PROD↔HML pela topbar. Admin sempre pode; flag aplica aos demais perfis.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  canSwitchEnv?: boolean;
 }

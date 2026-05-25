@@ -118,8 +118,10 @@ export class AuthController {
   @Get('me')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Dados do usuário autenticado' })
-  me(@CurrentUser() user: AuthenticatedUser) {
-    return user;
+  async me(@CurrentUser() user: AuthenticatedUser) {
+    // canSwitchEnv não vive no JWT (pra Admin poder revogar sem forçar
+    // re-login). Buscamos fresco em cada /auth/me.
+    return this.authService.meWithExtras(user);
   }
 
   // ───────────────────────────────────────────────────────────────

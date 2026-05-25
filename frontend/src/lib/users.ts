@@ -10,6 +10,7 @@ export interface AdminUser {
   profile: string;
   status: string;
   teamId: string | null;
+  canSwitchEnv: boolean;
   createdAt: string;
   updatedAt: string;
   companies?: Array<{
@@ -49,6 +50,7 @@ export interface UserPatch {
   profile?: string;
   status?: string;
   teamId?: string | null;
+  canSwitchEnv?: boolean;
 }
 
 export function useUpdateUser() {

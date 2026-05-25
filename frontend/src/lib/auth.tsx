@@ -65,11 +65,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     api
       .get<AuthUser>('/auth/me')
       .then((res) => {
-        // Defensivo: usuário não-admin nunca deve operar em HML. Se a
-        // chave do localStorage veio de versão anterior, força PROD e
-        // recarrega — o JWT é portável entre os dois, então a sessão
-        // sobrevive.
-        if (res.data.profile !== 'ADMIN' && getEnvironment() === 'HML') {
+        // Defensivo: usuário sem permissão de switch nunca deve operar em
+        // HML. Se o localStorage veio de versão anterior ou o Admin revogou
+        // o canSwitchEnv, força PROD e recarrega — o JWT é portável entre
+        // os dois, então a sessão sobrevive.
+        const allowed =
+          res.data.profile === 'ADMIN' || res.data.canSwitchEnv === true;
+        if (!allowed && getEnvironment() === 'HML') {
           setEnvironment('PROD');
           localStorage.removeItem('p2p_company');
           window.location.reload();

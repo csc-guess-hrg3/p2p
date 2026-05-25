@@ -13,6 +13,7 @@ import { formatDate } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/components/ui/use-toast';
 import {
   Select,
@@ -143,6 +144,9 @@ export function UsersPage() {
                 <TableHead>Perfil</TableHead>
                 <TableHead>Equipe</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead title="Habilita o seletor PROD/HML na topbar para usuários não-Admin">
+                  HML?
+                </TableHead>
                 <TableHead>Criado</TableHead>
                 <TableHead />
               </TableRow>
@@ -151,7 +155,7 @@ export function UsersPage() {
               {isLoading && (
                 <TableRow>
                   <TableCell
-                    colSpan={8}
+                    colSpan={9}
                     className="py-8 text-center text-muted-foreground"
                   >
                     Carregando…
@@ -161,7 +165,7 @@ export function UsersPage() {
               {!isLoading && rows.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={8}
+                    colSpan={9}
                     className="py-8 text-center text-muted-foreground"
                   >
                     Nenhum usuário.
@@ -230,6 +234,21 @@ export function UsersPage() {
                         ))}
                       </SelectContent>
                     </Select>
+                  </TableCell>
+                  <TableCell>
+                    {u.profile === 'ADMIN' ? (
+                      <span className="text-xs text-muted-foreground">
+                        sempre
+                      </span>
+                    ) : (
+                      <Switch
+                        checked={u.canSwitchEnv}
+                        onCheckedChange={(v) =>
+                          patchUser(u.id, { canSwitchEnv: v })
+                        }
+                        aria-label="Liberar PROD↔HML"
+                      />
+                    )}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {formatDate(u.createdAt)}

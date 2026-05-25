@@ -10,7 +10,7 @@ import { JwtService } from '@nestjs/jwt';
 import type { SignOptions } from 'jsonwebtoken';
 import { PrismaService } from '../prisma/prisma.service';
 import { UserProfile, UserStatus } from '../common/enums';
-import { JwtPayload, TokenPair } from './auth.types';
+import { AuthenticatedUser, JwtPayload, TokenPair } from './auth.types';
 import { DEMO_USERS, findDemoUser, isDemoModeEnabled } from './demo-users';
 
 /** Extrai um atributo LDAP que pode vir como string ou array. */
@@ -169,6 +169,19 @@ export class AuthService {
     });
     this.logger.log(`Login demo: ${demo.username} (${demo.profile})`);
     return user.id;
+  }
+
+  /**
+   * Devolve o usuário autenticado enriquecido com campos que NÃO vivem
+   * no JWT (ex.: `canSwitchEnv` — Admin pode revogar a qualquer momento,
+   * então tem que ser fresco a cada /auth/me).
+   */
+  async meWithExtras(user: AuthenticatedUser) {
+    const row = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: { canSwitchEnv: true },
+    });
+    return { ...user, canSwitchEnv: row?.canSwitchEnv ?? false };
   }
 
   /** Lista os usuários demo disponíveis (para o seletor do frontend). */

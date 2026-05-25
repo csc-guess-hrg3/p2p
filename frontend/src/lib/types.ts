@@ -9,6 +9,8 @@ export interface AuthUser {
   status: string;
   teamId: string | null;
   companyIds: string[];
+  /** Admin sempre true; demais perfis dependem da flag liberada pelo Admin. */
+  canSwitchEnv?: boolean;
 }
 
 export interface Company {
