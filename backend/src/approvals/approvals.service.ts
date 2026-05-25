@@ -81,6 +81,99 @@ export class ApprovalsService {
     return [userId, ...delegations.map((d) => d.delegatorId)];
   }
 
+  /**
+   * Checa se o usuário pode decidir o step — três modos:
+   *  1. Step com `assignedApproverId` fixo → user precisa ser ele (ou
+   *     delegado dele) — comportamento clássico.
+   *  2. Step sem `assignedApproverId` mas com TeamApprovalLevel.requiredPositionId →
+   *     user precisa ter aquele cargo (position).
+   *  3. Step + level com `scopeByBranch=true` → além do cargo, user precisa
+   *     estar atribuído à filial da requisição (`branch_assignments`).
+   */
+  private async userCanDecideStep(
+    userId: string,
+    step: {
+      assignedApproverId: string | null;
+      teamApprovalLevelId: string | null;
+      requisitionId: string | null;
+      purchaseOrderId: string | null;
+      fundRequestId: string | null;
+      companyId: string;
+    },
+  ): Promise<boolean> {
+    // Modo 1 — aprovador fixo + delegação
+    if (step.assignedApproverId) {
+      const ids = await this.getActingApproverIds(userId);
+      return ids.includes(step.assignedApproverId);
+    }
+    // Modos 2 e 3 — aprovador dinâmico via cargo (+ filial opcional)
+    if (!step.teamApprovalLevelId) return false;
+    const level = await this.prisma.teamApprovalLevel.findUnique({
+      where: { id: step.teamApprovalLevelId },
+      select: { requiredPositionId: true, scopeByBranch: true },
+    });
+    if (!level?.requiredPositionId) return false;
+
+    const me = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { positionId: true },
+    });
+    if (me?.positionId !== level.requiredPositionId) return false;
+
+    if (!level.scopeByBranch) return true;
+    // Resolve filial do documento e checa assignment.
+    const branchCode = await this.resolveBranchCode(step);
+    if (!branchCode) return false;
+    const assignment = await this.prisma.userBranchAssignment.findUnique({
+      where: {
+        userId_companyId_branchErpCode: {
+          userId,
+          companyId: step.companyId,
+          branchErpCode: branchCode,
+        },
+      },
+    });
+    return !!assignment;
+  }
+
+  /** Filial do documento associado ao step (req/po/sv → branchErpCode). */
+  private async resolveBranchCode(step: {
+    requisitionId: string | null;
+    purchaseOrderId: string | null;
+    fundRequestId: string | null;
+  }): Promise<string | null> {
+    if (step.requisitionId) {
+      const r = await this.prisma.requisition.findUnique({
+        where: { id: step.requisitionId },
+        select: { branchErpCode: true },
+      });
+      return r?.branchErpCode ?? null;
+    }
+    if (step.purchaseOrderId) {
+      const p = await this.prisma.purchaseOrder.findUnique({
+        where: { id: step.purchaseOrderId },
+        select: { branchErpCode: true },
+      });
+      return p?.branchErpCode ?? null;
+    }
+    // SV não tem branchErpCode direto — usa o da PO ou Requisição vinculada.
+    if (step.fundRequestId) {
+      const sv = await this.prisma.fundRequest.findUnique({
+        where: { id: step.fundRequestId },
+        select: {
+          purchaseOrder: { select: { branchErpCode: true } },
+          requisition: { select: { branchErpCode: true } },
+        },
+      });
+      return (
+        sv?.purchaseOrder?.branchErpCode ??
+        sv?.requisition?.branchErpCode ??
+        null
+      );
+    }
+    return null;
+  }
+
   /** Notifica o aprovador de um nível que há documento aguardando-o. */
   private async notifyApprover(
     approverId: string,
@@ -142,13 +235,18 @@ export class ApprovalsService {
       })),
     });
 
-    await this.notifyApprover(
-      needed[0].approverId,
-      params.companyId,
-      params.entityType,
-      entityId,
-      params.documentNumber,
-    );
+    // Notificação: quando o primeiro nível tem aprovador fixo, avisa direto.
+    // Para níveis dinâmicos (por cargo), a notificação será resolvida na
+    // próxima fase quando o engine souber quem são os candidatos.
+    if (needed[0].approverId) {
+      await this.notifyApprover(
+        needed[0].approverId,
+        params.companyId,
+        params.entityType,
+        entityId,
+        params.documentNumber,
+      );
+    }
     return needed[0].level;
   }
 
@@ -265,9 +363,12 @@ export class ApprovalsService {
       throw new BadRequestException('Esta etapa já foi decidida.');
     }
 
-    // O usuário precisa ser o aprovador do nível — direto ou por delegação.
-    const approverIds = await this.getActingApproverIds(user.id);
-    if (!approverIds.includes(step.assignedApproverId)) {
+    // O usuário precisa ser o aprovador do nível — direto, por delegação,
+    // ou (na cadeia dinâmica — Fase 1) ter o cargo + filial correspondentes
+    // ao nível. Quando o step não tem assignedApproverId (aprovador dinâmico
+    // ainda não resolvido), checamos position+branch.
+    const allowed = await this.userCanDecideStep(user.id, step);
+    if (!allowed) {
       throw new ForbiddenException('Você não é o aprovador desta etapa.');
     }
 
@@ -339,15 +440,20 @@ export class ApprovalsService {
     });
 
     if (next) {
-      await this.notifyApprover(
-        next.assignedApproverId,
-        step.companyId,
-        step.entityType,
-        next.requisitionId ??
-          next.purchaseOrderId ??
-          (next.fundRequestId as string),
-        await this.documentNumber(step),
-      );
+      // Notificação só pra aprovador fixo. Pra dinâmico (sem assignedApproverId)
+      // precisaríamos resolver os candidatos (Fase 1.5): por ora ficam só
+      // visíveis na lista do `/aprovacoes` de quem tiver perfil compatível.
+      if (next.assignedApproverId) {
+        await this.notifyApprover(
+          next.assignedApproverId,
+          step.companyId,
+          step.entityType,
+          next.requisitionId ??
+            next.purchaseOrderId ??
+            (next.fundRequestId as string),
+          await this.documentNumber(step),
+        );
+      }
       await this.updateEntityCurrentLevel(step, next.level);
       return { result: 'PENDING' as const, nextLevel: next.level };
     }
@@ -397,8 +503,8 @@ export class ApprovalsService {
     if (step.status !== ApprovalStepStatus.PENDING) {
       throw new BadRequestException('Esta etapa já foi decidida.');
     }
-    const approverIds = await this.getActingApproverIds(user.id);
-    if (!approverIds.includes(step.assignedApproverId)) {
+    const allowed = await this.userCanDecideStep(user.id, step);
+    if (!allowed) {
       throw new ForbiddenException('Você não é o aprovador desta etapa.');
     }
 
@@ -552,7 +658,7 @@ export class ApprovalsService {
       purchaseOrderId: string | null;
       fundRequestId: string | null;
       decidedById?: string | null;
-      assignedApproverId?: string;
+      assignedApproverId?: string | null;
     },
     approved: boolean,
     rejectionReason?: string,
@@ -584,8 +690,17 @@ export class ApprovalsService {
       // no Linx; agora voltamos pra 'aprovado'. Idempotente — markPedido-
       // Aprovado lida com o caso de não haver erpPedido.
       if (approved) {
+        // O decisor concreto sempre é gravado em decidedById no decide();
+        // assignedApproverId só serve como fallback no fluxo legacy fixo.
+        const deciderId =
+          step.decidedById ?? step.assignedApproverId ?? undefined;
+        if (!deciderId) {
+          throw new Error(
+            'Step sem decisor identificado — não foi possível atualizar o ERP.',
+          );
+        }
         const decider = await this.prisma.user.findUniqueOrThrow({
-          where: { id: step.decidedById ?? step.assignedApproverId },
+          where: { id: deciderId },
         });
         const po = await this.prisma.purchaseOrder.findUniqueOrThrow({
           where: { id: step.purchaseOrderId as string },

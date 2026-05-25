@@ -14,9 +14,10 @@ import { AuthenticatedUser, JwtPayload } from '../auth.types';
  *   1) Cookie httpOnly `p2p_token` — caminho preferido.
  *   2) Header `Authorization: Bearer ...` — compatibilidade com clientes legados.
  *
- * O usuário é resolvido pelo `adUsername` (login de rede), que é estável
- * entre ambientes — assim o mesmo token vale em Produção e Homologação,
- * já que ambos compartilham o JWT_SECRET.
+ * O usuário é resolvido pelo `sub` (id) do JWT. AdUsername não serve mais
+ * como chave porque usuários LOCAL (supervisores, vendedores) não têm.
+ * O `sub` é estável entre PROD e HML (UUID), então o mesmo token vale nos
+ * dois ambientes já que ambos compartilham o JWT_SECRET.
  */
 function fromCookie(req: Request): string | null {
   type CookieMap = Record<string, string | undefined>;
@@ -43,7 +44,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
 
   async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
     const user = await this.prisma.user.findUnique({
-      where: { adUsername: payload.adUsername },
+      where: { id: payload.sub },
       include: { companies: true },
     });
 

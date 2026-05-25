@@ -65,6 +65,7 @@ model Company {
   settings              SystemSetting[]
   fiscalItemRequests    FiscalItemRequest[]
   erpConfig             CompanyErpConfig?
+  branchAssignments     UserBranchAssignment[]
 
   @@map("companies")
 }
@@ -222,19 +223,84 @@ model TeamModuleAccess {
 // aprovador e uma alçada (maxAmount). Cadeia vazia = auto-aprovado.
 // ============================================================
 
+/**
+ * Cargos (positions) gerenciados pelo Admin — usados pela cadeia de
+ * aprovação dinâmica (TeamApprovalLevel.requiredPositionId).
+ */
+model Position {
+  id        String    @id @default(uuid()) @db.UniqueIdentifier
+  code      String    @unique @db.NVarChar(40)  // SUPERVISOR | DIRETOR | etc
+  name      String    @db.NVarChar(150)
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  users          User[]
+  approvalLevels TeamApprovalLevel[]
+
+  @@map("positions")
+}
+
+/**
+ * Atribuição N:N de usuário a filiais. Usado pela cadeia de aprovação
+ * com escopo por filial (ex.: "Supervisor da filial 0102"). O cargo
+ * vem do User.positionId — esta tabela só amarra pessoa↔filial.
+ */
+model UserBranchAssignment {
+  userId        String   @db.UniqueIdentifier
+  companyId     String   @db.UniqueIdentifier
+  branchErpCode String   @db.NVarChar(20)
+  createdAt     DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onUpdate: NoAction, onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@id([userId, companyId, branchErpCode])
+  @@map("user_branch_assignments")
+}
+
+/**
+ * Token de definição/recuperação de senha (envio por e-mail).
+ * `tokenHash` é SHA-256 do token enviado — o token bruto só existe no link.
+ * Usado UMA VEZ — após consumo, marcamos usedAt.
+ */
+model PasswordSetupToken {
+  id        String   @id @default(uuid()) @db.UniqueIdentifier
+  userId    String   @db.UniqueIdentifier
+  tokenHash String   @unique @db.NVarChar(64)
+  purpose   String   @db.NVarChar(20)  // 'SETUP' | 'RESET'
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onUpdate: NoAction, onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_setup_tokens")
+}
+
 model TeamApprovalLevel {
   id         String   @id @default(uuid()) @db.UniqueIdentifier
   teamId     String   @db.UniqueIdentifier
   level      Int                            // 1 = primeiro a aprovar
   name       String   @db.NVarChar(50)      // Coordenador | Gestor | Diretor...
-  approverId String   @db.UniqueIdentifier
+  // Modos de aprovação (mutuamente exclusivos — UI valida):
+  //   1) approverId preenchido           → pessoa fixa
+  //   2) requiredPositionId, scopeByBranch=false → qualquer usuário com aquele cargo
+  //   3) requiredPositionId, scopeByBranch=true  → qualquer usuário com aquele
+  //      cargo atribuído à filial da requisição
+  approverId         String?  @db.UniqueIdentifier
+  requiredPositionId String?  @db.UniqueIdentifier
+  scopeByBranch      Boolean  @default(false)
   maxAmount  Decimal? @db.Decimal(15, 2)    // alçada do nível (null = sem limite)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  team          Team           @relation(fields: [teamId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  approver      User           @relation("levelApprover", fields: [approverId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  approvalSteps ApprovalStep[]
+  team             Team           @relation(fields: [teamId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  approver         User?          @relation("levelApprover", fields: [approverId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  requiredPosition Position?      @relation(fields: [requiredPositionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  approvalSteps    ApprovalStep[]
 
   @@unique([teamId, level])
   @@map("team_approval_levels")
@@ -274,7 +340,9 @@ model TeamCostCenterRateio {
 
 model User {
   id            String    @id @default(uuid()) @db.UniqueIdentifier
-  adUsername    String    @unique @db.NVarChar(255)  // login do AD (sAMAccountName) — chave do usuário
+  // Login AD (sAMAccountName) — opcional pra suportar usuários locais
+  // (supervisores e vendedores que não estão no AD).
+  adUsername    String?   @unique @db.NVarChar(255)
   email         String    @unique @db.NVarChar(255)  // corporativo, obrigatório (RN-USR-01); sincronizado do AD
   name          String    @db.NVarChar(255)
   profile       String    @db.NVarChar(20)
@@ -283,6 +351,15 @@ model User {
   // Permissão de alternar entre PROD e HML pela topbar. Admin sempre tem.
   // Para usuários não-admin, o Admin libera caso a caso (ex.: equipe de QA).
   canSwitchEnv  Boolean   @default(false)
+  // Auth local — para usuários fora do AD (supervisores via link de e-mail,
+  // vendedores via CPF). passwordHash é bcrypt; passwordSetAt marca quando
+  // foi definida (null = ainda não definiu).
+  loginType     String    @default("AD") @db.NVarChar(10) // 'AD' | 'LOCAL'
+  cpf           String?   @unique @db.NVarChar(11)        // só dígitos
+  passwordHash  String?   @db.NVarChar(255)
+  passwordSetAt DateTime?
+  // Cargo (Position) — usado pela cadeia de aprovação dinâmica.
+  positionId    String?   @db.UniqueIdentifier
   lastLoginAt   DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -306,6 +383,9 @@ model User {
   fiscalResolutions   FiscalItemRequest[] @relation("fiscalResolver")
   paApproverFor       CompanyErpConfig[] @relation("PaApprover")
   paDeliveryChanges   PaDeliveryChange[] @relation("PaDeliveryChangeUser")
+  position            Position?          @relation(fields: [positionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  branchAssignments   UserBranchAssignment[]
+  passwordTokens      PasswordSetupToken[]
 
   @@map("users")
 }
@@ -704,7 +784,10 @@ model ApprovalStep {
   teamApprovalLevelId String?   @db.UniqueIdentifier  // nível de origem (rastreio)
   level               Int
   levelName           String    @db.NVarChar(50)      // snapshot do nome do nível
-  assignedApproverId  String    @db.UniqueIdentifier  // quem deve aprovar
+  // Nullable: quando o nível tem aprovador dinâmico por cargo (ex.: "qualquer
+  // Supervisor da filial X"), o step não pré-associa uma pessoa. Decide em
+  // runtime quem pode decidir, baseado no User.positionId + UserBranchAssignment.
+  assignedApproverId  String?   @db.UniqueIdentifier
   decidedById         String?   @db.UniqueIdentifier  // quem de fato decidiu (aprovador ou delegado)
   status              String    @default("PENDING") @db.NVarChar(10)
   decidedAt           DateTime?
@@ -716,7 +799,7 @@ model ApprovalStep {
   purchaseOrder     PurchaseOrder?     @relation(fields: [purchaseOrderId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   fundRequest       FundRequest?       @relation(fields: [fundRequestId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   teamApprovalLevel TeamApprovalLevel? @relation(fields: [teamApprovalLevelId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  assignedApprover  User               @relation("stepApprover", fields: [assignedApproverId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  assignedApprover  User?              @relation("stepApprover", fields: [assignedApproverId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   decidedBy         User?              @relation("stepDecider", fields: [decidedById], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
   @@index([requisitionId, level])
