@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PurchaseOrdersService } from './purchase-orders.service';
+import { PurchaseOrderHistoryService } from './purchase-order-history.service';
 import { ConvertToPurchaseOrderDto } from './dto/convert-to-po.dto';
 import { QueryPurchaseOrdersDto } from './dto/query-purchase-orders.dto';
 import { SendToSupplierDto } from './dto/send-to-supplier.dto';
@@ -24,7 +25,10 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 @UseGuards(JwtAuthGuard)
 @Controller('purchase-orders')
 export class PurchaseOrdersController {
-  constructor(private readonly purchaseOrders: PurchaseOrdersService) {}
+  constructor(
+    private readonly purchaseOrders: PurchaseOrdersService,
+    private readonly historyService: PurchaseOrderHistoryService,
+  ) {}
 
   @Post()
   @ApiOperation({
@@ -103,7 +107,7 @@ export class PurchaseOrdersController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
   ) {
-    return this.purchaseOrders.history(user, id);
+    return this.historyService.getEvents(user, id);
   }
 
   @Post(':id/cancel-items')
