@@ -34,6 +34,7 @@ interface AuthContextValue {
   sessionExpired: boolean;
   acknowledgeSessionExpired: () => void;
   login: (username: string, password: string) => Promise<void>;
+  loginLocal: (identifier: string, password: string) => Promise<void>;
   loginDemo: (username: string) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -104,6 +105,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   /**
+   * Login local — para usuários fora do AD (supervisores, vendedores).
+   * `identifier` aceita e-mail corporativo ou CPF (só dígitos). O backend
+   * decide pelo formato e devolve o mesmo par de tokens do login AD.
+   */
+  const loginLocal = useCallback(
+    async (identifier: string, password: string) => {
+      queryClient.clear();
+      setEnvironment('PROD');
+      localStorage.removeItem('p2p_company');
+      const { data } = await api.post<{
+        accessToken: string;
+        refreshToken: string;
+      }>('/auth/login-local', { identifier, password });
+      setToken(data.accessToken);
+      localStorage.setItem(REFRESH_KEY, data.refreshToken);
+      const me = await api.get<AuthUser>('/auth/me');
+      setUser(me.data);
+      setSessionExpired(false);
+    },
+    [],
+  );
+
+  /**
    * Login do Modo Demonstração — 100% local. Ativa o flag de demo (que
    * faz o axios adapter interceptar todas as chamadas e devolver dados
    * mockados de localStorage). Não envia request real ao backend.
@@ -156,6 +180,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         sessionExpired,
         acknowledgeSessionExpired,
         login,
+        loginLocal,
         loginDemo,
         logout,
       }}

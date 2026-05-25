@@ -5,8 +5,20 @@ export interface ApprovalLevel {
   id?: string;
   level: number;
   name: string;
-  approverId: string;
-  approver?: { id: string; name: string };
+  /**
+   * Modo 1: aprovador fixo (uma pessoa). Mutuamente exclusivo com
+   * requiredPositionId.
+   */
+  approverId: string | null;
+  approver?: { id: string; name: string } | null;
+  /**
+   * Modo 2: aprovador por cargo. Qualquer usuário com este cargo aprova
+   * (scopeByBranch=false), ou aquele cargo + atribuído à filial da
+   * requisição (scopeByBranch=true).
+   */
+  requiredPositionId?: string | null;
+  requiredPosition?: { id: string; code: string; name: string } | null;
+  scopeByBranch?: boolean;
   maxAmount: string | number | null;
 }
 
@@ -90,7 +102,11 @@ export function useSetTeamModules() {
 export interface ApprovalLevelInput {
   level: number;
   name: string;
-  approverId: string;
+  /** Modo fixo. Mutuamente exclusivo com requiredPositionId. */
+  approverId?: string | null;
+  /** Modo dinâmico. */
+  requiredPositionId?: string | null;
+  scopeByBranch?: boolean;
   maxAmount?: number | null;
 }
 

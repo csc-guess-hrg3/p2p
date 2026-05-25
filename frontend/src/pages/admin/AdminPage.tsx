@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import {
+  BadgeCheck,
   Building2,
   ChevronRight,
   Repeat,
@@ -88,6 +89,12 @@ export function AdminPage() {
           icon={Repeat}
           title="Delegações"
           description="Delegar a própria alçada para outra pessoa por um período (férias, ausência)."
+        />
+        <AdminCard
+          to="/admin/cargos"
+          icon={BadgeCheck}
+          title="Cargos"
+          description="Cargos atribuídos a usuários, referenciados pela cadeia de aprovação dinâmica (ex.: Supervisor de filial)."
         />
         <AdminCard
           to="/admin/ad-sync"

@@ -11,6 +11,14 @@ export interface AdminUser {
   status: string;
   teamId: string | null;
   canSwitchEnv: boolean;
+  loginType?: 'AD' | 'LOCAL';
+  cpf?: string | null;
+  positionId?: string | null;
+  position?: { id: string; code: string; name: string } | null;
+  branchAssignments?: Array<{
+    companyId: string;
+    branchErpCode: string;
+  }>;
   createdAt: string;
   updatedAt: string;
   companies?: Array<{
@@ -51,6 +59,59 @@ export interface UserPatch {
   status?: string;
   teamId?: string | null;
   canSwitchEnv?: boolean;
+  positionId?: string | null;
+}
+
+/** Cadastro de usuário LOCAL (fora do AD) — supervisor/manual. */
+export interface CreateLocalUserInput {
+  name: string;
+  email: string;
+  profile: string;
+  positionId?: string | null;
+  companyIds: string[];
+}
+
+export function useCreateLocalUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (dto: CreateLocalUserInput) =>
+      (await api.post<{ id: string }>('/users/local', dto)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  });
+}
+
+export function useResendSetupLink() {
+  return useMutation({
+    mutationFn: async (id: string) =>
+      (await api.post(`/users/${id}/resend-setup-link`)).data,
+  });
+}
+
+export interface BranchAssignmentInput {
+  companyId: string;
+  branchErpCode: string;
+}
+
+export function useSetBranchAssignments() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      assignments,
+    }: {
+      id: string;
+      assignments: BranchAssignmentInput[];
+    }) =>
+      (
+        await api.put<AdminUser>(`/users/${id}/branch-assignments`, {
+          assignments,
+        })
+      ).data,
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['users'] });
+      qc.invalidateQueries({ queryKey: ['user', data.id] });
+    },
+  });
 }
 
 export function useUpdateUser() {

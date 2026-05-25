@@ -1,14 +1,26 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { isAxiosError } from 'axios';
-import { ArrowLeft, Building2, Search, UserX } from 'lucide-react';
+import {
+  ArrowLeft,
+  Building2,
+  Mail,
+  MapPin,
+  Plus,
+  Search,
+  UserX,
+} from 'lucide-react';
 import { UserCompaniesDialog } from './UserCompaniesDialog';
+import { AddLocalUserDialog } from './AddLocalUserDialog';
+import { UserBranchAssignmentsDialog } from './UserBranchAssignmentsDialog';
 import {
   useUsers,
   useUpdateUser,
   useDeactivateUser,
+  useResendSetupLink,
   type AdminUser,
 } from '@/lib/users';
+import { usePositions } from '@/lib/positions';
 import { useTeams } from '@/lib/teams';
 import { formatDate } from '@/lib/format';
 import { Button } from '@/components/ui/button';
@@ -55,14 +67,18 @@ export function UsersPage() {
   const [status, setStatus] = useState('ALL');
   const [search, setSearch] = useState('');
   const [companiesFor, setCompaniesFor] = useState<AdminUser | null>(null);
+  const [branchesFor, setBranchesFor] = useState<AdminUser | null>(null);
+  const [addLocalOpen, setAddLocalOpen] = useState(false);
 
   const { data, isLoading } = useUsers({
     status: status === 'ALL' ? undefined : status,
     search: search || undefined,
   });
   const { data: teams = [] } = useTeams();
+  const { data: positions = [] } = usePositions();
   const updateMut = useUpdateUser();
   const deactivateMut = useDeactivateUser();
+  const resendMut = useResendSetupLink();
 
   const rows = data?.data ?? [];
 
@@ -109,11 +125,15 @@ export function UsersPage() {
       </Button>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between gap-2">
           <CardTitle>Usuários</CardTitle>
+          <Button size="sm" onClick={() => setAddLocalOpen(true)}>
+            <Plus className="size-4" />
+            Adicionar usuário local
+          </Button>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row">
             <div className="relative max-w-sm flex-1">
               <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
               <Input
@@ -124,7 +144,7 @@ export function UsersPage() {
               />
             </div>
             <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger className="w-56">
+              <SelectTrigger className="w-full sm:w-56">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -145,6 +165,7 @@ export function UsersPage() {
                 <TableHead>E-mail</TableHead>
                 <TableHead>Perfil</TableHead>
                 <TableHead>Equipe</TableHead>
+                <TableHead>Cargo</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead title="Habilita o seletor PROD/HML na topbar para usuários não-Admin">
                   HML
@@ -157,7 +178,7 @@ export function UsersPage() {
               {isLoading && (
                 <TableRow>
                   <TableCell
-                    colSpan={9}
+                    colSpan={10}
                     className="py-8 text-center text-muted-foreground"
                   >
                     Carregando…
@@ -167,7 +188,7 @@ export function UsersPage() {
               {!isLoading && rows.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={9}
+                    colSpan={10}
                     className="py-8 text-center text-muted-foreground"
                   >
                     Nenhum usuário.
@@ -222,6 +243,30 @@ export function UsersPage() {
                   </TableCell>
                   <TableCell>
                     <Select
+                      value={u.positionId ?? '__NONE__'}
+                      onValueChange={(v) =>
+                        patchUser(u.id, {
+                          positionId: v === '__NONE__' ? null : v,
+                        })
+                      }
+                    >
+                      <SelectTrigger className="h-8 w-44">
+                        <SelectValue placeholder="—" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__NONE__">— Sem cargo —</SelectItem>
+                        {positions
+                          .filter((p) => p.active)
+                          .map((p) => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.name}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                  <TableCell>
+                    <Select
                       value={u.status}
                       onValueChange={(v) => patchUser(u.id, { status: v })}
                     >
@@ -268,6 +313,39 @@ export function UsersPage() {
                       <Button
                         size="sm"
                         variant="ghost"
+                        onClick={() => setBranchesFor(u)}
+                        title="Filiais que o usuário cobre"
+                      >
+                        <MapPin className="size-4" />
+                      </Button>
+                      {u.loginType === 'LOCAL' && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={async () => {
+                            try {
+                              await resendMut.mutateAsync(u.id);
+                              toast({
+                                title: 'Link reenviado',
+                                description: `Verifique a caixa de entrada de ${u.email}.`,
+                                variant: 'success',
+                              });
+                            } catch {
+                              toast({
+                                title: 'Falha ao reenviar',
+                                variant: 'destructive',
+                              });
+                            }
+                          }}
+                          disabled={resendMut.isPending}
+                          title="Reenviar link de definição/recuperação de senha"
+                        >
+                          <Mail className="size-4" />
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
                         onClick={() => deactivate(u)}
                         title="Desativar"
                       >
@@ -294,6 +372,17 @@ export function UsersPage() {
           onOpenChange={(v) => !v && setCompaniesFor(null)}
         />
       )}
+      {branchesFor && (
+        <UserBranchAssignmentsDialog
+          user={branchesFor}
+          open={!!branchesFor}
+          onOpenChange={(v) => !v && setBranchesFor(null)}
+        />
+      )}
+      <AddLocalUserDialog
+        open={addLocalOpen}
+        onOpenChange={setAddLocalOpen}
+      />
     </div>
   );
 }

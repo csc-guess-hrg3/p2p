@@ -27,6 +27,8 @@ import { UsersPage } from '@/pages/admin/UsersPage';
 import { TeamsPage } from '@/pages/admin/TeamsPage';
 import { DelegationsPage } from '@/pages/admin/DelegationsPage';
 import { AdSyncPage } from '@/pages/admin/AdSyncPage';
+import { PositionsPage } from '@/pages/admin/PositionsPage';
+import { SetupPasswordPage } from '@/pages/SetupPasswordPage';
 import { Toaster } from '@/components/ui/toaster';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
@@ -38,6 +40,7 @@ function App() {
           <CompanyProvider>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
+              <Route path="/definir-senha" element={<SetupPasswordPage />} />
               <Route element={<RequireAuth />}>
                 <Route element={<AppLayout />}>
                   <Route index element={<DashboardPage />} />
@@ -157,6 +160,7 @@ function App() {
                       element={<DelegationsPage />}
                     />
                     <Route path="admin/ad-sync" element={<AdSyncPage />} />
+                    <Route path="admin/cargos" element={<PositionsPage />} />
                   </Route>
                 </Route>
               </Route>

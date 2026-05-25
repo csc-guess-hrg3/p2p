@@ -23,6 +23,7 @@ import {
   type ApprovalLevelInput,
 } from '@/lib/teams';
 import { useUsers, type AdminUser } from '@/lib/users';
+import { usePositions } from '@/lib/positions';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -131,6 +132,8 @@ function ApprovalLevelsDialog({
   const setLevelsMut = useSetApprovalLevels();
   const [levels, setLevels] = useState<ApprovalLevelInput[]>([]);
 
+  const { data: positions = [] } = usePositions();
+
   useEffect(() => {
     if (!team?.approvalLevels) return;
     setLevels(
@@ -140,7 +143,9 @@ function ApprovalLevelsDialog({
         .map((l) => ({
           level: l.level,
           name: l.name,
-          approverId: l.approverId,
+          approverId: l.approverId ?? null,
+          requiredPositionId: l.requiredPositionId ?? null,
+          scopeByBranch: l.scopeByBranch ?? false,
           maxAmount: l.maxAmount != null ? Number(l.maxAmount) : null,
         })),
     );
@@ -148,11 +153,18 @@ function ApprovalLevelsDialog({
 
   function addLevel() {
     const next = levels.length + 1;
-    // Sem prefixo "Nível N" — o número aparece numa coluna separada; o
-    // nome é livre (Coordenador, Gestor, Diretor…), placeholder ajuda.
+    // Default: aprovador fixo (modo clássico). Admin troca pra "por cargo"
+    // pelo radio.
     setLevels((p) => [
       ...p,
-      { level: next, name: '', approverId: '', maxAmount: null },
+      {
+        level: next,
+        name: '',
+        approverId: null,
+        requiredPositionId: null,
+        scopeByBranch: false,
+        maxAmount: null,
+      },
     ]);
   }
   function removeLevel(idx: number) {
@@ -203,10 +215,18 @@ function ApprovalLevelsDialog({
   const [dragFrom, setDragFrom] = useState<number | null>(null);
 
   async function save() {
-    if (levels.some((l) => !l.approverId || !l.name)) {
+    // Cada nível precisa de nome + um aprovador (fixo OU por cargo).
+    const missing = levels.some((l) => {
+      if (!l.name) return true;
+      const hasFixed = !!l.approverId;
+      const hasPos = !!l.requiredPositionId;
+      return hasFixed === hasPos; // nenhum ou os dois → inválido
+    });
+    if (missing) {
       toast({
         title: 'Campos obrigatórios',
-        description: 'Cada nível precisa de nome e aprovador.',
+        description:
+          'Cada nível precisa de nome + aprovador fixo ou por cargo (não ambos).',
         variant: 'destructive',
       });
       return;
@@ -290,23 +310,83 @@ function ApprovalLevelsDialog({
                 </div>
                 <div className="col-span-5 space-y-1.5">
                   <Label className="text-xs">Aprovador</Label>
-                  <Select
-                    value={l.approverId}
-                    onValueChange={(v) =>
-                      patchLevel(idx, { approverId: v })
-                    }
-                  >
-                    <SelectTrigger className="h-9">
-                      <SelectValue placeholder="Selecione" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {approvers.map((a) => (
-                        <SelectItem key={a.id} value={a.id}>
-                          {a.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex gap-2">
+                    <Select
+                      value={l.requiredPositionId ? 'POSITION' : 'FIXED'}
+                      onValueChange={(v) =>
+                        // Troca de modo: limpa o outro campo pra
+                        // garantir mutua exclusividade.
+                        patchLevel(idx, {
+                          approverId: v === 'POSITION' ? null : l.approverId,
+                          requiredPositionId:
+                            v === 'POSITION' ? l.requiredPositionId : null,
+                          scopeByBranch:
+                            v === 'POSITION' ? l.scopeByBranch : false,
+                        })
+                      }
+                    >
+                      <SelectTrigger className="h-9 w-32 shrink-0">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="FIXED">Pessoa</SelectItem>
+                        <SelectItem value="POSITION">Por cargo</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {l.requiredPositionId !== undefined &&
+                    l.requiredPositionId !== null ? (
+                      <Select
+                        value={l.requiredPositionId ?? ''}
+                        onValueChange={(v) =>
+                          patchLevel(idx, { requiredPositionId: v })
+                        }
+                      >
+                        <SelectTrigger className="h-9 flex-1">
+                          <SelectValue placeholder="Selecione o cargo" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {positions
+                            .filter((p) => p.active)
+                            .map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                {p.name}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Select
+                        value={l.approverId ?? ''}
+                        onValueChange={(v) =>
+                          patchLevel(idx, { approverId: v })
+                        }
+                      >
+                        <SelectTrigger className="h-9 flex-1">
+                          <SelectValue placeholder="Selecione a pessoa" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {approvers.map((a) => (
+                            <SelectItem key={a.id} value={a.id}>
+                              {a.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                  {l.requiredPositionId !== undefined &&
+                    l.requiredPositionId !== null && (
+                      <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <input
+                          type="checkbox"
+                          checked={!!l.scopeByBranch}
+                          onChange={(e) =>
+                            patchLevel(idx, { scopeByBranch: e.target.checked })
+                          }
+                        />
+                        Filtrar pela filial da requisição
+                      </label>
+                    )}
                 </div>
                 <div className="col-span-2 space-y-1.5">
                   <Label className="text-xs">Alçada</Label>

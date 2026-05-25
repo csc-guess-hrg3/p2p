@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { isAxiosError } from 'axios';
 import { Sparkles, RotateCcw } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
@@ -12,20 +12,34 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
 
+/**
+ * Reconhece o formato do identificador para decidir entre login AD e
+ * login local. Convenções:
+ *  - 11 dígitos → CPF (login local)
+ *  - contém @  → e-mail (login local)
+ *  - resto     → usuário de rede (AD)
+ */
+function detectLoginType(identifier: string): 'AD' | 'LOCAL' {
+  const v = identifier.trim();
+  if (v.includes('@')) return 'LOCAL';
+  if (/^\d{11}$/.test(v.replace(/\D/g, ''))) return 'LOCAL';
+  return 'AD';
+}
+
 export function LoginPage() {
-  const { user, loading, login, loginDemo } = useAuth();
+  const { user, loading, login, loginLocal, loginDemo } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [username, setUsername] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [showDemo, setShowDemo] = useState(false);
   const [demoSubmitting, setDemoSubmitting] = useState<string | null>(null);
 
-  // Tela de login sempre opera em PROD — limpa qualquer leftover de HML
-  // de sessão anterior (admin logado em HML e que fez logout, por exemplo).
-  // Mantém a empresa ativa zerada também, pra re-selecionar pelo /auth/me.
+  // Tela de login sempre opera em PROD — limpa leftover de HML de sessão
+  // anterior. Mantém a empresa ativa zerada também, pra re-selecionar
+  // pelo /auth/me.
   useEffect(() => {
     if (getEnvironment() !== 'PROD') {
       setEnvironment('PROD');
@@ -42,7 +56,16 @@ export function LoginPage() {
     setError(null);
     setSubmitting(true);
     try {
-      await login(username.trim(), password);
+      const type = detectLoginType(identifier);
+      if (type === 'LOCAL') {
+        // CPF: normaliza para só dígitos antes de enviar.
+        const id = identifier.includes('@')
+          ? identifier.trim().toLowerCase()
+          : identifier.replace(/\D/g, '');
+        await loginLocal(id, password);
+      } else {
+        await login(identifier.trim(), password);
+      }
       navigate('/', { replace: true });
     } catch (err) {
       if (isAxiosError(err) && err.response?.status === 401) {
@@ -97,19 +120,31 @@ export function LoginPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="username">Usuário de rede</Label>
+              <Label htmlFor="identifier">Usuário</Label>
               <Input
-                id="username"
+                id="identifier"
                 autoFocus
                 autoComplete="username"
-                placeholder="usuario"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                placeholder="usuário, e-mail ou CPF"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
                 required
               />
+              <p className="text-[11px] text-muted-foreground">
+                Usuários de rede (AD) entram com o login corporativo;
+                supervisores entram com o e-mail; vendedores entram com CPF.
+              </p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Senha</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Senha</Label>
+                <Link
+                  to="/definir-senha"
+                  className="text-xs text-muted-foreground hover:text-primary"
+                >
+                  Tem um link de definição?
+                </Link>
+              </div>
               <Input
                 id="password"
                 type="password"
