@@ -1,9 +1,9 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { isAxiosError } from 'axios';
 import { Sparkles, RotateCcw } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
-import { getEnvironment } from '@/lib/api';
+import { getEnvironment, setEnvironment } from '@/lib/api';
 import { DEMO_USERS, PROFILE_LABELS } from '@/lib/demo/catalog';
 import { resetDemoState } from '@/lib/demo/state';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,16 @@ export function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const [showDemo, setShowDemo] = useState(false);
   const [demoSubmitting, setDemoSubmitting] = useState<string | null>(null);
+
+  // Tela de login sempre opera em PROD — limpa qualquer leftover de HML
+  // de sessão anterior (admin logado em HML e que fez logout, por exemplo).
+  // Mantém a empresa ativa zerada também, pra re-selecionar pelo /auth/me.
+  useEffect(() => {
+    if (getEnvironment() !== 'PROD') {
+      setEnvironment('PROD');
+      localStorage.removeItem('p2p_company');
+    }
+  }, []);
 
   if (!loading && user) {
     return <Navigate to="/" replace />;
@@ -83,11 +93,6 @@ export function LoginPage() {
             </span>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">Procure-to-Pay</p>
-          {getEnvironment() === 'HML' && (
-            <span className="mt-2 rounded-full border border-amber-500/40 bg-amber-100/60 px-3 py-0.5 text-xs font-semibold uppercase tracking-wide text-amber-900">
-              Homologação
-            </span>
-          )}
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
