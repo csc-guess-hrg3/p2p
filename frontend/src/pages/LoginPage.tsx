@@ -1,14 +1,13 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { isAxiosError } from 'axios';
-import { RotateCcw, Sparkles, Store } from 'lucide-react';
+import { RotateCcw, Sparkles, Store, UserRound } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { getEnvironment, setEnvironment } from '@/lib/api';
 import { storeLookup, type StoreLookupResult } from '@/lib/store-auth';
 import { DEMO_USERS, PROFILE_LABELS } from '@/lib/demo/catalog';
 import { resetDemoState } from '@/lib/demo/state';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -66,17 +65,48 @@ export function LoginPage() {
             </span>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">Procure-to-Pay</p>
-          {storeMode && (
-            <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-              <Store className="size-3" />
-              Acesso de loja
-            </span>
-          )}
         </CardHeader>
         <CardContent>
+          {/* Segmented control entre os dois modos de login. Padrão
+              segmented (estilo iOS/Tailwind): mais visível e óbvio que
+              um checkbox solto. */}
+          <div
+            role="tablist"
+            aria-label="Modo de login"
+            className="mb-4 grid grid-cols-2 gap-1 rounded-lg bg-muted p-1"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={!storeMode}
+              onClick={() => setStoreMode(false)}
+              className={`flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition ${
+                !storeMode
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <UserRound className="size-4" />
+              Funcionário
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={storeMode}
+              onClick={() => setStoreMode(true)}
+              className={`flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition ${
+                storeMode
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Store className="size-4" />
+              Loja
+            </button>
+          </div>
+
           {storeMode ? (
             <StoreLoginForm
-              onBack={() => setStoreMode(false)}
               onLogin={(cpf, pw, isSetup) =>
                 loginStore(cpf, pw, { isSetup }).then(() =>
                   navigate('/', { replace: true }),
@@ -101,17 +131,6 @@ export function LoginPage() {
               }}
             />
           )}
-
-          {/* Toggle "Acesso de loja" */}
-          <div className="mt-4 flex items-center justify-center border-t pt-4">
-            <label className="flex cursor-pointer items-center gap-2 text-sm">
-              <Checkbox
-                checked={storeMode}
-                onCheckedChange={(v) => setStoreMode(v === true)}
-              />
-              <span>Usuário de loja (CPF)</span>
-            </label>
-          </div>
 
           <DemoBlock
             onLogin={(u) =>
@@ -203,10 +222,8 @@ function maskCpf(raw: string): string {
 }
 
 function StoreLoginForm({
-  onBack,
   onLogin,
 }: {
-  onBack: () => void;
   onLogin: (cpf: string, password: string, isSetup: boolean) => Promise<void>;
 }) {
   const [cpf, setCpf] = useState('');
@@ -346,26 +363,15 @@ function StoreLoginForm({
       )}
 
       {error && <p className="text-sm text-destructive">{error}</p>}
-      <div className="flex gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          className="flex-1"
-          onClick={onBack}
-          disabled={submitting}
-        >
-          Voltar
-        </Button>
-        <Button type="submit" className="flex-1" disabled={submitting}>
-          {submitting
-            ? 'Aguarde…'
-            : !lookup
-              ? 'Verificar'
-              : lookup.needsSetup
-                ? 'Cadastrar e entrar'
-                : 'Entrar'}
-        </Button>
-      </div>
+      <Button type="submit" className="w-full" disabled={submitting}>
+        {submitting
+          ? 'Aguarde…'
+          : !lookup
+            ? 'Verificar'
+            : lookup.needsSetup
+              ? 'Cadastrar e entrar'
+              : 'Entrar'}
+      </Button>
     </form>
   );
 }

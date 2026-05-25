@@ -53,9 +53,16 @@ export interface DemoState {
   paItems: any[];
   paGrade: any[];
   paTamanhos: any[];
+  lojaVendedores?: Array<{
+    empresa: string;
+    cpf: string;
+    nome: string;
+    branchErpCode: string;
+    branchName: string;
+  }>;
 }
 
-export const DEMO_STATE_VERSION = 8;
+export const DEMO_STATE_VERSION = 9;
 
 function uid(prefix = ''): string {
   // crypto.randomUUID em browsers modernos. Fallback simples se faltar.
@@ -76,7 +83,23 @@ export function buildSeed(): DemoState {
   const companyId = uid('demo-company');
   const teamId = uid('demo-team');
 
-  const users = DEMO_USERS.map((u) => ({
+  const users: Array<{
+    id: string;
+    adUsername: string | null;
+    username?: string | null;
+    cpf?: string | null;
+    email: string;
+    name: string;
+    profile: string;
+    status: string;
+    teamId: string | null;
+    companyIds: string[];
+    companies: Array<{ companyId: string }>;
+    loginType?: string;
+    passwordHash?: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }> = DEMO_USERS.map((u) => ({
     id: uid('user'),
     adUsername: u.username,
     email: `${u.username}@demo.local`,
@@ -89,6 +112,27 @@ export function buildSeed(): DemoState {
     createdAt: nowIso(-7),
     updatedAt: nowIso(),
   }));
+
+  // Vendedor demo com senha já cadastrada (`demo1234`) — pareia com
+  // `lojaVendedores` mais abaixo, pra mostrar o fluxo de login normal
+  // da loja (não o de 1º acesso).
+  users.push({
+    id: uid('user'),
+    adUsername: null,
+    username: null,
+    cpf: '55566677788',
+    email: 'cpf-55566677788@p2p.local',
+    name: 'Beto Loja',
+    profile: 'OPERATOR',
+    status: 'ACTIVE',
+    teamId: null,
+    companyIds: [companyId],
+    companies: [{ companyId }],
+    loginType: 'LOCAL',
+    passwordHash: 'hash:demo1234',
+    createdAt: nowIso(-7),
+    updatedAt: nowIso(),
+  });
 
   const admin = users.find((u) => u.profile === 'ADMIN')!;
   const manager = users.find((u) => u.profile === 'MANAGER')!;
@@ -1186,5 +1230,31 @@ export function buildSeed(): DemoState {
     paItems,
     paGrade,
     paTamanhos,
+    // Vendedores demo — espelham a view v_p2p_loja_vendedores em PROD.
+    // Use o CPF `11122233344` no toggle "Loja" do login pra testar o
+    // primeiro acesso; `55566677788` já tem senha (`demo1234`).
+    lojaVendedores: [
+      {
+        empresa: 'DEMO',
+        cpf: '11122233344',
+        nome: 'Ana Vendedora',
+        branchErpCode: branches[0].codigo,
+        branchName: branches[0].nome,
+      },
+      {
+        empresa: 'DEMO',
+        cpf: '11122233344',
+        nome: 'Ana Vendedora',
+        branchErpCode: branches[1].codigo,
+        branchName: branches[1].nome,
+      },
+      {
+        empresa: 'DEMO',
+        cpf: '55566677788',
+        nome: 'Beto Loja',
+        branchErpCode: branches[2].codigo,
+        branchName: branches[2].nome,
+      },
+    ],
   };
 }

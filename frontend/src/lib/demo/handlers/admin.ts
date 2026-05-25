@@ -76,8 +76,129 @@ export function handleAuth(method: string, segments: string[], data?: any): Demo
       })),
     });
   }
+
+  // ── Store auth (vendedor de loja por CPF) ─────────────────────
+  // Lookup: confere se o CPF está cadastrado e devolve se precisa
+  // definir senha ainda.
+  if (sub === 'store-lookup' && method === 'POST') {
+    const cpf = normalizeCpf(data?.cpf ?? '');
+    if (cpf.length !== 11) {
+      return ok({ found: false, needsSetup: false, name: null, branches: [] });
+    }
+    const state = getDemoState();
+    const vendors = (state as { lojaVendedores?: DemoVendorRow[] })
+      .lojaVendedores ?? [];
+    const rows = vendors.filter((v) => v.cpf === cpf);
+    if (rows.length === 0) {
+      return ok({ found: false, needsSetup: false, name: null, branches: [] });
+    }
+    const user = state.users.find((u) => u.cpf === cpf);
+    const needsSetup = !user || !user.passwordHash;
+    return ok({
+      found: true,
+      needsSetup,
+      name: rows[0].nome,
+      branches: rows.map((r) => ({
+        companyCode: r.empresa,
+        branchErpCode: r.branchErpCode,
+        branchName: r.branchName,
+      })),
+    });
+  }
+
+  // Setup: 1º acesso do vendedor — cria User + grava sessão.
+  if (sub === 'store-setup-password' && method === 'POST') {
+    const cpf = normalizeCpf(data?.cpf ?? '');
+    const password = String(data?.password ?? '');
+    if (cpf.length !== 11) return badRequest('CPF inválido.');
+    if (password.length < 8) {
+      return badRequest('A senha precisa ter pelo menos 8 caracteres.');
+    }
+    return mutateDemoState((s) => {
+      const vendors =
+        (s as { lojaVendedores?: DemoVendorRow[] }).lojaVendedores ?? [];
+      const rows = vendors.filter((v) => v.cpf === cpf);
+      if (rows.length === 0) {
+        return unauthorized(
+          'CPF não encontrado no cadastro de vendedores. Procure o RH.',
+        );
+      }
+      const companyByCode = new Map(
+        (s.companies ?? []).map((c) => [c.code, c.id]),
+      );
+      const existing = s.users.find((u) => u.cpf === cpf);
+      let user = existing;
+      if (user) {
+        user.passwordHash = `hash:${password}`;
+        user.status = 'ACTIVE';
+      } else {
+        user = {
+          id: uid('user'),
+          cpf,
+          adUsername: null,
+          username: null,
+          email: `cpf-${cpf}@p2p.local`,
+          name: rows[0].nome,
+          profile: 'OPERATOR',
+          loginType: 'LOCAL',
+          status: 'ACTIVE',
+          teamId: null,
+          companyIds: Array.from(
+            new Set(
+              rows
+                .map((r) => companyByCode.get(r.empresa))
+                .filter((x): x is string => !!x),
+            ),
+          ),
+          passwordHash: `hash:${password}`,
+        };
+        s.users.push(user);
+      }
+      setDemoSessionUserId(user.id);
+      return ok({
+        accessToken: `demo.${user.id}`,
+        refreshToken: `demo-refresh.${user.id}`,
+      });
+    });
+  }
+
+  // Login subsequente do vendedor.
+  if (sub === 'store-login' && method === 'POST') {
+    const cpf = normalizeCpf(data?.cpf ?? '');
+    const password = String(data?.password ?? '');
+    const state = getDemoState();
+    const user = state.users.find((u) => u.cpf === cpf);
+    if (!user || user.passwordHash !== `hash:${password}`) {
+      return unauthorized('CPF ou senha inválidos.');
+    }
+    const vendors =
+      (state as { lojaVendedores?: DemoVendorRow[] }).lojaVendedores ?? [];
+    if (!vendors.some((v) => v.cpf === cpf)) {
+      return unauthorized(
+        'Vendedor não está mais ativo no cadastro do varejo.',
+      );
+    }
+    setDemoSessionUserId(user.id);
+    return ok({
+      accessToken: `demo.${user.id}`,
+      refreshToken: `demo-refresh.${user.id}`,
+    });
+  }
+
   return null;
 }
+
+interface DemoVendorRow {
+  empresa: string;
+  cpf: string;
+  nome: string;
+  branchErpCode: string;
+  branchName: string;
+}
+function normalizeCpf(raw: string): string {
+  return (raw ?? '').replace(/\D/g, '');
+}
+
 export function handleCompanies(
   method: string,
   segments: string[],
