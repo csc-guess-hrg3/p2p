@@ -14,6 +14,7 @@ import { ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LocalAuthService, PASSWORD_POLICY } from './local-auth.service';
+import { StoreAuthService } from './store-auth.service';
 import { LoginDto, RefreshDto } from './dto/login.dto';
 import { LdapAuthGuard } from './guards/ldap-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -21,10 +22,10 @@ import { CurrentUser } from './decorators/current-user.decorator';
 import type { AuthenticatedUser } from './auth.types';
 
 class LocalLoginDto {
-  @ApiProperty({ description: 'E-mail corporativo ou CPF (só dígitos).' })
+  @ApiProperty({ description: 'Username definido pelo Admin.' })
   @IsString()
   @IsNotEmpty()
-  identifier!: string;
+  username!: string;
 
   @ApiProperty()
   @IsString()
@@ -37,6 +38,37 @@ class SetupPasswordDto {
   @IsString()
   @IsNotEmpty()
   token!: string;
+
+  @ApiProperty({ description: PASSWORD_POLICY.description })
+  @IsString()
+  @IsNotEmpty()
+  password!: string;
+}
+
+class StoreLookupDto {
+  @ApiProperty({ description: 'CPF do vendedor (com ou sem máscara).' })
+  @IsString()
+  @IsNotEmpty()
+  cpf!: string;
+}
+
+class StoreLoginDto {
+  @ApiProperty({ description: 'CPF do vendedor (com ou sem máscara).' })
+  @IsString()
+  @IsNotEmpty()
+  cpf!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  password!: string;
+}
+
+class StoreSetupPasswordDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  cpf!: string;
 
   @ApiProperty({ description: PASSWORD_POLICY.description })
   @IsString()
@@ -82,6 +114,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly localAuth: LocalAuthService,
+    private readonly storeAuth: StoreAuthService,
   ) {}
 
   /**
@@ -118,14 +151,14 @@ export class AuthController {
   @Post('login-local')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({
-    summary: 'Login com e-mail/CPF + senha (usuários locais, fora do AD)',
+    summary: 'Login com username + senha (supervisores/usuários locais)',
   })
   @ApiBody({ type: LocalLoginDto })
   async loginLocal(
     @Body() dto: LocalLoginDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const userId = await this.localAuth.login(dto.identifier, dto.password);
+    const userId = await this.localAuth.login(dto.username, dto.password);
     const tokens = await this.authService.issueTokens(userId);
     res.cookie(
       'p2p_token',
@@ -147,6 +180,63 @@ export class AuthController {
   async setupPassword(@Body() dto: SetupPasswordDto) {
     await this.localAuth.setPassword(dto.token, dto.password);
     return { ok: true };
+  }
+
+  /**
+   * Vendedor de loja: confere se o CPF está em LOJA_VENDEDORES e devolve
+   * `needsSetup=true` quando ainda não há senha definida. Não loga.
+   */
+  @Post('store-lookup')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Pré-flight do login de loja (valida CPF)' })
+  async storeLookup(@Body() dto: StoreLookupDto) {
+    return this.storeAuth.lookup(dto.cpf);
+  }
+
+  /** Primeiro acesso do vendedor — cria/ativa o User com a senha. */
+  @Post('store-setup-password')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Define a senha no primeiro acesso do vendedor' })
+  async storeSetupPassword(
+    @Body() dto: StoreSetupPasswordDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const userId = await this.storeAuth.setupPassword(dto.cpf, dto.password);
+    const tokens = await this.authService.issueTokens(userId);
+    res.cookie(
+      'p2p_token',
+      tokens.accessToken,
+      cookieOptions({ maxAgeMs: 8 * 60 * 60 * 1000 }),
+    );
+    res.cookie(
+      'p2p_refresh',
+      tokens.refreshToken,
+      cookieOptions({ maxAgeMs: 7 * 24 * 60 * 60 * 1000 }),
+    );
+    return tokens;
+  }
+
+  /** Login do vendedor com CPF + senha. */
+  @Post('store-login')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Login do vendedor de loja (CPF + senha)' })
+  async storeLogin(
+    @Body() dto: StoreLoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const userId = await this.storeAuth.login(dto.cpf, dto.password);
+    const tokens = await this.authService.issueTokens(userId);
+    res.cookie(
+      'p2p_token',
+      tokens.accessToken,
+      cookieOptions({ maxAgeMs: 8 * 60 * 60 * 1000 }),
+    );
+    res.cookie(
+      'p2p_refresh',
+      tokens.refreshToken,
+      cookieOptions({ maxAgeMs: 7 * 24 * 60 * 60 * 1000 }),
+    );
+    return tokens;
   }
 
   /** Regras de complexidade (front mostra na tela de definição). */

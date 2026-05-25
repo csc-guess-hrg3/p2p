@@ -66,6 +66,7 @@ export interface UserPatch {
 export interface CreateLocalUserInput {
   name: string;
   email: string;
+  username: string;
   profile: string;
   positionId?: string | null;
   companyIds: string[];

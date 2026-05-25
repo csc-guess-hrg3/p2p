@@ -47,6 +47,7 @@ export function AddLocalUserDialog({ open, onOpenChange }: Props) {
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [profile, setProfile] = useState('MANAGER');
   const [positionId, setPositionId] = useState<string>('');
   const [companyIds, setCompanyIds] = useState<Set<string>>(new Set());
@@ -56,6 +57,7 @@ export function AddLocalUserDialog({ open, onOpenChange }: Props) {
       // Limpa ao fechar.
       setName('');
       setEmail('');
+      setUsername('');
       setProfile('MANAGER');
       setPositionId('');
       setCompanyIds(new Set());
@@ -72,10 +74,18 @@ export function AddLocalUserDialog({ open, onOpenChange }: Props) {
   }
 
   async function submit() {
-    if (!name.trim() || !email.trim()) {
+    if (!name.trim() || !email.trim() || !username.trim()) {
       toast({
         title: 'Campos obrigatórios',
-        description: 'Informe nome e e-mail.',
+        description: 'Informe nome, e-mail e username.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!/^[a-z0-9._-]{3,60}$/i.test(username.trim())) {
+      toast({
+        title: 'Username inválido',
+        description: '3-60 caracteres alfanuméricos, ponto, hífen ou underscore.',
         variant: 'destructive',
       });
       return;
@@ -92,13 +102,14 @@ export function AddLocalUserDialog({ open, onOpenChange }: Props) {
       await mut.mutateAsync({
         name: name.trim(),
         email: email.trim().toLowerCase(),
+        username: username.trim().toLowerCase(),
         profile,
         positionId: positionId || null,
         companyIds: Array.from(companyIds),
       });
       toast({
         title: 'Usuário criado',
-        description: `Um e-mail foi enviado para ${email} com o link de definição de senha (válido por 24h).`,
+        description: `Username: ${username.trim().toLowerCase()}. Um e-mail foi enviado para ${email} com o link de definição de senha (válido por 24h).`,
         variant: 'success',
       });
       onOpenChange(false);
@@ -142,7 +153,27 @@ export function AddLocalUserDialog({ open, onOpenChange }: Props) {
               placeholder="usuario@hrg3.com.br"
             />
             <p className="text-[11px] text-muted-foreground">
-              Aceitos: @hrg3.com.br ou @guess.com.br.
+              Aceitos: @hrg3.com.br ou @guess.com.br. Usado pra entrega
+              do link de definição de senha.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Username (login)</Label>
+            <Input
+              value={username}
+              onChange={(e) =>
+                setUsername(
+                  e.target.value
+                    .toLowerCase()
+                    .replace(/[^a-z0-9._-]/g, ''),
+                )
+              }
+              placeholder="ex.: maria.silva"
+              autoComplete="off"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Identificador usado no login. 3-60 caracteres, alfanumérico,
+              ponto, hífen ou underscore.
             </p>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

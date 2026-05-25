@@ -26,6 +26,14 @@ export class CreateLocalUserDto {
   @IsEmail()
   email!: string;
 
+  @ApiProperty({
+    description:
+      'Username definido pelo Admin (login local). 3-60 chars, alfanumérico, ponto, hífen, underscore.',
+  })
+  @IsString()
+  @IsNotEmpty()
+  username!: string;
+
   @ApiProperty({ enum: Object.values(UserProfile) })
   @IsIn(Object.values(UserProfile))
   profile!: string;

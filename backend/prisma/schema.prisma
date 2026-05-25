@@ -66,6 +66,7 @@ model Company {
   fiscalItemRequests    FiscalItemRequest[]
   erpConfig             CompanyErpConfig?
   branchAssignments     UserBranchAssignment[]
+  branchExtensions      BranchExtension[]
 
   @@map("companies")
 }
@@ -224,6 +225,28 @@ model TeamModuleAccess {
 // ============================================================
 
 /**
+ * Dados extras de filiais que o P2P guarda além do que vem da view
+ * `v_p2p_branches` (que reflete o ERP). Hoje, só o e-mail da filial —
+ * usado para enviar link de recuperação de senha para vendedores e
+ * para notificações relacionadas à loja.
+ *
+ * A chave é (companyId, branchErpCode). Filial sem registro aqui tem
+ * email implicitamente nulo (recuperação por e-mail desabilitada).
+ */
+model BranchExtension {
+  companyId     String   @db.UniqueIdentifier
+  branchErpCode String   @db.NVarChar(20)
+  email         String?  @db.NVarChar(255)
+  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@id([companyId, branchErpCode])
+  @@map("branch_extensions")
+}
+
+/**
  * Cargos (positions) gerenciados pelo Admin — usados pela cadeia de
  * aprovação dinâmica (TeamApprovalLevel.requiredPositionId).
  */
@@ -343,6 +366,9 @@ model User {
   // Login AD (sAMAccountName) — opcional pra suportar usuários locais
   // (supervisores e vendedores que não estão no AD).
   adUsername    String?   @unique @db.NVarChar(255)
+  // Username P2P-local — definido pelo Admin para supervisores e demais
+  // usuários LOCAL não-vendedores. Mutuamente exclusivo com adUsername.
+  username      String?   @unique @db.NVarChar(60)
   email         String    @unique @db.NVarChar(255)  // corporativo, obrigatório (RN-USR-01); sincronizado do AD
   name          String    @db.NVarChar(255)
   profile       String    @db.NVarChar(20)

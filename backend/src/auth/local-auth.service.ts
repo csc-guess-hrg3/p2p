@@ -73,22 +73,21 @@ export class LocalAuthService {
   ) {}
 
   /**
-   * Valida credenciais LOCAL (e-mail ou CPF + senha) e devolve o userId
-   * ou lança UnauthorizedException. NÃO emite tokens — quem faz isso é
-   * o AuthService.issueTokens depois.
+   * Login LOCAL (supervisor e demais usuários cadastrados pelo Admin):
+   *   `username + password`.
+   * Para vendedores de loja, ver `StoreAuthService.login` — fluxo
+   * separado porque resolve o User a partir do CPF + LOJA_VENDEDORES.
    */
-  async login(identifier: string, password: string): Promise<string> {
-    const isEmail = identifier.includes('@');
-    const where = isEmail
-      ? { email: identifier.toLowerCase() }
-      : { cpf: normalizeCpf(identifier) };
-    const user = await this.prisma.user.findUnique({ where });
+  async login(username: string, password: string): Promise<string> {
+    const user = await this.prisma.user.findUnique({
+      where: { username: username.trim() },
+    });
     if (!user || user.deletedAt || user.loginType !== 'LOCAL') {
       throw new UnauthorizedException('Credenciais inválidas.');
     }
     if (!user.passwordHash) {
       throw new UnauthorizedException(
-        'Senha ainda não definida. Use o link de e-mail recebido.',
+        'Senha ainda não definida. Use o link recebido por e-mail.',
       );
     }
     const ok = await bcrypt.compare(password, user.passwordHash);
@@ -169,11 +168,13 @@ export class LocalAuthService {
   async createLocalUser(input: {
     name: string;
     email: string;
+    username: string;
     profile: string;
     positionId?: string | null;
     companyIds: string[];
   }): Promise<{ id: string }> {
     const email = input.email.trim().toLowerCase();
+    const username = input.username.trim().toLowerCase();
     if (!isValidEmailDomain(email)) {
       throw new BadRequestException(
         `Domínio de e-mail não permitido. Aceitos: ${ALLOWED_EMAIL_DOMAINS.join(
@@ -181,15 +182,25 @@ export class LocalAuthService {
         )}.`,
       );
     }
-    const existing = await this.prisma.user.findUnique({ where: { email } });
-    if (existing) {
+    if (!/^[a-z0-9._-]{3,60}$/i.test(username)) {
       throw new BadRequestException(
-        `Já existe um usuário cadastrado com este e-mail.`,
+        'Username inválido. Use 3 a 60 caracteres alfanuméricos, ponto, hífen ou underscore.',
       );
+    }
+    const conflicts = await this.prisma.user.findFirst({
+      where: { OR: [{ email }, { username }] },
+      select: { email: true, username: true },
+    });
+    if (conflicts) {
+      if (conflicts.email === email) {
+        throw new BadRequestException('Já existe um usuário com este e-mail.');
+      }
+      throw new BadRequestException('Já existe um usuário com este username.');
     }
     const user = await this.prisma.user.create({
       data: {
         email,
+        username,
         name: input.name.trim(),
         profile: input.profile,
         loginType: 'LOCAL',

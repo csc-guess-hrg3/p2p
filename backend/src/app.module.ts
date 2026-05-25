@@ -15,6 +15,7 @@ import { UsersModule } from './users/users.module';
 import { CompaniesModule } from './companies/companies.module';
 import { TeamsModule } from './teams/teams.module';
 import { PositionsModule } from './positions/positions.module';
+import { BranchesModule } from './branches/branches.module';
 import { BudgetModule } from './budget/budget.module';
 import { ApprovalsModule } from './approvals/approvals.module';
 import { DelegationsModule } from './delegations/delegations.module';
@@ -53,6 +54,7 @@ import { AdminModule } from './admin/admin.module';
     CompaniesModule,
     TeamsModule,
     PositionsModule,
+    BranchesModule,
     BudgetModule,
     ApprovalsModule,
     DelegationsModule,

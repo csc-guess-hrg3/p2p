@@ -97,6 +97,12 @@ export function AdminPage() {
           description="Cargos atribuídos a usuários, referenciados pela cadeia de aprovação dinâmica (ex.: Supervisor de filial)."
         />
         <AdminCard
+          to="/admin/filiais"
+          icon={Building2}
+          title="Filiais"
+          description="Dados base vêm do ERP. Aqui o Admin define o e-mail da filial — usado para recuperação de senha do vendedor e notificações."
+        />
+        <AdminCard
           to="/admin/ad-sync"
           icon={Server}
           title="Sincronizar com Active Directory"

@@ -34,7 +34,12 @@ interface AuthContextValue {
   sessionExpired: boolean;
   acknowledgeSessionExpired: () => void;
   login: (username: string, password: string) => Promise<void>;
-  loginLocal: (identifier: string, password: string) => Promise<void>;
+  loginLocal: (username: string, password: string) => Promise<void>;
+  loginStore: (
+    cpf: string,
+    password: string,
+    options?: { isSetup?: boolean },
+  ) => Promise<void>;
   loginDemo: (username: string) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -110,14 +115,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * decide pelo formato e devolve o mesmo par de tokens do login AD.
    */
   const loginLocal = useCallback(
-    async (identifier: string, password: string) => {
+    async (username: string, password: string) => {
       queryClient.clear();
       setEnvironment('PROD');
       localStorage.removeItem('p2p_company');
       const { data } = await api.post<{
         accessToken: string;
         refreshToken: string;
-      }>('/auth/login-local', { identifier, password });
+      }>('/auth/login-local', { username, password });
+      setToken(data.accessToken);
+      localStorage.setItem(REFRESH_KEY, data.refreshToken);
+      const me = await api.get<AuthUser>('/auth/me');
+      setUser(me.data);
+      setSessionExpired(false);
+    },
+    [],
+  );
+
+  /**
+   * Login do vendedor de loja — CPF + senha. `isSetup=true` chama o
+   * endpoint que ATIVA o vendedor (primeiro acesso); senão, o de login.
+   */
+  const loginStore = useCallback(
+    async (
+      cpf: string,
+      password: string,
+      options: { isSetup?: boolean } = {},
+    ) => {
+      queryClient.clear();
+      setEnvironment('PROD');
+      localStorage.removeItem('p2p_company');
+      const endpoint = options.isSetup
+        ? '/auth/store-setup-password'
+        : '/auth/store-login';
+      const { data } = await api.post<{
+        accessToken: string;
+        refreshToken: string;
+      }>(endpoint, { cpf: cpf.replace(/\D/g, ''), password });
       setToken(data.accessToken);
       localStorage.setItem(REFRESH_KEY, data.refreshToken);
       const me = await api.get<AuthUser>('/auth/me');
@@ -181,6 +215,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         acknowledgeSessionExpired,
         login,
         loginLocal,
+        loginStore,
         loginDemo,
         logout,
       }}

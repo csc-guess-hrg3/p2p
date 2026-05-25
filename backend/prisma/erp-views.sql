@@ -627,6 +627,50 @@ SELECT DISTINCT RTRIM(STATUS_COMPRA), RTRIM(DESC_STATUS_COMPRA)
 FROM DB_HRG3.dbo.COMPRAS_STATUS;
 GO
 
+-- ---------- VENDEDORES DE LOJA ----------
+-- Login do vendedor: a partir do CPF, descobrir as filiais P2P
+-- (FILIAIS.COD_FILIAL) que o vendedor atende.
+--
+-- Chave do varejo interno (LOJAS_VAREJO.CODIGO_FILIAL) é DIFERENTE
+-- do COD_FILIAL canônico em FILIAIS. O que une LOJAS_VAREJO a FILIAIS
+-- é o nome da filial (LOJAS_VAREJO.FILIAL = FILIAIS.FILIAL).
+--
+-- JOIN chain:
+--   LOJA_VENDEDORES.CODIGO_FILIAL → LOJAS_VAREJO.CODIGO_FILIAL  (varejo)
+--   LOJAS_VAREJO.FILIAL           → FILIAIS.FILIAL              (nome)
+--   FILIAIS.COD_FILIAL                                          (saída)
+--
+-- Filtra inativos e CPFs em branco/nulos.
+CREATE OR ALTER VIEW dbo.v_p2p_loja_vendedores AS
+SELECT 'GUESS' AS empresa,
+       LTRIM(RTRIM(lv.CPF))     AS cpf,
+       RTRIM(lv.NOME_VENDEDOR)  AS nome,
+       RTRIM(f.COD_FILIAL)      AS branch_erp_code,
+       RTRIM(f.FILIAL)          AS branch_name
+FROM GUESS_PRODUCAO.dbo.LOJA_VENDEDORES lv
+INNER JOIN GUESS_PRODUCAO.dbo.LOJAS_VAREJO lojas
+        ON lojas.CODIGO_FILIAL = lv.CODIGO_FILIAL
+INNER JOIN GUESS_PRODUCAO.dbo.FILIAIS f
+        ON f.FILIAL = lojas.FILIAL
+WHERE lv.DATA_DESATIVACAO IS NULL
+  AND lv.CPF IS NOT NULL
+  AND LEN(LTRIM(RTRIM(lv.CPF))) >= 11
+UNION ALL
+SELECT 'HRG3',
+       LTRIM(RTRIM(lv.CPF)),
+       RTRIM(lv.NOME_VENDEDOR),
+       RTRIM(f.COD_FILIAL),
+       RTRIM(f.FILIAL)
+FROM DB_HRG3.dbo.LOJA_VENDEDORES lv
+INNER JOIN DB_HRG3.dbo.LOJAS_VAREJO lojas
+        ON lojas.CODIGO_FILIAL = lv.CODIGO_FILIAL
+INNER JOIN DB_HRG3.dbo.FILIAIS f
+        ON f.FILIAL = lojas.FILIAL
+WHERE lv.DATA_DESATIVACAO IS NULL
+  AND lv.CPF IS NOT NULL
+  AND LEN(LTRIM(RTRIM(lv.CPF))) >= 11;
+GO
+
 -- ---------- TRANSPORTADORAS (apenas ativas) ----------
 CREATE OR ALTER VIEW dbo.v_p2p_transportadoras AS
 SELECT 'GUESS' AS empresa, RTRIM(TRANSPORTADORA) AS nome

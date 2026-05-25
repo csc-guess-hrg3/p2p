@@ -6,6 +6,7 @@ import type { SignOptions } from 'jsonwebtoken';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { LocalAuthService } from './local-auth.service';
+import { StoreAuthService } from './store-auth.service';
 import { LdapStrategy } from './strategies/ldap.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { CryptoModule } from '../common/crypto/crypto.module';
@@ -27,7 +28,13 @@ import { CryptoModule } from '../common/crypto/crypto.module';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, LocalAuthService, LdapStrategy, JwtStrategy],
-  exports: [AuthService, LocalAuthService],
+  providers: [
+    AuthService,
+    LocalAuthService,
+    StoreAuthService,
+    LdapStrategy,
+    JwtStrategy,
+  ],
+  exports: [AuthService, LocalAuthService, StoreAuthService],
 })
 export class AuthModule {}
