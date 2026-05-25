@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { isAxiosError } from 'axios';
-import { ArrowLeft, Search, UserX } from 'lucide-react';
+import { ArrowLeft, Building2, Search, UserX } from 'lucide-react';
+import { UserCompaniesDialog } from './UserCompaniesDialog';
 import {
   useUsers,
   useUpdateUser,
@@ -53,6 +54,7 @@ export function UsersPage() {
   const { toast } = useToast();
   const [status, setStatus] = useState('ALL');
   const [search, setSearch] = useState('');
+  const [companiesFor, setCompaniesFor] = useState<AdminUser | null>(null);
 
   const { data, isLoading } = useUsers({
     status: status === 'ALL' ? undefined : status,
@@ -145,7 +147,7 @@ export function UsersPage() {
                 <TableHead>Equipe</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead title="Habilita o seletor PROD/HML na topbar para usuários não-Admin">
-                  HML?
+                  HML
                 </TableHead>
                 <TableHead>Criado</TableHead>
                 <TableHead />
@@ -254,14 +256,24 @@ export function UsersPage() {
                     {formatDate(u.createdAt)}
                   </TableCell>
                   <TableCell>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => deactivate(u)}
-                      title="Desativar"
-                    >
-                      <UserX className="size-4 text-destructive" />
-                    </Button>
+                    <div className="flex justify-end gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setCompaniesFor(u)}
+                        title="Empresas que o usuário pode acessar"
+                      >
+                        <Building2 className="size-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => deactivate(u)}
+                        title="Desativar"
+                      >
+                        <UserX className="size-4 text-destructive" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -274,6 +286,14 @@ export function UsersPage() {
           </p>
         </CardContent>
       </Card>
+
+      {companiesFor && (
+        <UserCompaniesDialog
+          user={companiesFor}
+          open={!!companiesFor}
+          onOpenChange={(v) => !v && setCompaniesFor(null)}
+        />
+      )}
     </div>
   );
 }
