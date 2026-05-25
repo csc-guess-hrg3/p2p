@@ -9,7 +9,9 @@ import {
 import {
   api,
   clearToken,
+  getEnvironment,
   getToken,
+  setEnvironment,
   setToken,
   SESSION_EXPIRED_EVENT,
 } from './api';
@@ -62,7 +64,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     api
       .get<AuthUser>('/auth/me')
-      .then((res) => setUser(res.data))
+      .then((res) => {
+        // Defensivo: usuário não-admin nunca deve operar em HML. Se a
+        // chave do localStorage veio de versão anterior, força PROD e
+        // recarrega — o JWT é portável entre os dois, então a sessão
+        // sobrevive.
+        if (res.data.profile !== 'ADMIN' && getEnvironment() === 'HML') {
+          setEnvironment('PROD');
+          localStorage.removeItem('p2p_company');
+          window.location.reload();
+          return;
+        }
+        setUser(res.data);
+      })
       .catch(() => clearToken())
       .finally(() => setLoading(false));
   }, []);
@@ -71,6 +85,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Zera a cache do React Query antes de logar pra não herdar dados de
     // outro usuário/perfil (ex.: pendingApprovals do gestor vindo do operador).
     queryClient.clear();
+    // Todo login parte sempre do ambiente PROD. Se o usuário (admin) já
+    // tinha selecionado HML em sessão anterior, descartamos — só admins
+    // logados podem voltar a trocar para HML pela topbar.
+    setEnvironment('PROD');
+    localStorage.removeItem('p2p_company');
     const { data } = await api.post<{
       accessToken: string;
       refreshToken: string;
@@ -90,6 +109,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginDemo = useCallback(async (username: string) => {
     // Limpa a cache pra não herdar dados de outro perfil demo.
     queryClient.clear();
+    setEnvironment('PROD');
+    localStorage.removeItem('p2p_company');
     setDemoMode(true);
     // /auth/demo-login agora é interceptado pelo demo adapter (handlers.ts).
     const { data } = await api.post<{

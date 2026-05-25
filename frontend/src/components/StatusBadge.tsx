@@ -12,7 +12,7 @@ const STATUS_MAP: Record<string, { label: string; variant: Variant }> = {
   REJECTED: { label: 'Rejeitada', variant: 'destructive' },
   REVISION: { label: 'Em revisão', variant: 'warning' },
   CONVERTED: { label: 'Convertida', variant: 'default' },
-  CANCELLED: { label: 'Cancelada', variant: 'neutral' },
+  CANCELLED: { label: 'Cancelada', variant: 'destructive' },
   // Pedido de Compra
   SENT_TO_SUPPLIER: { label: 'Enviado ao fornecedor', variant: 'default' },
   PARTIALLY_RECEIVED: { label: 'Recebido parcial', variant: 'warning' },

@@ -1,5 +1,6 @@
 import { ChevronDown, FlaskConical, Server } from 'lucide-react';
 import { getEnvironment, setEnvironment, type AppEnv } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
@@ -23,8 +24,14 @@ const ENVS: { value: AppEnv; label: string }[] = [
  * ambiente, então é limpa para o app re-selecionar a partir do /auth/me.
  */
 export function EnvironmentSwitch() {
+  const { user } = useAuth();
   const current = getEnvironment();
   const isHml = current === 'HML';
+
+  // Apenas Admin pode alternar entre PROD e HML — usuários comuns sempre
+  // operam no ambiente de produção. Mantemos um indicador discreto quando
+  // o admin está em HML pra não esquecer (cor de aviso).
+  if (user?.profile !== 'ADMIN') return null;
 
   function change(env: AppEnv) {
     if (env === current) return;
