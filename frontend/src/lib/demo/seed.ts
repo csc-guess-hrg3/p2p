@@ -40,7 +40,7 @@ export interface DemoState {
   paTamanhos: any[];
 }
 
-export const DEMO_STATE_VERSION = 6;
+export const DEMO_STATE_VERSION = 7;
 
 function uid(prefix = ''): string {
   // crypto.randomUUID em browsers modernos. Fallback simples se faltar.
@@ -1265,7 +1265,21 @@ export function buildSeed(): DemoState {
     purchaseOrders,
     fundRequests,
     fiscalItemRequests: [],
-    notifications: [],
+    // Notificações exemplo — uma por usuário pra cada cair com algo no sino.
+    notifications: users.map((u, idx) => ({
+      id: uid('notif'),
+      companyId,
+      userId: u.id,
+      type: 'WELCOME',
+      title: 'Bem-vindo ao modo demonstração',
+      body:
+        'Esta é uma notificação de exemplo — os dados são gerados pelo ' +
+        'seed e nada é persistido no servidor.',
+      entityType: null,
+      entityId: null,
+      readAt: idx % 2 === 0 ? null : nowIso(-1),
+      createdAt: nowIso(-idx),
+    })),
     integrationLogs,
     receivings,
     attachments: attachmentsList,

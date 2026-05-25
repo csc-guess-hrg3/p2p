@@ -99,6 +99,12 @@ function handleAuth(method: string, segments: string[], data?: any): DemoRespons
     const state = getDemoState();
     const user = state.users.find((u) => u.id === userId);
     if (!user) return unauthorized();
+    // Demo: Admin sempre pode trocar de ambiente. extraModules vem da
+    // equipe do usuário via state.teamModuleAccess (toggle em /admin/equipes).
+    const access = (state as any).teamModuleAccess ?? [];
+    const extraModules = access
+      .filter((m: any) => m.teamId === user.teamId)
+      .map((m: any) => m.module);
     return ok({
       id: user.id,
       adUsername: user.adUsername,
@@ -108,6 +114,8 @@ function handleAuth(method: string, segments: string[], data?: any): DemoRespons
       status: user.status,
       teamId: user.teamId,
       companyIds: user.companyIds,
+      canSwitchEnv: user.profile === 'ADMIN',
+      extraModules,
     });
   }
   if (sub === 'logout' && method === 'POST') {
@@ -321,6 +329,9 @@ function handleRequisitions(method: string, segments: string[], query: URLSearch
     const r = state.requisitions.find((x) => x.id === id);
     return r ? ok(r) : notFound();
   }
+  if (method === 'GET' && id && action === 'history') {
+    return ok(buildHistory('requisition', id));
+  }
   if (method === 'POST' && !id) {
     return mutateDemoState((s) => {
       const userId = getDemoSessionUserId();
@@ -493,6 +504,39 @@ function handleRequisitions(method: string, segments: string[], query: URLSearch
 
 function handleApprovals(method: string, segments: string[], data?: any): DemoResponse | null {
   const sub = segments[1];
+  if (method === 'GET' && sub === 'mine-waiting') {
+    const userId = getDemoSessionUserId();
+    const state = getDemoState();
+    const reqs = state.requisitions.filter(
+      (r: any) =>
+        r.requesterId === userId &&
+        ['SUBMITTED', 'IN_APPROVAL', 'REVISION'].includes(r.status),
+    );
+    return ok(
+      reqs.map((r: any) => {
+        const steps = state.approvalSteps
+          .filter((s) => s.requisitionId === r.id && s.status === 'PENDING')
+          .sort((a, b) => a.level - b.level);
+        const active = steps[0];
+        const approver = active
+          ? state.users.find((u: any) => u.id === active.assignedApproverId)
+          : null;
+        return {
+          id: r.id,
+          number: r.number,
+          title: r.title,
+          totalAmount: r.totalAmount,
+          status: r.status,
+          submittedAt: r.submittedAt,
+          currentLevel: active?.level ?? r.currentTierLevel ?? null,
+          currentLevelName: active?.levelName ?? null,
+          currentApprover: approver
+            ? { id: approver.id, name: approver.name }
+            : null,
+        };
+      }),
+    );
+  }
   if (method === 'GET' && sub === 'pending') {
     const userId = getDemoSessionUserId();
     const state = getDemoState();
@@ -573,6 +617,9 @@ function handlePurchaseOrders(method: string, segments: string[], query: URLSear
   if (method === 'GET' && id && !action) {
     const po = state.purchaseOrders.find((p) => p.id === id);
     return po ? ok(po) : notFound();
+  }
+  if (method === 'GET' && id && action === 'history') {
+    return ok(buildHistory('po', id));
   }
   if (method === 'POST' && !id) {
     // Convert requisition → PO
@@ -785,6 +832,7 @@ function handleUsers(
       if (data?.profile !== undefined) u.profile = data.profile;
       if (data?.status !== undefined) u.status = data.status;
       if (data?.teamId !== undefined) u.teamId = data.teamId;
+      if (data?.canSwitchEnv !== undefined) u.canSwitchEnv = data.canSwitchEnv;
       u.updatedAt = todayIso();
       return ok(u);
     });
@@ -828,6 +876,13 @@ function handleTeams(
   // Inicializa array de teams se ainda só existir o objeto único `team`.
   state.teamsList = state.teamsList ?? (state.team ? [state.team] : []);
 
+  // moduleAccess vive em state.teamModuleAccess (criado on-the-fly).
+  state.teamModuleAccess = state.teamModuleAccess ?? [];
+  const modulesOf = (teamId: string) =>
+    state.teamModuleAccess
+      .filter((m: any) => m.teamId === teamId)
+      .map((m: any) => ({ module: m.module }));
+
   if (method === 'GET' && !id) {
     return ok(
       state.teamsList.map((t: any) => ({
@@ -835,6 +890,7 @@ function handleTeams(
         approvalLevels: (state.approvalLevels ?? []).filter(
           (l: any) => l.teamId === t.id,
         ),
+        moduleAccess: modulesOf(t.id),
       })),
     );
   }
@@ -849,6 +905,7 @@ function handleTeams(
           const approver = state.users.find((u: any) => u.id === l.approverId);
           return { ...l, approver: approver ? { id: approver.id, name: approver.name } : null };
         }),
+      moduleAccess: modulesOf(id),
     });
   }
   if (method === 'POST' && !id) {
@@ -886,6 +943,19 @@ function handleTeams(
       t.active = false;
       t.updatedAt = todayIso();
       return ok(t);
+    });
+  }
+  if (method === 'PUT' && id && action === 'modules') {
+    return mutateDemoState((s: any) => {
+      s.teamModuleAccess = (s.teamModuleAccess ?? []).filter(
+        (m: any) => m.teamId !== id,
+      );
+      const unique = Array.from(new Set<string>(data?.modules ?? []));
+      for (const m of unique) {
+        s.teamModuleAccess.push({ teamId: id, module: m, createdAt: todayIso() });
+      }
+      const t = (s.teamsList ?? []).find((x: any) => x.id === id) ?? s.team;
+      return ok(t ?? { id });
     });
   }
   if (method === 'PUT' && id && action === 'approval-levels') {
@@ -1402,14 +1472,18 @@ function handleReceiving(
 
 function handleFundRequests(method: string, segments: string[], query: URLSearchParams): DemoResponse | null {
   const id = segments[1];
+  const action = segments[2];
   const state = getDemoState();
   if (method === 'GET' && !id) {
     const filtered = filterByQuery(state.fundRequests, query, ['number', 'title']);
     return ok(paginate(filtered, query));
   }
-  if (method === 'GET' && id) {
+  if (method === 'GET' && id && !action) {
     const sv = state.fundRequests.find((f) => f.id === id);
     return sv ? ok(sv) : notFound();
+  }
+  if (method === 'GET' && id && action === 'history') {
+    return ok(buildHistory('sv', id));
   }
   return null;
 }
@@ -1453,6 +1527,240 @@ function handleFiscalItemRequests(method: string, segments: string[], query: URL
 }
 
 // ───────────────────────────────────────────────────────────────
+// NOTIFICATIONS (sino)
+// ───────────────────────────────────────────────────────────────
+
+function handleNotifications(
+  method: string,
+  segments: string[],
+  query: URLSearchParams,
+): DemoResponse | null {
+  const sub = segments[1];
+  const userId = getDemoSessionUserId();
+  if (!userId) return unauthorized();
+  const state = getDemoState();
+  const all = (state.notifications ?? []).filter(
+    (n: any) => n.userId === userId,
+  );
+
+  if (sub === 'mine' && method === 'GET') {
+    const onlyUnread = query.get('onlyUnread') === 'true';
+    return ok(
+      [...all]
+        .filter((n: any) => (onlyUnread ? !n.readAt : true))
+        .sort(
+          (a: any, b: any) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        )
+        .slice(0, 100),
+    );
+  }
+  if (sub === 'unread-count' && method === 'GET') {
+    return ok({ count: all.filter((n: any) => !n.readAt).length });
+  }
+  if (sub === 'read-all' && method === 'POST') {
+    mutateDemoState((s: any) => {
+      const now = todayIso();
+      for (const n of s.notifications ?? []) {
+        if (n.userId === userId && !n.readAt) n.readAt = now;
+      }
+    });
+    return ok({ ok: true });
+  }
+  // POST /notifications/:id/read
+  if (segments[2] === 'read' && method === 'POST') {
+    const id = segments[1];
+    mutateDemoState((s: any) => {
+      const n = (s.notifications ?? []).find((x: any) => x.id === id);
+      if (n && n.userId === userId && !n.readAt) n.readAt = todayIso();
+    });
+    return ok({ ok: true });
+  }
+  return null;
+}
+
+// ───────────────────────────────────────────────────────────────
+// Histórico/timeline sintético — gera eventos a partir do estado.
+// ───────────────────────────────────────────────────────────────
+
+function buildHistory(entity: 'requisition' | 'po' | 'sv', id: string) {
+  const state = getDemoState();
+  const events: Array<{
+    at: string;
+    kind: string;
+    label: string;
+    who?: string | null;
+    detail?: string | null;
+  }> = [];
+  const findUser = (uid: string | null | undefined) =>
+    uid ? state.users.find((u: any) => u.id === uid) : null;
+
+  if (entity === 'requisition') {
+    const r = state.requisitions.find((x: any) => x.id === id);
+    if (!r) return [];
+    events.push({
+      at: r.createdAt,
+      kind: 'created',
+      label: 'Requisição criada',
+      who: findUser(r.requesterId)?.name ?? null,
+    });
+    if (r.submittedAt)
+      events.push({
+        at: r.submittedAt,
+        kind: 'submitted',
+        label: 'Submetida para aprovação',
+      });
+    if (r.approvedAt)
+      events.push({
+        at: r.approvedAt,
+        kind: 'approved',
+        label: 'Requisição aprovada',
+      });
+    if (r.rejectedAt)
+      events.push({
+        at: r.rejectedAt,
+        kind: 'rejected',
+        label: 'Requisição rejeitada',
+        detail: r.rejectionReason,
+      });
+    const steps = (state.approvalSteps ?? []).filter(
+      (s: any) =>
+        s.requisitionId === id &&
+        s.status !== 'PENDING' &&
+        s.decidedAt,
+    );
+    for (const s of steps) {
+      events.push({
+        at: s.decidedAt,
+        kind:
+          s.status === 'REVISION'
+            ? 'step-revision'
+            : `step-${String(s.status).toLowerCase()}`,
+        label:
+          s.status === 'REVISION'
+            ? `${s.levelName ?? 'Nível'}: devolveu para revisão`
+            : `${s.levelName ?? 'Nível'}: ${
+                s.status === 'APPROVED' ? 'aprovou' : 'reprovou'
+              }`,
+        who: findUser(s.decidedById)?.name ?? null,
+        detail: s.comments,
+      });
+    }
+  } else if (entity === 'po') {
+    const p = state.purchaseOrders.find((x: any) => x.id === id);
+    if (!p) return [];
+    events.push({
+      at: p.createdAt,
+      kind: 'created',
+      label: 'Pedido criado a partir da requisição',
+      who: findUser(p.buyerId)?.name ?? null,
+    });
+    if (p.approvedAt)
+      events.push({ at: p.approvedAt, kind: 'approved', label: 'Pedido aprovado' });
+    if (p.sentToSupplierAt)
+      events.push({
+        at: p.sentToSupplierAt,
+        kind: 'sent',
+        label: 'Enviado ao fornecedor',
+      });
+    if (p.integratedAt)
+      events.push({
+        at: p.integratedAt,
+        kind: 'integrated',
+        label: `Integrado ao ERP (${p.erpPedido ?? 'sem número'})`,
+      });
+    if (p.cancelledAt)
+      events.push({
+        at: p.cancelledAt,
+        kind: 'cancelled',
+        label: 'Pedido cancelado',
+        detail: p.cancellationReason,
+      });
+    const recs = (state.receivings ?? []).filter(
+      (r: any) => r.purchaseOrderId === id && r.status === 'CONFIRMED',
+    );
+    for (const r of recs) {
+      events.push({
+        at: r.confirmedAt,
+        kind: 'received',
+        label: `Recebimento ${r.number} confirmado`,
+        who: findUser(r.receivedById)?.name ?? null,
+      });
+    }
+  } else {
+    // SV
+    const s = state.fundRequests.find((x: any) => x.id === id);
+    if (!s) return [];
+    events.push({
+      at: s.createdAt,
+      kind: 'created',
+      label: 'Solicitação criada',
+      who: findUser(s.requesterId)?.name ?? null,
+    });
+    if (s.submittedAt)
+      events.push({ at: s.submittedAt, kind: 'submitted', label: 'Enviada para aprovação' });
+    if (s.approvedAt)
+      events.push({ at: s.approvedAt, kind: 'approved', label: 'Solicitação aprovada' });
+    if (s.integratedAt)
+      events.push({
+        at: s.integratedAt,
+        kind: 'integrated',
+        label: `Integrada ao ERP (${s.erpSolicitacao ?? 'sem número'})`,
+      });
+  }
+  return events.sort(
+    (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime(),
+  );
+}
+
+// ───────────────────────────────────────────────────────────────
+// AD-Sync (preview)
+// ───────────────────────────────────────────────────────────────
+
+function handleAdminAdSync(method: string, segments: string[]): DemoResponse | null {
+  const sub = segments[1];
+  if (sub === 'ad' && segments[2] === 'preview' && method === 'GET') {
+    // Devolve uma sugestão fixa pra a tela renderizar com algo crível.
+    return ok([
+      {
+        ouName: 'Marketing',
+        companyCode: 'GUESS',
+        users: [
+          {
+            login: 'aila.siqueira',
+            name: 'Aila Siqueira',
+            email: 'aila.siqueira@guess.local',
+            dn: 'CN=Aila Siqueira,OU=Marketing,OU=Guess,DC=corp,DC=local',
+          },
+          {
+            login: 'bruno.lopes',
+            name: 'Bruno Lopes',
+            email: 'bruno.lopes@guess.local',
+            dn: 'CN=Bruno Lopes,OU=Marketing,OU=Guess,DC=corp,DC=local',
+          },
+        ],
+      },
+      {
+        ouName: 'Compras',
+        companyCode: 'HRG3',
+        users: [
+          {
+            login: 'carla.dias',
+            name: 'Carla Dias',
+            email: 'carla.dias@hrg3.local',
+            dn: 'CN=Carla Dias,OU=Compras,OU=Hrg3,DC=corp,DC=local',
+          },
+        ],
+      },
+    ]);
+  }
+  if (sub === 'ad' && segments[2] === 'apply' && method === 'POST') {
+    return ok({ teamsCreated: 2, usersCreated: 3, usersLinked: 3 });
+  }
+  return null;
+}
+
+// ───────────────────────────────────────────────────────────────
 // Roteamento principal
 // ───────────────────────────────────────────────────────────────
 
@@ -1482,6 +1790,8 @@ export function routeDemoRequest(
     users: () => handleUsers(m, segments, query, data),
     teams: () => handleTeams(m, segments, data),
     delegations: () => handleDelegations(m, segments, query, data),
+    notifications: () => handleNotifications(m, segments, query),
+    admin: () => handleAdminAdSync(m, segments),
   };
 
   const handler = handlers[root];
