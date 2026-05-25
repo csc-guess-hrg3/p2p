@@ -7,9 +7,11 @@ import {
   GripVertical,
   Plus,
   Save,
+  Split,
   Trash2,
   Workflow,
 } from 'lucide-react';
+import { TeamRateiosDialog } from './TeamRateiosDialog';
 import {
   useCreateTeam,
   useDeactivateTeam,
@@ -361,6 +363,7 @@ export function TeamsPage() {
   const modulesMut = useSetTeamModules();
   const deactivateMut = useDeactivateTeam();
   const [levelsOpenFor, setLevelsOpenFor] = useState<string | null>(null);
+  const [rateiosOpenFor, setRateiosOpenFor] = useState<string | null>(null);
 
   const approvers = (usersPage?.data ?? []).filter(
     (u) => u.profile === 'MANAGER' || u.profile === 'ADMIN',
@@ -461,6 +464,15 @@ export function TeamsPage() {
                       <Button
                         size="sm"
                         variant="outline"
+                        onClick={() => setRateiosOpenFor(t.id)}
+                        title="Definir os rateios que esta equipe pode usar"
+                      >
+                        <Split className="size-4" />
+                        Rateios
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
                         onClick={() => setLevelsOpenFor(t.id)}
                       >
                         <Workflow className="size-4" />
@@ -489,6 +501,13 @@ export function TeamsPage() {
           open={!!levelsOpenFor}
           onOpenChange={(v) => !v && setLevelsOpenFor(null)}
           approvers={approvers}
+        />
+      )}
+      {rateiosOpenFor && (
+        <TeamRateiosDialog
+          teamId={rateiosOpenFor}
+          open={!!rateiosOpenFor}
+          onOpenChange={(v) => !v && setRateiosOpenFor(null)}
         />
       )}
     </div>

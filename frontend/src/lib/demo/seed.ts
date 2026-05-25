@@ -22,6 +22,9 @@ export interface DemoState {
   paymentConditions: any[];
   branchRateios: any[];
   ccRateios: any[];
+  teamBranchRateios?: any[];
+  teamCcRateios?: any[];
+  teamModuleAccess?: any[];
   comprasTipos: any[];
   ctbTipoOperacao: any[];
   naturezasEntrada: any[];
@@ -40,7 +43,7 @@ export interface DemoState {
   paTamanhos: any[];
 }
 
-export const DEMO_STATE_VERSION = 7;
+export const DEMO_STATE_VERSION = 8;
 
 function uid(prefix = ''): string {
   // crypto.randomUUID em browsers modernos. Fallback simples se faltar.
@@ -1265,7 +1268,18 @@ export function buildSeed(): DemoState {
     purchaseOrders,
     fundRequests,
     fiscalItemRequests: [],
-    // Notificações exemplo — uma por usuário pra cada cair com algo no sino.
+    // Allowlist de rateios da equipe demo — libera todos para a equipe
+    // padrão, senão o ItemDialog ficaria com combo vazio.
+    teamBranchRateios: branchRateios.map((r: any) => ({
+      teamId,
+      companyId,
+      branchRateioCode: r.codigo,
+    })),
+    teamCcRateios: ccRateios.map((r: any) => ({
+      teamId,
+      companyId,
+      costCenterRateioCode: r.codigo,
+    })),
     notifications: users.map((u, idx) => ({
       id: uid('notif'),
       companyId,

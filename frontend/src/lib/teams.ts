@@ -18,6 +18,10 @@ export interface AdminTeam {
   active: boolean;
   /** Módulos extras liberados (PA, FISCAL_QUEUE, REPORTS, RECEIVING, APPROVALS). */
   moduleAccess?: Array<{ module: string }>;
+  /** Rateios de filial liberados por (companyId, code) — só no findOne. */
+  branchRateios?: Array<{ companyId: string; branchRateioCode: string }>;
+  /** Rateios de centro de custo liberados por (companyId, code). */
+  costCenterRateios?: Array<{ companyId: string; costCenterRateioCode: string }>;
   createdAt: string;
   updatedAt: string;
   approvalLevels?: ApprovalLevel[];
@@ -106,6 +110,52 @@ export function useSetApprovalLevels() {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['teams'] });
       qc.invalidateQueries({ queryKey: ['team', data.id] });
+    },
+  });
+}
+
+/** Entrada usada nos dois endpoints de rateio (PUT branch/cc). */
+export interface TeamRateioEntry {
+  companyId: string;
+  code: string;
+}
+
+export function useSetTeamBranchRateios() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      rateios,
+    }: {
+      id: string;
+      rateios: TeamRateioEntry[];
+    }) =>
+      (await api.put<AdminTeam>(`/teams/${id}/branch-rateios`, { rateios }))
+        .data,
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['teams'] });
+      qc.invalidateQueries({ queryKey: ['team', data.id] });
+      // O combo do form precisa re-buscar depois que o admin libera/retira.
+      qc.invalidateQueries({ queryKey: ['erp'] });
+    },
+  });
+}
+
+export function useSetTeamCcRateios() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      rateios,
+    }: {
+      id: string;
+      rateios: TeamRateioEntry[];
+    }) =>
+      (await api.put<AdminTeam>(`/teams/${id}/cc-rateios`, { rateios })).data,
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['teams'] });
+      qc.invalidateQueries({ queryKey: ['team', data.id] });
+      qc.invalidateQueries({ queryKey: ['erp'] });
     },
   });
 }

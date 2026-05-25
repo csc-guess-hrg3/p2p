@@ -257,11 +257,29 @@ function handleSettings(
 // INTEGRATION (dados de referência "ERP")
 // ───────────────────────────────────────────────────────────────
 
-function handleIntegration(method: string, segments: string[], _query: URLSearchParams): DemoResponse | null {
+function handleIntegration(method: string, segments: string[], query: URLSearchParams): DemoResponse | null {
   if (method !== 'GET') return null;
   // /integration/:code/:resource[/:extra]
   const resource = segments[2];
-  const state = getDemoState();
+  const state = getDemoState() as any;
+  // scope=all retorna catálogo completo; scope=mine (default) intercala
+  // com a allowlist da equipe do usuário.
+  const scope = query.get('scope') ?? 'mine';
+  const filterByTeam = (
+    items: any[],
+    table: string,
+    codeField: string,
+  ): any[] => {
+    if (scope === 'all') return items;
+    const uid = getDemoSessionUserId();
+    const user = state.users.find((u: any) => u.id === uid);
+    if (!user?.teamId) return items;
+    const allowed = (state[table] ?? [])
+      .filter((r: any) => r.teamId === user.teamId)
+      .map((r: any) => r[codeField]);
+    if (allowed.length === 0) return [];
+    return items.filter((it: any) => allowed.includes(it.codigo));
+  };
   switch (resource) {
     case 'branches':
       return ok(state.branches);
@@ -274,9 +292,21 @@ function handleIntegration(method: string, segments: string[], _query: URLSearch
     case 'payment-conditions':
       return ok(state.paymentConditions);
     case 'branch-rateios':
-      return ok(state.branchRateios);
+      return ok(
+        filterByTeam(
+          state.branchRateios,
+          'teamBranchRateios',
+          'branchRateioCode',
+        ),
+      );
     case 'cc-rateios':
-      return ok(state.ccRateios);
+      return ok(
+        filterByTeam(
+          state.ccRateios,
+          'teamCcRateios',
+          'costCenterRateioCode',
+        ),
+      );
     case 'compras-tipos':
       return ok(state.comprasTipos);
     case 'ctb-tipo-operacao':
@@ -906,6 +936,12 @@ function handleTeams(
           return { ...l, approver: approver ? { id: approver.id, name: approver.name } : null };
         }),
       moduleAccess: modulesOf(id),
+      branchRateios: (state.teamBranchRateios ?? []).filter(
+        (r: any) => r.teamId === id,
+      ),
+      costCenterRateios: (state.teamCcRateios ?? []).filter(
+        (r: any) => r.teamId === id,
+      ),
     });
   }
   if (method === 'POST' && !id) {
@@ -943,6 +979,38 @@ function handleTeams(
       t.active = false;
       t.updatedAt = todayIso();
       return ok(t);
+    });
+  }
+  if (method === 'PUT' && id && action === 'branch-rateios') {
+    return mutateDemoState((s: any) => {
+      s.teamBranchRateios = (s.teamBranchRateios ?? []).filter(
+        (r: any) => r.teamId !== id,
+      );
+      for (const r of data?.rateios ?? []) {
+        s.teamBranchRateios.push({
+          teamId: id,
+          companyId: r.companyId,
+          branchRateioCode: r.code,
+        });
+      }
+      const t = (s.teamsList ?? []).find((x: any) => x.id === id) ?? s.team;
+      return ok(t ?? { id });
+    });
+  }
+  if (method === 'PUT' && id && action === 'cc-rateios') {
+    return mutateDemoState((s: any) => {
+      s.teamCcRateios = (s.teamCcRateios ?? []).filter(
+        (r: any) => r.teamId !== id,
+      );
+      for (const r of data?.rateios ?? []) {
+        s.teamCcRateios.push({
+          teamId: id,
+          companyId: r.companyId,
+          costCenterRateioCode: r.code,
+        });
+      }
+      const t = (s.teamsList ?? []).find((x: any) => x.id === id) ?? s.team;
+      return ok(t ?? { id });
     });
   }
   if (method === 'PUT' && id && action === 'modules') {
