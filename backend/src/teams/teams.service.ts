@@ -119,7 +119,11 @@ export class TeamsService {
     return this.findOne(id);
   }
 
-  /** Define a cadeia de aprovação da equipe (substitui o conjunto). */
+  /**
+   * Define a cadeia de aprovação da equipe (substitui o conjunto).
+   * Cada nível tem exatamente UM aprovador: fixo (approverId) OU por cargo
+   * (requiredPositionId, opcionalmente filtrado por filial).
+   */
   async setApprovalLevels(id: string, levels: ApprovalLevelEntryDto[]) {
     await this.findOne(id);
 
@@ -128,7 +132,32 @@ export class TeamsService {
       throw new BadRequestException('Há níveis duplicados na cadeia.');
     }
     for (const l of levels) {
-      await this.assertActiveUser(l.approverId, `nível ${l.level}`);
+      const hasFixed = !!l.approverId;
+      const hasPosition = !!l.requiredPositionId;
+      if (hasFixed === hasPosition) {
+        throw new BadRequestException(
+          `Nível ${l.level}: defina aprovador fixo OU cargo (mutuamente exclusivos).`,
+        );
+      }
+      if (hasFixed) {
+        await this.assertActiveUser(l.approverId as string, `nível ${l.level}`);
+      } else {
+        // Verifica que o cargo existe e está ativo.
+        const pos = await this.prisma.position.findUnique({
+          where: { id: l.requiredPositionId as string },
+        });
+        if (!pos || pos.deletedAt || !pos.active) {
+          throw new BadRequestException(
+            `Nível ${l.level}: cargo inválido ou inativo.`,
+          );
+        }
+      }
+      // scopeByBranch só faz sentido com cargo.
+      if (l.scopeByBranch && !hasPosition) {
+        throw new BadRequestException(
+          `Nível ${l.level}: 'filtrar por filial' só vale com aprovador por cargo.`,
+        );
+      }
     }
 
     await this.prisma.$transaction([
@@ -138,7 +167,9 @@ export class TeamsService {
           teamId: id,
           level: l.level,
           name: l.name,
-          approverId: l.approverId,
+          approverId: l.approverId ?? null,
+          requiredPositionId: l.requiredPositionId ?? null,
+          scopeByBranch: l.scopeByBranch ?? false,
           maxAmount: l.maxAmount ?? null,
         })),
       }),

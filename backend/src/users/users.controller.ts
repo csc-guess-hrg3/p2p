@@ -16,6 +16,7 @@ import { LocalAuthService } from '../auth/local-auth.service';
 import { QueryUsersDto } from './dto/query-users.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { SetCompaniesDto } from './dto/set-companies.dto';
+import { SetBranchAssignmentsDto } from './dto/set-branch-assignments.dto';
 import { CreateLocalUserDto } from './dto/create-local-user.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -76,6 +77,18 @@ export class UsersController {
   @ApiOperation({ summary: 'Define as empresas do usuário' })
   setCompanies(@Param('id') id: string, @Body() dto: SetCompaniesDto) {
     return this.usersService.setCompanies(id, dto.companyIds);
+  }
+
+  @Put(':id/branch-assignments')
+  @ApiOperation({
+    summary:
+      'Define as filiais que o usuário cobre (usado pela cadeia de aprovação dinâmica)',
+  })
+  setBranchAssignments(
+    @Param('id') id: string,
+    @Body() dto: SetBranchAssignmentsDto,
+  ) {
+    return this.usersService.setBranchAssignments(id, dto.assignments);
   }
 
   @Delete(':id')

@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -22,10 +23,29 @@ export class ApprovalLevelEntryDto {
   @IsNotEmpty()
   name!: string;
 
-  @ApiProperty({ description: 'ID do usuário aprovador deste nível' })
+  @ApiPropertyOptional({
+    description:
+      'ID do usuário aprovador (fixo). Mutuamente exclusivo com requiredPositionId.',
+  })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  approverId!: string;
+  approverId?: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      'ID do cargo aprovador (dinâmico). Qualquer usuário com este cargo aprova.',
+  })
+  @IsOptional()
+  @IsString()
+  requiredPositionId?: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      'Quando true, restringe aprovadores aos usuários atribuídos à filial da requisição. Só faz sentido com requiredPositionId.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  scopeByBranch?: boolean;
 
   @ApiPropertyOptional({
     description: 'Alçada do nível (valor máximo); null = sem limite',

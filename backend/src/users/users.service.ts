@@ -52,6 +52,8 @@ export class UsersService {
       include: {
         companies: { include: { company: true } },
         team: { select: { id: true, name: true } },
+        position: { select: { id: true, code: true, name: true } },
+        branchAssignments: true,
       },
     });
     if (!user || user.deletedAt) {
@@ -85,6 +87,47 @@ export class UsersService {
           : {}),
       },
     });
+  }
+
+  /**
+   * Define as filiais que o usuário cobre (substitui o conjunto). Aceita
+   * pares (companyId, branchErpCode). Usado em conjunto com User.positionId
+   * pelo engine de aprovação dinâmica (Supervisor da filial X).
+   */
+  async setBranchAssignments(
+    id: string,
+    entries: Array<{ companyId: string; branchErpCode: string }>,
+  ) {
+    await this.findOne(id);
+    // Validação leve: companyIds existem.
+    const uniqueCompanies = Array.from(
+      new Set(entries.map((e) => e.companyId)),
+    );
+    if (uniqueCompanies.length > 0) {
+      const found = await this.prisma.company.count({
+        where: { id: { in: uniqueCompanies }, deletedAt: null },
+      });
+      if (found !== uniqueCompanies.length) {
+        throw new BadRequestException(
+          'Uma ou mais empresas são inválidas.',
+        );
+      }
+    }
+    await this.prisma.$transaction([
+      this.prisma.userBranchAssignment.deleteMany({ where: { userId: id } }),
+      ...(entries.length > 0
+        ? [
+            this.prisma.userBranchAssignment.createMany({
+              data: entries.map((e) => ({
+                userId: id,
+                companyId: e.companyId,
+                branchErpCode: e.branchErpCode,
+              })),
+            }),
+          ]
+        : []),
+    ]);
+    return this.findOne(id);
   }
 
   /** Define a quais empresas o usuário tem acesso (substitui o conjunto). */
