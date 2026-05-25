@@ -23,6 +23,9 @@ const PROFILE_LABELS: Record<string, string> = {
 };
 
 function currentTitle(pathname: string): string {
+  // Casamento por prefixo, sem filtrar por perfil — se a URL existir, o
+  // título precisa aparecer mesmo que o item esteja escondido no menu
+  // (ex.: usuário com link direto pra detalhe).
   const match = NAV_ITEMS.find((i) =>
     i.end ? pathname === i.to : pathname.startsWith(i.to),
   );

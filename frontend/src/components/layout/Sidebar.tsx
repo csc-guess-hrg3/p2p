@@ -1,7 +1,8 @@
 import { NavLink } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { NAV_ITEMS } from './nav';
+import { NAV_ITEMS, canSeeNav } from './nav';
+import { useAuth } from '@/lib/auth';
 
 interface SidebarProps {
   mobileOpen: boolean;
@@ -26,6 +27,8 @@ function Wordmark() {
 }
 
 export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
+  const { user } = useAuth();
+  const items = NAV_ITEMS.filter((i) => canSeeNav(i, user?.profile));
   return (
     <>
       {/* Backdrop só em mobile, quando drawer aberto. Clique fora fecha. */}
@@ -57,7 +60,7 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
           </button>
         </div>
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2">
-          {NAV_ITEMS.map((item) => (
+          {items.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

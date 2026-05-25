@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from '@/lib/auth';
 import { CompanyProvider } from '@/lib/company';
 import { RequireAuth } from '@/components/auth/RequireAuth';
+import { RequireProfile } from '@/components/auth/RequireProfile';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { LoginPage } from '@/pages/LoginPage';
 import { RequisitionsListPage } from '@/pages/requisitions/RequisitionsListPage';
@@ -53,16 +54,22 @@ function App() {
                     path="requisicoes/:id/editar"
                     element={<RequisitionFormPage />}
                   />
-                  <Route path="aprovacoes" element={<ApprovalsPage />} />
+                  {/* Aprovações + PA — só aprovadores (Admin/Manager). */}
+                  <Route
+                    element={<RequireProfile roles={['ADMIN', 'MANAGER']} />}
+                  >
+                    <Route path="aprovacoes" element={<ApprovalsPage />} />
+                    <Route path="pedidos-pa" element={<PaOrdersListPage />} />
+                    <Route
+                      path="pedidos-pa/:pedido"
+                      element={<PaOrderDetailPage />}
+                    />
+                  </Route>
+
                   <Route path="pedidos" element={<PurchaseOrdersListPage />} />
                   <Route
                     path="pedidos/:id"
                     element={<PurchaseOrderDetailPage />}
-                  />
-                  <Route path="pedidos-pa" element={<PaOrdersListPage />} />
-                  <Route
-                    path="pedidos-pa/:pedido"
-                    element={<PaOrderDetailPage />}
                   />
                   <Route
                     path="solicitacoes-verba"
@@ -72,29 +79,62 @@ function App() {
                     path="solicitacoes-verba/:id"
                     element={<FundRequestDetailPage />}
                   />
-                  <Route path="recebimentos" element={<ReceivingsListPage />} />
+
+                  {/* Recebimentos — Admin/Manager/Operador (Revisor não). */}
                   <Route
-                    path="recebimentos/:id"
-                    element={<ReceivingDetailPage />}
-                  />
+                    element={
+                      <RequireProfile
+                        roles={['ADMIN', 'MANAGER', 'OPERATOR']}
+                      />
+                    }
+                  >
+                    <Route
+                      path="recebimentos"
+                      element={<ReceivingsListPage />}
+                    />
+                    <Route
+                      path="recebimentos/:id"
+                      element={<ReceivingDetailPage />}
+                    />
+                  </Route>
+
+                  {/* Pendências Fiscais — Admin/Revisor. */}
                   <Route
-                    path="pendencias-fiscais"
-                    element={<FiscalQueuePage />}
-                  />
-                  <Route path="relatorios" element={<ReportsPage />} />
-                  <Route path="admin" element={<AdminPage />} />
+                    element={<RequireProfile roles={['ADMIN', 'REVIEWER']} />}
+                  >
+                    <Route
+                      path="pendencias-fiscais"
+                      element={<FiscalQueuePage />}
+                    />
+                  </Route>
+
+                  {/* Relatórios — Admin/Manager/Revisor (Operador não). */}
                   <Route
-                    path="admin/integracao-erp"
-                    element={<ErpConfigPage />}
-                  />
-                  <Route path="admin/parametros" element={<SettingsPage />} />
-                  <Route path="admin/usuarios" element={<UsersPage />} />
-                  <Route path="admin/equipes" element={<TeamsPage />} />
-                  <Route
-                    path="admin/delegacoes"
-                    element={<DelegationsPage />}
-                  />
-                  <Route path="admin/ad-sync" element={<AdSyncPage />} />
+                    element={
+                      <RequireProfile
+                        roles={['ADMIN', 'MANAGER', 'REVIEWER']}
+                      />
+                    }
+                  >
+                    <Route path="relatorios" element={<ReportsPage />} />
+                  </Route>
+
+                  {/* Administração — Admin somente. */}
+                  <Route element={<RequireProfile roles={['ADMIN']} />}>
+                    <Route path="admin" element={<AdminPage />} />
+                    <Route
+                      path="admin/integracao-erp"
+                      element={<ErpConfigPage />}
+                    />
+                    <Route path="admin/parametros" element={<SettingsPage />} />
+                    <Route path="admin/usuarios" element={<UsersPage />} />
+                    <Route path="admin/equipes" element={<TeamsPage />} />
+                    <Route
+                      path="admin/delegacoes"
+                      element={<DelegationsPage />}
+                    />
+                    <Route path="admin/ad-sync" element={<AdSyncPage />} />
+                  </Route>
                 </Route>
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />

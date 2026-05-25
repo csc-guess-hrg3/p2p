@@ -28,6 +28,7 @@ import {
   useOrdersByStatus,
   useTopSuppliers,
 } from '@/lib/dashboard';
+import { useAuth } from '@/lib/auth';
 import { formatCurrency } from '@/lib/format';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -281,21 +282,27 @@ export function OrdersByStatusChart({ companyId }: { companyId?: string }) {
  * ============================================================ */
 export function MyActionsCard({ companyId }: { companyId?: string }) {
   const { data, isLoading } = useMyActions(companyId);
+  const { user } = useAuth();
+  const profile = user?.profile;
+  const isApprover = profile === 'ADMIN' || profile === 'MANAGER';
+  const isFiscal = profile === 'ADMIN' || profile === 'REVIEWER';
 
+  // Cada item carrega quem pode vê-lo. Removemos antes de renderizar pra
+  // não mostrar contagens que o perfil nem sequer tem como executar.
   const items = [
-    {
+    isApprover && {
       label: 'Aprovações aguardando você',
       count: data?.approvalsPending ?? 0,
       icon: CheckSquare,
       to: '/aprovacoes',
     },
-    {
+    isApprover && {
       label: 'Pedidos PA pra aprovar',
       count: data?.paPending ?? 0,
       icon: Shirt,
       to: '/pedidos-pa?status=E',
     },
-    {
+    isFiscal && {
       label: 'Pendências fiscais',
       count: data?.fiscalPending ?? 0,
       icon: Users,
@@ -307,7 +314,12 @@ export function MyActionsCard({ companyId }: { companyId?: string }) {
       icon: FileText,
       to: '/requisicoes?status=DRAFT',
     },
-  ];
+  ].filter(Boolean) as Array<{
+    label: string;
+    count: number;
+    icon: typeof CheckSquare;
+    to: string;
+  }>;
 
   return (
     <Card>
