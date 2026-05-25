@@ -87,7 +87,7 @@ export function LoginPage() {
               }`}
             >
               <UserRound className="size-4" />
-              Funcionário
+              Corporativo
             </button>
             <button
               type="button"
