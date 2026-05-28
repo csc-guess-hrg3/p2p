@@ -16,6 +16,7 @@ import {
 } from '@/lib/integration';
 import { useUsers } from '@/lib/users';
 import { useTeams } from '@/lib/teams';
+import { useFinancialCurrencies } from '@/lib/financial';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -81,6 +82,7 @@ export function ErpConfigPage() {
   const companyCode = activeCompany?.code;
 
   const { data, isLoading } = useErpConfig(companyId);
+  const { data: currencies = [] } = useFinancialCurrencies(companyId);
   const updateMut = useUpdateErpConfig();
 
   const { data: tipos = [] } = useComprasTipos(companyCode);
@@ -275,10 +277,40 @@ export function ErpConfigPage() {
               </div>
               <div className="space-y-1.5">
                 <Label>Moeda</Label>
-                <Input
-                  value={form.moeda}
-                  onChange={(e) => patch('moeda', e.target.value)}
-                />
+                {currencies.length > 0 ? (
+                  <Select
+                    value={form.moeda}
+                    onValueChange={(v) => patch('moeda', v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {currencies.map((c) => (
+                        <SelectItem key={c.code} value={c.code}>
+                          <span className="font-mono">{c.code}</span>
+                          {c.name && (
+                            <span className="ml-2 text-muted-foreground">
+                              {c.name}
+                            </span>
+                          )}
+                          {c.isDefault && (
+                            <span className="ml-2 text-[10px] uppercase text-primary">
+                              padrão
+                            </span>
+                          )}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  // Fallback enquanto carrega (ou se /financial/currencies
+                  // falhar) — mantém input texto pra não bloquear o admin.
+                  <Input
+                    value={form.moeda}
+                    onChange={(e) => patch('moeda', e.target.value)}
+                  />
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label>Transportadora padrão</Label>
@@ -398,6 +430,10 @@ export function ErpConfigPage() {
                 <Label>Porta</Label>
                 <Input
                   type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={65535}
+                  step={1}
                   value={form.smtpPort}
                   onChange={(e) => patch('smtpPort', e.target.value)}
                   placeholder="587"

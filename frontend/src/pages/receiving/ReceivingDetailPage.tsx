@@ -5,6 +5,7 @@ import { usePurchaseOrder } from '@/lib/purchase-orders';
 import { formatDate, formatNumber } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
 import { AttachmentsSection } from '@/components/AttachmentsSection';
+import { useAuth } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
@@ -33,6 +34,7 @@ export function ReceivingDetailPage() {
   const { id } = useParams();
   const { toast } = useToast();
   const { data: receiving, isLoading } = useReceiving(id);
+  const { user } = useAuth();
   // Carrega o PC pra exibir a descrição dos itens (o backend devolve só ID
   // do PO item no recebimento; cruzamos pelo lado).
   const { data: po } = usePurchaseOrder(receiving?.purchaseOrderId);
@@ -198,8 +200,14 @@ export function ReceivingDetailPage() {
           <AttachmentsSection
             kind="receiving"
             parentId={receiving.id}
-            readOnly={receiving.status !== 'DRAFT'}
+            // Foto/canhoto só pelo operador que recebeu; demais visualizam.
+            readOnly={
+              receiving.status !== 'DRAFT' ||
+              user?.id !== receiving.receivedBy?.id
+            }
             hint="Canhoto, foto da entrega, ata de medição ou checklist (PDF, DOCX, XLSX, JPG, PNG — até 10 MB cada, máx. 10 arquivos)."
+            allowedDocKinds={['RECEIPT_PHOTO', 'CHECKLIST', 'OTHER']}
+            defaultDocKind="RECEIPT_PHOTO"
           />
         </CardContent>
       </Card>

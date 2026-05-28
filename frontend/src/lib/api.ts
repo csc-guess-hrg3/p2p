@@ -8,19 +8,48 @@ const ENV_KEY = 'p2p_env';
 export type AppEnv = 'PROD' | 'HML';
 
 /**
- * Token de acesso no localStorage — mantido por compatibilidade. A partir
- * desta versão, o backend também emite cookies httpOnly `p2p_token` /
- * `p2p_refresh`; quando o backend de PROD/HML estiver atualizado, o cookie
- * é o caminho preferido (mais seguro contra XSS).
+ * Modo de autenticação. O backend emite cookies httpOnly
+ * `p2p_token`/`p2p_refresh` e também aceita Bearer no header (legado).
+ *
+ * - `cookie`  : preferido em PROD/HML — JWT vive só em cookie httpOnly,
+ *               nada toca localStorage. Mais seguro contra XSS.
+ * - `bearer`  : legado/debug — frontend lê/escreve token no localStorage
+ *               e manda no header Authorization.
+ *
+ * A escolha vem da var `VITE_AUTH_MODE` no build do frontend (default
+ * `cookie`). HML pode ficar em `bearer` enquanto a coordenação valida.
+ */
+type AuthMode = 'cookie' | 'bearer';
+const AUTH_MODE: AuthMode =
+  (import.meta.env?.VITE_AUTH_MODE as AuthMode) === 'bearer'
+    ? 'bearer'
+    : 'cookie';
+
+/**
+ * Token de acesso. Em modo cookie é apenas um "flag" booleano-like:
+ * a presença indica que o usuário fez login pelo menos uma vez; o token
+ * real fica no cookie httpOnly e nunca aparece aqui. Em modo bearer
+ * armazena o JWT completo (compat com versões anteriores).
  */
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
 export function setToken(token: string) {
-  localStorage.setItem(TOKEN_KEY, token);
+  if (AUTH_MODE === 'cookie') {
+    // Não persiste o JWT — basta marcar "logado" pra UI não piscar
+    // tela de login enquanto o cookie está válido. O backend autentica
+    // pelo cookie httpOnly sozinho.
+    localStorage.setItem(TOKEN_KEY, '1');
+  } else {
+    localStorage.setItem(TOKEN_KEY, token);
+  }
 }
 export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
+}
+
+export function getAuthMode(): AuthMode {
+  return AUTH_MODE;
 }
 
 /** Ambiente ativo — produção ou homologação. */
@@ -58,12 +87,16 @@ export const api = axios.create({
 // adapter HTTP padrão (XHR/fetch). Setado uma única vez, no boot.
 api.defaults.adapter = demoAxiosAdapter;
 
-// Define o ambiente e anexa o JWT em toda requisição.
+// Define o ambiente e (em modo bearer) anexa o JWT no header.
+// Em modo cookie, o navegador envia `p2p_token` automaticamente
+// porque `withCredentials=true` foi configurado acima.
 api.interceptors.request.use((config) => {
   config.baseURL = apiBase();
-  const token = getToken();
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+  if (AUTH_MODE === 'bearer') {
+    const token = getToken();
+    if (token && token !== '1') {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
   }
   return config;
 });

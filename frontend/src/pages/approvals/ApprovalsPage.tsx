@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Check, Clock, Download, ExternalLink, Undo2, X } from 'lucide-react';
+import { AlertTriangle, Check, Clock, Download, ExternalLink, Undo2, X } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   usePendingApprovals,
   useMineWaitingApproval,
@@ -47,7 +48,16 @@ export function ApprovalsPage() {
 
 function ApproverView() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { data: steps = [], isLoading } = usePendingApprovals();
+  const isAdmin = user?.profile === 'ADMIN';
+  // Admin enxerga TODAS as aprovações pendentes da empresa — separamos
+  // visualmente "as suas" (titular) das "demais" (overrides) pra ele
+  // saber onde está agindo fora da alçada.
+  const ownSteps = steps.filter((s) => s.assignedApprover?.id === user?.id);
+  const overrideSteps = steps.filter(
+    (s) => s.assignedApprover?.id && s.assignedApprover.id !== user?.id,
+  );
   const pag = usePagination(steps);
   const [decision, setDecision] = useState<{
     step: PendingApproval;
@@ -63,7 +73,9 @@ function ApproverView() {
         <p className="text-sm text-muted-foreground">
           {isLoading
             ? 'Carregando…'
-            : `${steps.length} requisição(ões) aguardando sua decisão.`}
+            : isAdmin
+              ? `${steps.length} pendente(s) — ${ownSteps.length} sua(s) e ${overrideSteps.length} de outros aprovadores.`
+              : `${steps.length} requisição(ões) aguardando sua decisão.`}
         </p>
         <Button
           variant="outline"
@@ -109,6 +121,7 @@ function ApproverView() {
                 <TableHead>Título</TableHead>
                 <TableHead>Solicitante</TableHead>
                 <TableHead>Nível</TableHead>
+                {isAdmin && <TableHead>Aprovador titular</TableHead>}
                 <TableHead className="text-right">Valor</TableHead>
                 <TableHead className="w-48" />
               </TableRow>
@@ -117,7 +130,7 @@ function ApproverView() {
               {!isLoading && steps.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={6}
+                    colSpan={isAdmin ? 7 : 6}
                     className="py-8 text-center text-muted-foreground"
                   >
                     Nenhuma aprovação pendente.
@@ -130,7 +143,33 @@ function ApproverView() {
                     className="cursor-pointer font-medium"
                     onClick={() => navigate(`/requisicoes/${s.requisition.id}`)}
                   >
-                    {s.requisition.number}
+                    <span className="inline-flex items-center gap-2">
+                      {s.requisition.number}
+                      {/* Aviso visual de dispensa de cotação — antes só
+                          aparecia ao abrir o detalhe; aprovador agora
+                          enxerga já na lista, com o motivo no tooltip. */}
+                      {s.requisition.quotationWaiverReason && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-semibold uppercase text-warning">
+                              <AlertTriangle className="size-3" />
+                              Dispensa
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs">
+                            <div className="font-semibold">
+                              Dispensa de cotação solicitada
+                            </div>
+                            <div>Motivo: {s.requisition.quotationWaiverReason}</div>
+                            {s.requisition.quotationWaiverNote && (
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {s.requisition.quotationWaiverNote}
+                              </div>
+                            )}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                    </span>
                   </TableCell>
                   <TableCell>{s.requisition.title}</TableCell>
                   <TableCell className="text-muted-foreground">
@@ -139,6 +178,24 @@ function ApproverView() {
                   <TableCell className="text-muted-foreground">
                     {s.levelName ?? `Nível ${s.level}`}
                   </TableCell>
+                  {isAdmin && (
+                    <TableCell className="text-muted-foreground">
+                      {s.assignedApprover?.name ? (
+                        s.assignedApprover.id === user?.id ? (
+                          <span className="text-foreground">Você</span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1">
+                            {s.assignedApprover.name}
+                            <span className="rounded bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-warning">
+                              override
+                            </span>
+                          </span>
+                        )
+                      ) : (
+                        <span className="italic">—</span>
+                      )}
+                    </TableCell>
+                  )}
                   <TableCell className="text-right">
                     {formatCurrency(s.requisition.totalAmount)}
                   </TableCell>
@@ -161,7 +218,7 @@ function ApproverView() {
                         title="Devolver para o solicitante ajustar"
                       >
                         <Undo2 className="size-4 text-warning" />
-                        Revisão
+                        Devolver
                       </Button>
                       <Button
                         size="sm"
@@ -206,6 +263,14 @@ function ApproverView() {
         <RequestRevisionDialog
           step={revisionStep}
           onClose={() => setRevisionStep(null)}
+          waiver={
+            revisionStep.requisition.quotationWaiverReason
+              ? {
+                  reason: revisionStep.requisition.quotationWaiverReason,
+                  note: revisionStep.requisition.quotationWaiverNote ?? null,
+                }
+              : null
+          }
         />
       )}
     </div>

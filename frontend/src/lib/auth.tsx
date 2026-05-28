@@ -33,12 +33,17 @@ interface AuthContextValue {
   loading: boolean;
   sessionExpired: boolean;
   acknowledgeSessionExpired: () => void;
-  login: (username: string, password: string) => Promise<void>;
-  loginLocal: (username: string, password: string) => Promise<void>;
+  /**
+   * Os métodos de login aceitam um `turnstileToken` opcional — o backend
+   * exige quando `TURNSTILE_SECRET_KEY` está configurada em PROD/HML;
+   * em dev/demo o token vai vazio e o backend ignora.
+   */
+  login: (username: string, password: string, turnstileToken?: string) => Promise<void>;
+  loginLocal: (username: string, password: string, turnstileToken?: string) => Promise<void>;
   loginStore: (
     cpf: string,
     password: string,
-    options?: { isSetup?: boolean },
+    options?: { isSetup?: boolean; turnstileToken?: string },
   ) => Promise<void>;
   loginDemo: (username: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -72,42 +77,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .get<AuthUser>('/auth/me')
       .then((res) => {
         // Defensivo: usuário sem permissão de switch nunca deve operar em
-        // HML. Se o localStorage veio de versão anterior ou o Admin revogou
-        // o canSwitchEnv, força PROD e recarrega — o JWT é portável entre
-        // os dois, então a sessão sobrevive.
-        const allowed =
-          res.data.profile === 'ADMIN' || res.data.canSwitchEnv === true;
-        if (!allowed && getEnvironment() === 'HML') {
-          setEnvironment('PROD');
-          localStorage.removeItem('p2p_company');
-          window.location.reload();
-          return;
-        }
+        // O ambiente (PROD/HML) é fixado no momento do login pela LoginPage
+        // e fica travado durante toda a sessão. Cada env tem auth própria —
+        // se o backend respondeu /auth/me com sucesso, a sessão é válida
+        // aqui.
         setUser(res.data);
       })
       .catch(() => clearToken())
       .finally(() => setLoading(false));
   }, []);
 
-  const login = useCallback(async (username: string, password: string) => {
-    // Zera a cache do React Query antes de logar pra não herdar dados de
-    // outro usuário/perfil (ex.: pendingApprovals do gestor vindo do operador).
-    queryClient.clear();
-    // Todo login parte sempre do ambiente PROD. Se o usuário (admin) já
-    // tinha selecionado HML em sessão anterior, descartamos — só admins
-    // logados podem voltar a trocar para HML pela topbar.
-    setEnvironment('PROD');
-    localStorage.removeItem('p2p_company');
-    const { data } = await api.post<{
-      accessToken: string;
-      refreshToken: string;
-    }>('/auth/login', { username, password });
-    setToken(data.accessToken);
-    localStorage.setItem(REFRESH_KEY, data.refreshToken);
-    const me = await api.get<AuthUser>('/auth/me');
-    setUser(me.data);
-    setSessionExpired(false);
-  }, []);
+  const login = useCallback(
+    async (username: string, password: string, turnstileToken?: string) => {
+      // Zera a cache do React Query antes de logar pra não herdar dados de
+      // outro usuário/perfil (ex.: pendingApprovals do gestor vindo do operador).
+      queryClient.clear();
+      // O ambiente já foi definido pela LoginPage (PROD ou HML). Não força
+      // PROD aqui pra respeitar a escolha do usuário no toggle.
+      localStorage.removeItem('p2p_company');
+      const { data } = await api.post<{
+        accessToken: string;
+        refreshToken: string;
+      }>(
+        '/auth/login',
+        { username, password },
+        // Mandamos o token via header — o backend lê dos 2 caminhos
+        // (header preferido, body como fallback).
+        turnstileToken
+          ? { headers: { 'x-turnstile-token': turnstileToken } }
+          : undefined,
+      );
+      setToken(data.accessToken);
+      localStorage.setItem(REFRESH_KEY, data.refreshToken);
+      const me = await api.get<AuthUser>('/auth/me');
+      setUser(me.data);
+      setSessionExpired(false);
+    },
+    [],
+  );
 
   /**
    * Login local — para usuários fora do AD (supervisores, vendedores).
@@ -115,14 +122,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * decide pelo formato e devolve o mesmo par de tokens do login AD.
    */
   const loginLocal = useCallback(
-    async (username: string, password: string) => {
+    async (username: string, password: string, turnstileToken?: string) => {
       queryClient.clear();
-      setEnvironment('PROD');
       localStorage.removeItem('p2p_company');
       const { data } = await api.post<{
         accessToken: string;
         refreshToken: string;
-      }>('/auth/login-local', { username, password });
+      }>(
+        '/auth/login-local',
+        { username, password },
+        turnstileToken
+          ? { headers: { 'x-turnstile-token': turnstileToken } }
+          : undefined,
+      );
       setToken(data.accessToken);
       localStorage.setItem(REFRESH_KEY, data.refreshToken);
       const me = await api.get<AuthUser>('/auth/me');
@@ -140,7 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (
       cpf: string,
       password: string,
-      options: { isSetup?: boolean } = {},
+      options: { isSetup?: boolean; turnstileToken?: string } = {},
     ) => {
       queryClient.clear();
       setEnvironment('PROD');
@@ -151,7 +163,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data } = await api.post<{
         accessToken: string;
         refreshToken: string;
-      }>(endpoint, { cpf: cpf.replace(/\D/g, ''), password });
+      }>(
+        endpoint,
+        { cpf: cpf.replace(/\D/g, ''), password },
+        options.turnstileToken
+          ? { headers: { 'x-turnstile-token': options.turnstileToken } }
+          : undefined,
+      );
       setToken(data.accessToken);
       localStorage.setItem(REFRESH_KEY, data.refreshToken);
       const me = await api.get<AuthUser>('/auth/me');

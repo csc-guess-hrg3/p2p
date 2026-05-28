@@ -7,12 +7,27 @@ export interface PendingApproval {
   levelName: string | null;
   status: string;
   companyId: string;
+  /**
+   * Aprovador titular desta etapa. Admin enxerga TODAS as etapas
+   * pendentes — usamos este campo pra mostrar "Aprovador titular: Fulano"
+   * quando o admin não é a pessoa designada (override).
+   */
+  assignedApprover?: { id: string; name: string } | null;
   requisition: {
     id: string;
     number: string;
     title: string;
     totalAmount: string;
     requester: { name: string };
+    /** Dispensa de cotação solicitada (quando preenchida na requisição). */
+    quotationWaiverReason?:
+      | 'CONTRATO_VIGENTE'
+      | 'RECORRENTE'
+      | 'UNICO_FORNECEDOR'
+      | 'EMERGENCIA'
+      | 'OUTRO'
+      | null;
+    quotationWaiverNote?: string | null;
   };
 }
 
@@ -53,12 +68,19 @@ export function useRequestRevision() {
     mutationFn: async ({
       stepId,
       reason,
+      clearQuotationWaiver,
     }: {
       stepId: string;
       reason: string;
+      /** Marca quando o motivo é recusa de dispensa de cotação. */
+      clearQuotationWaiver?: boolean;
     }) =>
-      (await api.post(`/approvals/${stepId}/request-revision`, { reason }))
-        .data,
+      (
+        await api.post(`/approvals/${stepId}/request-revision`, {
+          reason,
+          clearQuotationWaiver,
+        })
+      ).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['approvals'] });
       qc.invalidateQueries({ queryKey: ['requisitions'] });

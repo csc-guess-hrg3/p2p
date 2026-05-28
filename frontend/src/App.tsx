@@ -9,6 +9,10 @@ import { RequisitionsListPage } from '@/pages/requisitions/RequisitionsListPage'
 import { RequisitionFormPage } from '@/pages/requisitions/RequisitionFormPage';
 import { RequisitionDetailPage } from '@/pages/requisitions/RequisitionDetailPage';
 import { FiscalQueuePage } from '@/pages/fiscal/FiscalQueuePage';
+import { ContasPagarPage } from '@/pages/financeiro/ContasPagarPage';
+import { IadsPage } from '@/pages/financeiro/IadsPage';
+import { ProvisoesPage } from '@/pages/financeiro/ProvisoesPage';
+import { DdasPage } from '@/pages/financeiro/DdasPage';
 import { ApprovalsPage } from '@/pages/approvals/ApprovalsPage';
 import { PurchaseOrdersListPage } from '@/pages/purchase-orders/PurchaseOrdersListPage';
 import { PurchaseOrderDetailPage } from '@/pages/purchase-orders/PurchaseOrderDetailPage';
@@ -29,6 +33,7 @@ import { DelegationsPage } from '@/pages/admin/DelegationsPage';
 import { AdSyncPage } from '@/pages/admin/AdSyncPage';
 import { PositionsPage } from '@/pages/admin/PositionsPage';
 import { BranchesPage } from '@/pages/admin/BranchesPage';
+import { BranchDetailPage } from '@/pages/admin/BranchDetailPage';
 import { SetupPasswordPage } from '@/pages/SetupPasswordPage';
 import { Toaster } from '@/components/ui/toaster';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -119,7 +124,9 @@ function App() {
                     />
                   </Route>
 
-                  {/* Pendências Fiscais — Admin/Revisor + equipes com FISCAL_QUEUE. */}
+                  {/* Pendências Fiscais — Admin/Revisor + equipes com FISCAL_QUEUE.
+                      URL nova é hierárquica (/fiscal/pendencias-fiscais);
+                      a antiga redireciona pra não quebrar bookmarks. */}
                   <Route
                     element={
                       <RequireProfile
@@ -129,9 +136,32 @@ function App() {
                     }
                   >
                     <Route
-                      path="pendencias-fiscais"
+                      path="fiscal/pendencias-fiscais"
                       element={<FiscalQueuePage />}
                     />
+                  </Route>
+                  <Route
+                    path="pendencias-fiscais"
+                    element={<Navigate to="/fiscal/pendencias-fiscais" replace />}
+                  />
+
+                  {/* Financeiro — Admin + equipes com módulo FINANCE
+                      liberado (padrão FISCAL_QUEUE). */}
+                  <Route
+                    element={
+                      <RequireProfile roles={['ADMIN']} module="FINANCE" />
+                    }
+                  >
+                    <Route
+                      path="financeiro/contas-pagar"
+                      element={<ContasPagarPage />}
+                    />
+                    <Route path="financeiro/iads" element={<IadsPage />} />
+                    <Route
+                      path="financeiro/provisoes"
+                      element={<ProvisoesPage />}
+                    />
+                    <Route path="financeiro/ddas" element={<DdasPage />} />
                   </Route>
 
                   {/* Relatórios — Admin/Manager/Revisor + equipes com REPORTS. */}
@@ -163,6 +193,10 @@ function App() {
                     <Route path="admin/ad-sync" element={<AdSyncPage />} />
                     <Route path="admin/cargos" element={<PositionsPage />} />
                     <Route path="admin/filiais" element={<BranchesPage />} />
+                    <Route
+                      path="admin/filiais/:code"
+                      element={<BranchDetailPage />}
+                    />
                   </Route>
                 </Route>
               </Route>

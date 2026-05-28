@@ -22,7 +22,7 @@ export function AppLayout() {
       <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Topbar onMenuClick={() => setMobileOpen(true)} />
-        <main className="flex-1 overflow-auto bg-muted/40 p-4 md:p-6">
+        <main className="app-scroll flex-1 overflow-auto bg-muted/40 p-4 md:p-6">
           <Outlet />
         </main>
       </div>

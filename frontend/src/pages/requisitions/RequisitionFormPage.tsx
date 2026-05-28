@@ -4,6 +4,7 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { isAxiosError } from 'axios';
+import { extractApiMessage } from '@/lib/api-errors';
 import { Copy, Info, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { useBranches, usePaymentConditions } from '@/lib/integration';
@@ -11,11 +12,16 @@ import {
   useRequisition,
   useCreateRequisition,
   useUpdateRequisition,
+  useSubmitRequisition,
+  useClearQuotationWaiver,
   type RequisitionInput,
   type RequisitionItemForm,
 } from '@/lib/requisitions';
 import { useCreateFiscalItemRequest } from '@/lib/fiscal';
 import { formatCurrency, formatNumber } from '@/lib/format';
+import { QuotationsWarning } from '@/components/QuotationsWarning';
+import { QuotationWaiverDialog } from './QuotationWaiverDialog';
+import { useAttachments } from '@/lib/attachments';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -44,14 +50,19 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { ItemDialog } from './ItemDialog';
-import { SupplierCombobox } from './SupplierCombobox';
+import { SupplierPicker, type SupplierPickerValue } from './SupplierPicker';
+import { InlineQuotationsAndAttachments } from './InlineQuotationsAndAttachments';
+import { AttachmentsSection } from '@/components/AttachmentsSection';
 import { EditReasonDialog } from '@/components/EditReasonDialog';
 import { useToast } from '@/components/ui/use-toast';
 
 const schema = z
   .object({
     branchErpCode: z.string().min(1, 'Selecione a filial'),
-    supplierErpCode: z.string().min(1, 'Selecione o fornecedor'),
+    // O fornecedor é gerenciado fora do schema pelo `SupplierPicker`
+    // (estado `supplier`). O campo aqui só guarda o erpCode pra compat;
+    // a validação real (CNPJ + nome) acontece em `onSubmit`.
+    supplierErpCode: z.string().optional(),
     title: z.string().min(1, 'Informe o título'),
     comAdiantamento: z.boolean(),
     paymentConditionCode: z
@@ -60,12 +71,10 @@ const schema = z
     recurring: z.boolean(),
     recurrenceMonths: z.string().optional(),
     contractRef: z.string().optional(),
-    // RN-REQ-02 — informa quantas cotações foram anexadas. O backend valida
-    // contra os parâmetros (threshold + mínimo) configurados pelo Admin.
-    quotationsCount: z
-      .number({ message: 'Informe um número' })
-      .int()
-      .min(0),
+    // RN-REQ-02 — cotações são contadas automaticamente a partir dos anexos
+    // (kind=QUOTATION) lá no AttachmentsSection da tela de detalhe. Aqui
+    // o campo deixou de ser editável; mantido no schema só pra hidratar
+    // o default do create (zero), mas a UI não mostra mais o input.
     justification: z
       .string()
       .min(15, 'A justificativa deve ter ao menos 15 caracteres'),
@@ -96,11 +105,32 @@ export function RequisitionFormPage() {
   const existing = useRequisition(isEdit ? id : undefined);
   const createMut = useCreateRequisition();
   const updateMut = useUpdateRequisition();
+  const clearWaiverMut = useClearQuotationWaiver(id);
+  const submitMut = useSubmitRequisition();
   const fiscalMut = useCreateFiscalItemRequest();
+  // Quando o usuário clica em "Salvar e enviar para aprovação", marcamos
+  // esse flag pra que o `persist` chame o submit logo após criar/atualizar
+  // — assim o solicitante não precisa sair do form pra submeter.
+  const [submitAfterSave, setSubmitAfterSave] = useState(false);
+  // Em requisição nova (sem id ainda), o botão "Solicitar dispensa" precisa
+  // de id pro POST funcionar — então primeiro salvamos o rascunho e só
+  // depois abrimos o diálogo. Esse flag conta pro `persist()` que ele tem
+  // que abrir o diálogo de dispensa logo após o save.
+  const [openWaiverAfterSave, setOpenWaiverAfterSave] = useState(false);
 
   const [items, setItems] = useState<RequisitionItemForm[]>([]);
   const [itemsError, setItemsError] = useState<string | null>(null);
-  const [supplierName, setSupplierName] = useState('');
+  // Dispensa de cotação (RN-REQ-02) — só faz sentido em modo edição
+  // (precisa de requisitionId pra salvar). No detail também há esse
+  // botão — replicamos no form pra fluxo único.
+  const [waiverOpen, setWaiverOpen] = useState(false);
+  const [supplier, setSupplier] = useState<SupplierPickerValue>({
+    supplierErpCode: '',
+    supplierCnpj: '',
+    supplierName: '',
+    isExternal: false,
+    suggestedPaymentCondition: null,
+  });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [dialogInitial, setDialogInitial] =
@@ -118,6 +148,8 @@ export function RequisitionFormPage() {
     reset,
     watch,
     setValue,
+    trigger,
+    getValues,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -130,18 +162,49 @@ export function RequisitionFormPage() {
       recurring: false,
       recurrenceMonths: '',
       contractRef: '',
-      quotationsCount: 0,
       justification: '',
     },
   });
 
   const supplierErpCode = watch('supplierErpCode');
+  // Fornecedor pronto pra adicionar itens: ou está cadastrado no ERP
+  // (erpCode preenchido), ou é externo válido (CNPJ + nome via Receita).
+  const hasSupplier =
+    !!supplier.supplierErpCode ||
+    (supplier.isExternal && !!supplier.supplierName.trim());
   const recurring = watch('recurring');
+  // Contagem real de cotações: anexos com kind=QUOTATION. Quando estamos
+  // criando uma requisição nova (sem id ainda), a contagem é zero por
+  // definição — anexos só podem ser carregados depois de salvar o
+  // rascunho (a tela de detalhe expõe o upload).
+  const { data: attachments = [] } = useAttachments(
+    'requisition',
+    isEdit ? id : undefined,
+  );
+  const realQuotationsCount = attachments.filter(
+    (a) => a.kind === 'QUOTATION',
+  ).length;
+  // Total recalculado a cada mudança em `items` — usado pra disparar o aviso
+  // de cotações ANTES do submit (RN-REQ-02) e mostrar o subtotal no rodapé.
+  const itemsTotal = items.reduce(
+    (sum, it) => sum + (Number(it.quantity) || 0) * (Number(it.estimatedPrice) || 0),
+    0,
+  );
 
   // Edição: popula o formulário.
+  //
+  // Importante: além de existing.data, depende de branches.data e
+  // paymentConditions.data — sem isso, o Select pode renderizar o
+  // valor mas sem o SelectItem correspondente (porque as options ainda
+  // não chegaram), e o usuário vê o campo APARENTEMENTE vazio. Reset
+  // novamente quando essas listas chegarem garante que o Select casa
+  // o value com a option.
   useEffect(() => {
     const r = existing.data;
     if (!r) return;
+    // Espera as listas das selects carregarem antes de resetar
+    // — evita o cenário "Filial sumiu" que confundia o usuário.
+    if (!branches.data || !paymentConditions.data) return;
     reset({
       branchErpCode: r.branchErpCode,
       supplierErpCode: r.supplierErpCode,
@@ -153,10 +216,15 @@ export function RequisitionFormPage() {
         ? String(r.recurrenceMonths)
         : '',
       contractRef: r.contractRef ?? '',
-      quotationsCount: r.quotationsCount ?? 0,
       justification: r.justification ?? '',
     });
-    setSupplierName(r.supplierName);
+    setSupplier({
+      supplierErpCode: r.supplierErpCode ?? '',
+      supplierCnpj: r.supplierCnpj ?? '',
+      supplierName: r.supplierName,
+      isExternal: !r.supplierErpCode,
+      suggestedPaymentCondition: r.paymentConditionCode ?? null,
+    });
     setItems(
       (r.items ?? []).map((it) => ({
         fiscalMode: 'NONE' as const,
@@ -170,7 +238,7 @@ export function RequisitionFormPage() {
         costCenterRateioCode: it.costCenterRateioCode,
       })),
     );
-  }, [existing.data, reset]);
+  }, [existing.data, reset, branches.data, paymentConditions.data]);
 
   const editableButNotDraft =
     isEdit && existing.data && existing.data.status !== 'DRAFT';
@@ -200,16 +268,56 @@ export function RequisitionFormPage() {
     });
   }
 
-  async function onSubmit(values: FormValues) {
-    if (!activeCompany) return;
-    if (items.length === 0) {
-      setItemsError('Adicione ao menos um item.');
-      return;
+  /**
+   * Auto-save do rascunho. Chamado quando o solicitante clica em
+   * "Adicionar anexo" no modo criação — fazemos o create silenciosamente
+   * pra ter um `requisitionId` antes do upload. A URL passa pra
+   * `/editar/:id` sem reload e a UI continua exatamente onde estava.
+   *
+   * Retorna o `id` novo (pro AttachmentsSection grudar o anexo nele) ou
+   * `null` se a validação do form falhou — nesse caso, os erros aparecem
+   * nos campos como sempre.
+   */
+  async function ensureDraftSaved(): Promise<string | null> {
+    if (isEdit && id) return id; // já tem rascunho salvo
+    if (!activeCompany) return null;
+    // Valida os campos do react-hook-form.
+    const valid = await trigger();
+    if (!valid) {
+      toast({
+        title: 'Complete os campos obrigatórios',
+        description:
+          'Preencha filial, fornecedor, título e justificativa antes de anexar o primeiro arquivo.',
+        variant: 'destructive',
+      });
+      return null;
     }
+    // Valida fornecedor (gerenciado fora do RHF).
+    if (
+      !supplier.supplierErpCode &&
+      (!supplier.supplierCnpj || !supplier.supplierName.trim())
+    ) {
+      toast({
+        title: 'Fornecedor obrigatório',
+        description:
+          'Selecione um fornecedor cadastrado ou informe o CNPJ + nome.',
+        variant: 'destructive',
+      });
+      return null;
+    }
+    if (items.length === 0) {
+      setItemsError('Adicione ao menos um item antes de anexar.');
+      return null;
+    }
+    const values = getValues();
     const dto: RequisitionInput = {
       companyId: activeCompany.id,
       branchErpCode: values.branchErpCode,
-      supplierErpCode: values.supplierErpCode,
+      supplierErpCode: supplier.supplierErpCode || undefined,
+      supplierCnpj: supplier.isExternal ? supplier.supplierCnpj : undefined,
+      supplierNameOverride: supplier.isExternal
+        ? supplier.supplierName
+        : undefined,
       title: values.title,
       justification: values.justification,
       tipoNotaFiscal: values.comAdiantamento ? 'NF_FUTURA' : 'NF_EXISTENTE',
@@ -219,7 +327,6 @@ export function RequisitionFormPage() {
         ? Number(values.recurrenceMonths)
         : undefined,
       contractRef: values.contractRef || undefined,
-      quotationsCount: values.quotationsCount ?? 0,
       items: items.map((it) => ({
         itemErpCode: it.itemErpCode ?? undefined,
         itemDescription: it.itemDescription,
@@ -232,9 +339,79 @@ export function RequisitionFormPage() {
         notes: it.notes,
       })),
     };
-    // Em edição, abre diálogo dedicado para o motivo. Só dispara o save
-    // depois que o usuário confirma. Criação segue direto.
-    if (isEdit) {
+    try {
+      const saved = await createMut.mutateAsync(dto);
+      // Atualiza a URL pra modo edição sem recarregar (`replace` evita
+      // poluir o histórico).
+      navigate(`/requisicoes/${saved.id}/editar`, { replace: true });
+      toast({
+        title: 'Rascunho salvo',
+        description: 'A requisição foi salva automaticamente.',
+        variant: 'success',
+      });
+      return saved.id;
+    } catch (err) {
+      toast({
+        title: 'Não foi possível salvar o rascunho',
+        description: extractApiMessage(err),
+        variant: 'destructive',
+      });
+      return null;
+    }
+  }
+
+  async function onSubmit(values: FormValues) {
+    if (!activeCompany) return;
+    if (items.length === 0) {
+      setItemsError('Adicione ao menos um item.');
+      return;
+    }
+    // Validação de fornecedor — ou ERP code ou (CNPJ + nome).
+    if (
+      !supplier.supplierErpCode &&
+      (!supplier.supplierCnpj || !supplier.supplierName.trim())
+    ) {
+      toast({
+        title: 'Fornecedor obrigatório',
+        description:
+          'Selecione um fornecedor cadastrado no ERP ou informe o CNPJ + nome do fornecedor externo.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    const dto: RequisitionInput = {
+      companyId: activeCompany.id,
+      branchErpCode: values.branchErpCode,
+      supplierErpCode: supplier.supplierErpCode || undefined,
+      supplierCnpj: supplier.isExternal ? supplier.supplierCnpj : undefined,
+      supplierNameOverride: supplier.isExternal ? supplier.supplierName : undefined,
+      title: values.title,
+      justification: values.justification,
+      tipoNotaFiscal: values.comAdiantamento ? 'NF_FUTURA' : 'NF_EXISTENTE',
+      paymentConditionCode: values.paymentConditionCode,
+      recurring: values.recurring,
+      recurrenceMonths: values.recurring
+        ? Number(values.recurrenceMonths)
+        : undefined,
+      contractRef: values.contractRef || undefined,
+      items: items.map((it) => ({
+        itemErpCode: it.itemErpCode ?? undefined,
+        itemDescription: it.itemDescription,
+        quantity: it.quantity,
+        unit: it.unit,
+        estimatedPrice: it.estimatedPrice,
+        accountingAccount: it.accountingAccount,
+        branchRateioCode: it.branchRateioCode,
+        costCenterRateioCode: it.costCenterRateioCode,
+        notes: it.notes,
+      })),
+    };
+    // Diálogo de "Motivo da edição" só faz sentido quando a requisição
+    // JÁ foi submetida pra aprovação e voltou pra revisão — aí mexer no
+    // conteúdo deixa rastro pro aprovador. Em DRAFT (rascunho), o usuário
+    // está só montando a requisição, não tem o que justificar.
+    const needsEditReason = isEdit && existing.data?.status === 'REVISION';
+    if (needsEditReason) {
       setPendingDto(dto);
       setReasonOpen(true);
       return;
@@ -246,8 +423,14 @@ export function RequisitionFormPage() {
   async function persist(dto: RequisitionInput, supplierErpCode: string) {
     if (!activeCompany) return;
     try {
+      // Em UPDATE, o backend rejeita campos não-whitelisted (companyId
+      // e tipoNotaFiscal não estão em UpdateRequisitionDto — são imutáveis
+      // após criação). Tira eles do payload pra não estourar 400
+      // "property X should not exist" pro usuário.
+      const { companyId: _companyId, tipoNotaFiscal: _tipoNF, ...updatable } =
+        dto;
       const saved = isEdit
-        ? await updateMut.mutateAsync({ id: id!, dto })
+        ? await updateMut.mutateAsync({ id: id!, dto: updatable })
         : await createMut.mutateAsync(dto);
 
       const pending = items.filter(
@@ -272,7 +455,46 @@ export function RequisitionFormPage() {
           variant: 'destructive',
         });
       }
-      navigate(`/requisicoes/${saved.id}`);
+      // Se o usuário pediu "Solicitar dispensa" numa req nova, abrimos o
+      // diálogo logo após salvar (agora já temos `id` no `saved.id`).
+      if (openWaiverAfterSave) {
+        setOpenWaiverAfterSave(false);
+        navigate(`/requisicoes/${saved.id}/editar`, { replace: !isEdit });
+        // Pequeno timeout pra dar tempo da rota mudar antes do dialog abrir.
+        setTimeout(() => setWaiverOpen(true), 50);
+        return;
+      }
+      // Se o usuário clicou em "Salvar e enviar para aprovação", submete
+      // logo após salvar e vai pro detalhe. Vale tanto pra create quanto
+      // pra update — o solicitante não precisa sair do form pra submeter.
+      if (submitAfterSave) {
+        try {
+          await submitMut.mutateAsync(saved.id);
+          toast({
+            title: 'Requisição enviada para aprovação',
+            variant: 'success',
+          });
+          navigate(`/requisicoes/${saved.id}`, { replace: !isEdit });
+          return;
+        } catch (err) {
+          toast({
+            title: 'Rascunho salvo, mas falha ao enviar',
+            description: extractApiMessage(err),
+            variant: 'destructive',
+          });
+          // Cai no fluxo padrão (continua no form em modo edição).
+        } finally {
+          setSubmitAfterSave(false);
+        }
+      }
+      // Depois do create, permanece no FORM em modo edição (mesma página,
+      // URL muda pra /editar/:id). Anexos e cotações ficam disponíveis
+      // logo abaixo sem o usuário ter que ir pro detalhe e voltar.
+      // Em update, mantém o comportamento (vai pro detalhe).
+      navigate(
+        isEdit ? `/requisicoes/${saved.id}` : `/requisicoes/${saved.id}/editar`,
+        { replace: !isEdit },
+      );
     } catch (err) {
       const msg = isAxiosError(err)
         ? (err.response?.data as { message?: string | string[] })?.message
@@ -318,14 +540,41 @@ export function RequisitionFormPage() {
           >
             Cancelar
           </Button>
-          <Button
-            type="submit"
-            disabled={createMut.isPending || updateMut.isPending}
-          >
-            {createMut.isPending || updateMut.isPending
-              ? 'Salvando…'
-              : 'Salvar rascunho'}
-          </Button>
+          {(() => {
+            // Estado atual decide o label dos dois botões — antes ficava
+            // "Salvar e reenviar" mesmo numa requisição que NEM tinha sido
+            // submetida ainda, e isso confundia muito.
+            const status = existing.data?.status;
+            const isRevision = status === 'REVISION';
+            const saveLabel = 'Salvar rascunho';
+            const submitLabel = isRevision
+              ? 'Salvar e reenviar para aprovação'
+              : 'Salvar e enviar para aprovação';
+            const busy =
+              createMut.isPending || updateMut.isPending || submitMut.isPending;
+            return (
+              <>
+                <Button
+                  type="submit"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => setSubmitAfterSave(false)}
+                >
+                  {createMut.isPending || updateMut.isPending
+                    ? 'Salvando…'
+                    : saveLabel}
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={busy}
+                  onClick={() => setSubmitAfterSave(true)}
+                  title="Salva a requisição e já envia para aprovação — sem precisar abrir o detalhe."
+                >
+                  {submitMut.isPending ? 'Enviando…' : submitLabel}
+                </Button>
+              </>
+            );
+          })()}
         </div>
       </div>
 
@@ -360,22 +609,43 @@ export function RequisitionFormPage() {
 
           <div className="space-y-1.5">
             <Label>Fornecedor</Label>
-            <SupplierCombobox
+            <SupplierPicker
               company={code}
-              value={supplierErpCode}
-              selectedName={supplierName}
-              onChange={(codigo, supplier) => {
-                setValue('supplierErpCode', codigo, { shouldValidate: true });
-                setSupplierName(supplier.nome);
-                // Default da condição de pagamento herdado do fornecedor.
-                if (supplier.condicaoPgto) {
-                  setValue('paymentConditionCode', supplier.condicaoPgto, {
+              value={supplier}
+              onChange={(next) => {
+                const cleared =
+                  !next.supplierErpCode &&
+                  !next.supplierCnpj &&
+                  !next.supplierName;
+                const changed =
+                  next.supplierErpCode !== supplier.supplierErpCode ||
+                  next.supplierCnpj !== supplier.supplierCnpj;
+                setSupplier(next);
+                setValue('supplierErpCode', next.supplierErpCode, {
+                  shouldValidate: true,
+                });
+                if (cleared) {
+                  // Limpou o fornecedor → zera tudo que dependia dele:
+                  // condição de pagamento sugerida + itens (catálogo do
+                  // fornecedor anterior não vale pro próximo).
+                  setValue('paymentConditionCode', '', {
                     shouldValidate: true,
                   });
+                  setItems([]);
+                } else if (changed) {
+                  // Trocou fornecedor → itens do anterior não fazem mais
+                  // sentido (codigo ERP, preço estimado etc. eram dele).
+                  setItems([]);
+                  if (next.suggestedPaymentCondition) {
+                    setValue(
+                      'paymentConditionCode',
+                      next.suggestedPaymentCondition,
+                      { shouldValidate: true },
+                    );
+                  }
                 }
               }}
             />
-            <FieldError msg={errors.supplierErpCode?.message} />
           </div>
 
           <div className="space-y-1.5">
@@ -456,26 +726,13 @@ export function RequisitionFormPage() {
             />
           </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="quotationsCount">
-              Cotações anexadas{' '}
-              <span className="text-muted-foreground">
-                (obrigatório acima do valor parametrizado)
-              </span>
-            </Label>
-            <Input
-              id="quotationsCount"
-              type="number"
-              min={0}
-              max={20}
-              {...register('quotationsCount', { valueAsNumber: true })}
-            />
-            <p className="text-xs text-muted-foreground">
-              RN-REQ-02 — o Admin configura o valor a partir do qual cotações
-              são exigidas e quantas no mínimo (padrão: 3 acima de R$ 10.000).
-            </p>
-            <FieldError msg={errors.quotationsCount?.message} />
-          </div>
+          {/*
+            Cotações deixaram de ser um campo digitado — agora são contadas
+            automaticamente a partir dos anexos do tipo "Cotação" enviados
+            na tela de detalhe da requisição (após salvar). O banner abaixo
+            da lista de itens já mostra quantas ainda faltam para atender
+            à RN-REQ-02.
+          */}
 
           <div className="space-y-1.5">
             <Label>Recorrência</Label>
@@ -497,6 +754,9 @@ export function RequisitionFormPage() {
                 <div className="flex items-center gap-1.5">
                   <Input
                     type="number"
+                    inputMode="numeric"
+                    min={1}
+                    step={1}
                     className="w-20"
                     placeholder="meses"
                     {...register('recurrenceMonths')}
@@ -535,7 +795,7 @@ export function RequisitionFormPage() {
             type="button"
             variant="outline"
             size="sm"
-            disabled={!supplierErpCode}
+            disabled={!hasSupplier}
             onClick={openAdd}
           >
             <Plus className="size-4" />
@@ -543,12 +803,12 @@ export function RequisitionFormPage() {
           </Button>
         </CardHeader>
         <CardContent className="space-y-2">
-          {!supplierErpCode && (
+          {!hasSupplier && (
             <p className="text-sm text-muted-foreground">
               Selecione o fornecedor para adicionar itens.
             </p>
           )}
-          {supplierErpCode && items.length === 0 && (
+          {hasSupplier && items.length === 0 && (
             <p className="text-sm text-muted-foreground">
               Nenhum item adicionado.
             </p>
@@ -572,7 +832,7 @@ export function RequisitionFormPage() {
                       <div className="flex items-center gap-2">
                         <span>{it.itemDescription}</span>
                         {it.fiscalMode === 'LINK' && (
-                          <Badge variant="warning">vínculo fiscal</Badge>
+                          <Badge variant="warning">pendência fiscal</Badge>
                         )}
                       </div>
                       <span className="text-xs text-muted-foreground">
@@ -627,8 +887,78 @@ export function RequisitionFormPage() {
             </Table>
           )}
           <FieldError msg={itemsError ?? undefined} />
+
+          {items.length > 0 && (
+            <div className="flex items-center justify-end gap-2 border-t pt-2 text-sm">
+              <span className="text-muted-foreground">Total da requisição:</span>
+              <span className="font-semibold">{formatCurrency(itemsTotal)}</span>
+            </div>
+          )}
+
+          {/*
+            Aviso live de cotações (RN-REQ-02). Aparece assim que `itemsTotal`
+            cruza o threshold parametrizado pelo Admin — o usuário corrige
+            ANTES de tentar submeter e levar um BadRequest.
+          */}
+          {items.length > 0 && activeCompany && (
+            <QuotationsWarning
+              companyId={activeCompany.id}
+              totalAmount={itemsTotal}
+              quotationsCount={realQuotationsCount}
+              waiverReason={existing.data?.quotationWaiverReason ?? null}
+              waiverNote={existing.data?.quotationWaiverNote ?? null}
+              showWhenOk
+              // Botão de dispensa SEMPRE disponível quando a regra está
+              // violada — mesmo sem id ainda. No caso de req nova, salvamos
+              // o rascunho automaticamente e abrimos o diálogo em seguida
+              // (flag `openWaiverAfterSave` no persist).
+              onRequestWaiver={() => {
+                if (isEdit && id) {
+                  setWaiverOpen(true);
+                } else {
+                  // Marca pra abrir o diálogo logo após o save e dispara o
+                  // submit do form (cria o rascunho).
+                  setOpenWaiverAfterSave(true);
+                  handleSubmit(onSubmit)();
+                }
+              }}
+              onClearWaiver={
+                isEdit && id && existing.data?.quotationWaiverReason
+                  ? async () => {
+                      await clearWaiverMut.mutateAsync();
+                    }
+                  : undefined
+              }
+            />
+          )}
         </CardContent>
       </Card>
+
+      {/*
+        Em modo edição (req já existe), trazemos cotações + anexos INLINE
+        no próprio form — assim o solicitante não precisa ir pro detalhe
+        só pra anexar cotações e voltar pra editar a req. Fluxo único
+        do começo ao fim.
+      */}
+      {isEdit && id && existing.data ? (
+        <InlineQuotationsAndAttachments requisition={existing.data} />
+      ) : (
+        // Em modo create, a seção aparece SEMPRE — quando o solicitante
+        // clica em "Adicionar" pela primeira vez, fazemos o auto-save
+        // do rascunho via `onBeforeUpload` e seguimos o upload normal.
+        // Sem fricção de "salve primeiro".
+        <Card>
+          <CardContent className="pt-6">
+            <AttachmentsSection
+              kind="requisition"
+              hint="Cotações, contratos e documentos de apoio. Ao adicionar o primeiro anexo, o rascunho é salvo automaticamente."
+              allowedDocKinds={['QUOTATION', 'CONTRACT', 'INVOICE', 'OTHER']}
+              // Sem defaultDocKind → usuário escolhe tipo conscientemente.
+              onBeforeUpload={ensureDraftSaved}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       <ItemDialog
         open={dialogOpen}
@@ -638,6 +968,15 @@ export function RequisitionFormPage() {
         initial={dialogInitial}
         onConfirm={handleItemConfirm}
       />
+
+      {isEdit && id && existing.data && (
+        <QuotationWaiverDialog
+          requisitionId={id}
+          open={waiverOpen}
+          onOpenChange={setWaiverOpen}
+          suggestedReason={existing.data.recurring ? 'RECORRENTE' : undefined}
+        />
+      )}
 
       <EditReasonDialog
         open={reasonOpen}

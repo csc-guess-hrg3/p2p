@@ -74,7 +74,15 @@ export function ItemCombobox({
             />
           </div>
         </div>
-        <div className="max-h-64 overflow-auto p-1">
+        <div
+          // Radix Popover por padrão captura wheel/touch pra evitar
+          // body-scroll-lock. Em listas longas internas, isso impede o
+          // scroll dentro do dropdown. stopPropagation deixa o div
+          // scrollar normal sem afetar o resto.
+          onWheel={(e) => e.stopPropagation()}
+          onTouchMove={(e) => e.stopPropagation()}
+          className="max-h-64 overflow-y-auto overflow-x-hidden p-1 overscroll-contain"
+        >
           {loading && (
             <p className="px-2 py-3 text-sm text-muted-foreground">
               Carregando…

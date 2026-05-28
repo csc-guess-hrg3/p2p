@@ -18,7 +18,9 @@ const STATUS_MAP: Record<string, { label: string; variant: Variant }> = {
   PARTIALLY_RECEIVED: { label: 'Recebido parcial', variant: 'warning' },
   FULLY_RECEIVED: { label: 'Recebido total', variant: 'success' },
   PENDING_ERP: { label: 'Pendente ERP', variant: 'warning' },
-  INTEGRATED: { label: 'Integrado', variant: 'success' },
+  // Azul (default) ao invés de verde pra não confundir com APPROVED nos
+  // gráficos e tabelas — "integrado" é status de informação, não sucesso.
+  INTEGRATED: { label: 'Integrado', variant: 'default' },
   // Recebimento
   CONFIRMED: { label: 'Confirmado', variant: 'success' },
   DIVERGENT: { label: 'Divergente', variant: 'warning' },

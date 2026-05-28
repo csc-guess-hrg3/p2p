@@ -205,6 +205,7 @@ export function ReceiveDialog({ open, onOpenChange, po }: Props) {
                       <TableCell className="align-top text-right">
                         <Input
                           type="number"
+                          inputMode="decimal"
                           min={0}
                           step="0.0001"
                           className="w-24 text-right"
@@ -219,6 +220,7 @@ export function ReceiveDialog({ open, onOpenChange, po }: Props) {
                       <TableCell className="align-top text-right">
                         <Input
                           type="number"
+                          inputMode="decimal"
                           min={0}
                           step="0.0001"
                           className="w-24 text-right"
@@ -293,6 +295,7 @@ export function ReceiveDialog({ open, onOpenChange, po }: Props) {
                   <Input
                     id="meas-pct"
                     type="number"
+                    inputMode="decimal"
                     min={0}
                     max={100}
                     step="0.01"

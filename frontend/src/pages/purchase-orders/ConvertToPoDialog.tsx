@@ -221,6 +221,12 @@ export function ConvertToPoDialog({ open, onOpenChange, requisition }: Props) {
                   value={fundRequestDueDate}
                   onChange={(e) => setFundRequestDueDate(e.target.value)}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Data limite para o financeiro pagar o adiantamento — vira o
+                  vencimento da Solicitação de Verba no Linx. Em geral é
+                  alguns dias antes da entrega para o fornecedor receber a
+                  tempo.
+                </p>
               </div>
             )}
           </div>

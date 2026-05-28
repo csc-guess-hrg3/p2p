@@ -6,8 +6,13 @@ export interface BranchWithExtras {
   nome: string;
   razaoSocial: string | null;
   cnpj: string | null;
+  ie: string | null;
+  logradouro: string | null;
+  numero: string | null;
+  bairro: string | null;
   cidade: string | null;
   uf: string | null;
+  cep: string | null;
   tipo: string | null;
   inativo: boolean;
   /** E-mail definido pelo Admin em `branch_extensions`. */
@@ -21,6 +26,24 @@ export function useBranchesAdmin(companyId: string | undefined) {
     queryFn: async () =>
       (await api.get<BranchWithExtras[]>('/branches', { params: { companyId } }))
         .data,
+  });
+}
+
+export function useBranchAdmin(
+  companyId: string | undefined,
+  code: string | undefined,
+) {
+  return useQuery({
+    queryKey: ['branch-admin', companyId, code],
+    enabled: !!companyId && !!code,
+    queryFn: async () => {
+      const list = (
+        await api.get<BranchWithExtras[]>('/branches', {
+          params: { companyId },
+        })
+      ).data;
+      return list.find((b) => b.codigo === code) ?? null;
+    },
   });
 }
 

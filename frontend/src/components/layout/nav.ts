@@ -9,6 +9,11 @@ import {
   PackageCheck,
   ClipboardCheck,
   Settings,
+  Wallet,
+  Receipt,
+  Barcode,
+  Landmark,
+  Gavel,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -24,13 +29,15 @@ export type Module =
   | 'PA'
   | 'FISCAL_QUEUE'
   | 'REPORTS'
-  | 'RECEIVING';
+  | 'RECEIVING'
+  | 'FINANCE';
 
 export const MODULE_LABEL: Record<Module, string> = {
   PA: 'Produto Acabado',
   FISCAL_QUEUE: 'Pendências Fiscais',
   REPORTS: 'Relatórios',
   RECEIVING: 'Recebimentos',
+  FINANCE: 'Financeiro',
 };
 
 export interface NavItem {
@@ -42,13 +49,47 @@ export interface NavItem {
   roles?: Profile[];
   /** Se a equipe tiver este módulo liberado, o item aparece além de `roles`. */
   module?: Module;
+  /**
+   * Chave usada pra buscar o contador exibido como badge ao lado do label.
+   * A Sidebar mapeia a chave para uma query (ex.: 'fiscal-pending' →
+   * fiscal-item-requests com status PENDING).
+   */
+  badgeKey?: 'fiscal-pending';
+}
+
+/**
+ * Grupo de navegação (Fiscal, Financeiro). Render é colapsável; quando
+ * todos os filhos estão fora do alcance do usuário, o grupo some inteiro.
+ *
+ * `children` pode conter NavItems (rotas) ou outros NavGroups — assim
+ * dá pra ter Financeiro > Contas a Pagar > [Títulos, DDAs, Provisões]
+ * sem precisar de outro tipo. Limite prático: 2 níveis de aninhamento
+ * pra não virar árvore que ninguém navega.
+ */
+export interface NavGroup {
+  /** Chave única usada pra persistir o estado expandido/colapsado. */
+  key: string;
+  label: string;
+  icon: LucideIcon;
+  children: NavEntry[];
+}
+
+/** Top-level pode ser item solto ou grupo. */
+export type NavEntry = NavItem | NavGroup;
+
+export function isNavGroup(entry: NavEntry): entry is NavGroup {
+  return (entry as NavGroup).children !== undefined;
 }
 
 const ALL: Profile[] = ['ADMIN', 'MANAGER', 'OPERATOR', 'REVIEWER'];
 const APPROVERS: Profile[] = ['ADMIN', 'MANAGER'];
 const FISCAL: Profile[] = ['ADMIN', 'REVIEWER'];
+// FINANCE segue o padrão FISCAL_QUEUE: só Admin vê por role, demais
+// (incluindo Manager) só veem se a equipe tiver o módulo liberado.
+// Quem opera CP no dia a dia entra na equipe Financeiro.
+const FINANCE_ROLES: Profile[] = ['ADMIN'];
 
-export const NAV_ITEMS: NavItem[] = [
+export const NAV_ITEMS: NavEntry[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true, roles: ALL },
   { to: '/requisicoes', label: 'Requisições', icon: FileText, roles: ALL },
   {
@@ -75,6 +116,9 @@ export const NAV_ITEMS: NavItem[] = [
     module: 'PA',
   },
   {
+    // SV continua acessível no top-level pro solicitante ver as próprias.
+    // No grupo Financeiro a mesma SV aparece como "provisão/adiantamento",
+    // com ações distintas (gerar IAD vs ITP).
     to: '/solicitacoes-verba',
     label: 'Solicitações de Verba',
     icon: Banknote,
@@ -87,12 +131,67 @@ export const NAV_ITEMS: NavItem[] = [
     roles: ['ADMIN', 'MANAGER', 'OPERATOR'],
     module: 'RECEIVING',
   },
+  // ─── Grupo Fiscal ───
   {
-    to: '/pendencias-fiscais',
-    label: 'Pendências Fiscais',
-    icon: ClipboardCheck,
-    roles: FISCAL,
-    module: 'FISCAL_QUEUE',
+    key: 'fiscal',
+    label: 'Fiscal',
+    icon: Gavel,
+    children: [
+      {
+        to: '/fiscal/pendencias-fiscais',
+        label: 'Pendências Fiscais',
+        icon: ClipboardCheck,
+        roles: FISCAL,
+        module: 'FISCAL_QUEUE',
+        badgeKey: 'fiscal-pending',
+      },
+    ],
+  },
+  // ─── Grupo Financeiro ───
+  // Contas a Pagar é sub-grupo pra deixar espaço lateral pra outras
+  // áreas futuras dentro de Financeiro (caixa, fluxo, conciliação
+  // bancária etc.) sem entupir o top-level.
+  {
+    key: 'financeiro',
+    label: 'Financeiro',
+    icon: Landmark,
+    children: [
+      {
+        key: 'financeiro.contas-pagar',
+        label: 'Contas a Pagar',
+        icon: Wallet,
+        children: [
+          {
+            to: '/financeiro/contas-pagar',
+            label: 'Títulos a Pagar (ITP)',
+            icon: Wallet,
+            roles: FINANCE_ROLES,
+            module: 'FINANCE',
+          },
+          {
+            to: '/financeiro/iads',
+            label: 'Adiantamentos (IAD)',
+            icon: Banknote,
+            roles: FINANCE_ROLES,
+            module: 'FINANCE',
+          },
+          {
+            to: '/financeiro/ddas',
+            label: 'DDAs',
+            icon: Barcode,
+            roles: FINANCE_ROLES,
+            module: 'FINANCE',
+          },
+          {
+            to: '/financeiro/provisoes',
+            label: 'Provisões',
+            icon: Receipt,
+            roles: FINANCE_ROLES,
+            module: 'FINANCE',
+          },
+        ],
+      },
+    ],
   },
   {
     to: '/relatorios',
@@ -122,4 +221,32 @@ export function canSeeNav(
   const byModule =
     !!item.module && !!access?.extraModules?.includes(item.module);
   return byProfile || byModule;
+}
+
+/**
+ * Filtra entries recursivamente — grupos somem quando nenhum filho
+ * (folha ou sub-grupo) sobra após o filtro. Funciona com aninhamento
+ * de 2 níveis (Financeiro > Contas a Pagar > Títulos/DDAs/Provisões).
+ */
+export function filterNavEntries(
+  entries: NavEntry[],
+  profile?: string,
+  access?: NavAccess,
+): NavEntry[] {
+  const out: NavEntry[] = [];
+  for (const entry of entries) {
+    if (isNavGroup(entry)) {
+      const visibleChildren = filterNavEntries(
+        entry.children,
+        profile,
+        access,
+      );
+      if (visibleChildren.length > 0) {
+        out.push({ ...entry, children: visibleChildren });
+      }
+    } else if (canSeeNav(entry, profile, access)) {
+      out.push(entry);
+    }
+  }
+  return out;
 }

@@ -1,5 +1,13 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Building2, ChevronDown, LogOut, Menu, User as UserIcon } from 'lucide-react';
+import {
+  Building2,
+  ChevronDown,
+  FlaskConical,
+  LogOut,
+  Menu,
+  User as UserIcon,
+} from 'lucide-react';
+import { getEnvironment } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useCompany } from '@/lib/company';
 import {
@@ -11,8 +19,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuCheckItem,
 } from '@/components/ui/dropdown-menu';
-import { NAV_ITEMS } from './nav';
-import { EnvironmentSwitch } from './EnvironmentSwitch';
+import { NAV_ITEMS, isNavGroup, type NavItem } from './nav';
 import { NotificationsBell } from './NotificationsBell';
 
 const PROFILE_LABELS: Record<string, string> = {
@@ -22,11 +29,41 @@ const PROFILE_LABELS: Record<string, string> = {
   REVIEWER: 'Revisor',
 };
 
+/**
+ * Badge informativo do ambiente atual. Só aparece quando está em HML —
+ * em PROD não polui. A escolha do ambiente é feita na LoginPage e fica
+ * travada durante a sessão; pra trocar, o usuário desloga e escolhe
+ * novamente.
+ */
+function EnvironmentBadge() {
+  if (getEnvironment() !== 'HML') return null;
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-warning">
+      <FlaskConical className="size-3.5" />
+      Homologação
+    </span>
+  );
+}
+
+function flattenLeaves(entries: typeof NAV_ITEMS): NavItem[] {
+  const out: NavItem[] = [];
+  for (const e of entries) {
+    if (isNavGroup(e)) out.push(...flattenLeaves(e.children));
+    else out.push(e);
+  }
+  return out;
+}
+
 function currentTitle(pathname: string): string {
   // Casamento por prefixo, sem filtrar por perfil — se a URL existir, o
   // título precisa aparecer mesmo que o item esteja escondido no menu
-  // (ex.: usuário com link direto pra detalhe).
-  const match = NAV_ITEMS.find((i) =>
+  // (ex.: usuário com link direto pra detalhe). Achata grupos
+  // recursivamente pra varrer só os leaves.
+  const leaves = flattenLeaves(NAV_ITEMS);
+  // Match mais específico (caminho mais longo) ganha — evita "/" comer
+  // todas as rotas. Ordena desc por comprimento do `to`.
+  const sorted = [...leaves].sort((a, b) => b.to.length - a.to.length);
+  const match = sorted.find((i) =>
     i.end ? pathname === i.to : pathname.startsWith(i.to),
   );
   return match?.label ?? 'P2P';
@@ -64,8 +101,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
 
       <div className="flex items-center gap-2 md:gap-3">
         <NotificationsBell />
-        {/* Ambiente: produção / homologação */}
-        <EnvironmentSwitch />
+        <EnvironmentBadge />
 
         {/* Seletor de empresa */}
         {companies.length > 1 ? (

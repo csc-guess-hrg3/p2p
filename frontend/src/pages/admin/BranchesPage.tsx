@@ -1,12 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { ArrowLeft, Search } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { ArrowLeft, ChevronRight, Search } from 'lucide-react';
 import { useCompany } from '@/lib/company';
-import {
-  useBranchesAdmin,
-  useSetBranchEmail,
-  type BranchWithExtras,
-} from '@/lib/branches';
+import { useBranchesAdmin } from '@/lib/branches';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -27,17 +23,15 @@ import {
 } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { usePagination } from '@/lib/use-pagination';
-import { useToast } from '@/components/ui/use-toast';
 
 /**
- * Administração de filiais — dados base vêm do ERP (`v_p2p_branches`,
- * read-only) e os campos extras P2P-side (hoje só o e-mail da filial)
- * são editáveis aqui. O e-mail é usado para:
- *   - recuperação de senha do vendedor da loja
- *   - notificações de operações da loja
+ * Lista de filiais — dados base vêm do ERP (`v_p2p_branches`, read-only).
+ * Clique numa linha abre o cadastro completo, onde editamos os campos
+ * P2P-side (hoje, o e-mail usado pra recuperação de senha do vendedor
+ * e notificações de operações da loja).
  */
 export function BranchesPage() {
-  const { toast } = useToast();
+  const navigate = useNavigate();
   const { companies, activeCompany } = useCompany();
   const [companyId, setCompanyId] = useState<string>(activeCompany?.id ?? '');
   const [search, setSearch] = useState('');
@@ -47,7 +41,6 @@ export function BranchesPage() {
   }, [companyId, activeCompany]);
 
   const { data: rows = [], isLoading } = useBranchesAdmin(companyId);
-  const setEmailMut = useSetBranchEmail();
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -55,34 +48,18 @@ export function BranchesPage() {
     return rows.filter(
       (b) =>
         b.codigo.toLowerCase().includes(q) ||
-        b.nome.toLowerCase().includes(q),
+        b.nome.toLowerCase().includes(q) ||
+        (b.razaoSocial ?? '').toLowerCase().includes(q) ||
+        (b.cnpj ?? '').toLowerCase().includes(q),
     );
   }, [rows, search]);
 
   const pag = usePagination(filtered);
 
-  async function saveEmail(branch: BranchWithExtras, raw: string) {
-    if (!companyId) return;
-    const next = raw.trim().toLowerCase() || null;
-    if (next === (branch.email ?? null)) return;
-    try {
-      await setEmailMut.mutateAsync({
-        companyId,
-        code: branch.codigo,
-        email: next,
-      });
-      toast({
-        title: 'E-mail salvo',
-        description: `${branch.codigo} — ${branch.nome}`,
-        variant: 'success',
-      });
-    } catch {
-      toast({
-        title: 'Falha ao salvar',
-        description: 'Verifique o formato do e-mail e tente novamente.',
-        variant: 'destructive',
-      });
-    }
+  function openDetail(code: string) {
+    navigate(
+      `/admin/filiais/${encodeURIComponent(code)}?companyId=${encodeURIComponent(companyId)}`,
+    );
   }
 
   return (
@@ -100,9 +77,9 @@ export function BranchesPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Dados base (código, nome, CNPJ, endereço) vêm do ERP. O
-            <strong> e-mail da filial</strong> é definido aqui e usado
-            para recuperação de senha do vendedor e notificações.
+            Dados base (código, nome, CNPJ, endereço) vêm do ERP. Clique
+            na filial para abrir o cadastro completo e editar os campos
+            P2P-side (e-mail, etc.).
           </p>
 
           <div className="flex flex-col gap-3 sm:flex-row">
@@ -122,7 +99,7 @@ export function BranchesPage() {
               <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
               <Input
                 className="h-9 pl-8"
-                placeholder="Buscar por código ou nome…"
+                placeholder="Buscar por código, nome, razão social ou CNPJ…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -135,15 +112,17 @@ export function BranchesPage() {
                 <TableRow>
                   <TableHead className="w-24">Código</TableHead>
                   <TableHead>Nome</TableHead>
+                  <TableHead>CNPJ</TableHead>
                   <TableHead>Cidade/UF</TableHead>
                   <TableHead>E-mail</TableHead>
+                  <TableHead className="w-8" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading && (
                   <TableRow>
                     <TableCell
-                      colSpan={4}
+                      colSpan={6}
                       className="py-8 text-center text-muted-foreground"
                     >
                       Carregando…
@@ -153,7 +132,7 @@ export function BranchesPage() {
                 {!isLoading && filtered.length === 0 && (
                   <TableRow>
                     <TableCell
-                      colSpan={4}
+                      colSpan={6}
                       className="py-8 text-center text-muted-foreground"
                     >
                       Nenhuma filial encontrada.
@@ -161,20 +140,35 @@ export function BranchesPage() {
                   </TableRow>
                 )}
                 {pag.pageRows.map((b) => (
-                  <TableRow key={b.codigo}>
-                    <TableCell className="font-mono text-xs">{b.codigo}</TableCell>
-                    <TableCell>{b.nome}</TableCell>
+                  <TableRow
+                    key={b.codigo}
+                    onClick={() => openDetail(b.codigo)}
+                    className="cursor-pointer hover:bg-accent"
+                  >
+                    <TableCell className="font-mono text-xs">
+                      {b.codigo}
+                    </TableCell>
+                    <TableCell>
+                      <div className="font-medium">{b.nome}</div>
+                      {b.razaoSocial && b.razaoSocial !== b.nome && (
+                        <div className="text-xs text-muted-foreground">
+                          {b.razaoSocial}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {b.cnpj ?? '—'}
+                    </TableCell>
                     <TableCell className="text-muted-foreground">
                       {b.cidade ? `${b.cidade}/${b.uf ?? ''}` : '—'}
                     </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {b.email ?? (
+                        <span className="text-xs italic">não cadastrado</span>
+                      )}
+                    </TableCell>
                     <TableCell>
-                      <Input
-                        type="email"
-                        defaultValue={b.email ?? ''}
-                        placeholder="email@filial.com.br"
-                        onBlur={(e) => saveEmail(b, e.target.value)}
-                        className="h-8"
-                      />
+                      <ChevronRight className="size-4 text-muted-foreground" />
                     </TableCell>
                   </TableRow>
                 ))}

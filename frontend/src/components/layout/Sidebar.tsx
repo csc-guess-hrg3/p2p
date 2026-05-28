@@ -1,8 +1,16 @@
-import { NavLink } from 'react-router-dom';
-import { X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
+import { ChevronDown, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { NAV_ITEMS, canSeeNav } from './nav';
+import {
+  NAV_ITEMS,
+  filterNavEntries,
+  isNavGroup,
+  type NavItem,
+  type NavGroup,
+} from './nav';
 import { useAuth } from '@/lib/auth';
+import { useFiscalItemRequests } from '@/lib/fiscal';
 
 interface SidebarProps {
   mobileOpen: boolean;
@@ -26,11 +34,168 @@ function Wordmark() {
   );
 }
 
+// Storage da expansão dos grupos. Antes a chave era "p2p:nav:collapsed"
+// e o default era "aberto" (mais ergonômico p/ quem usa só Financeiro).
+// Mudamos pra ser "expanded" e default "fechado" — menu nasce limpo, o
+// usuário expande quando precisar e o estado fica memorizado.
+// Chave nova evita herdar o estado antigo (que vinha como "fechado=undefined,
+// aberto=true" no formato anterior).
+const STORAGE_KEY = 'p2p:nav:expanded';
+
+function loadExpanded(): Record<string, boolean> {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}');
+  } catch {
+    return {};
+  }
+}
+
+function NavLeaf({
+  item,
+  badges,
+}: {
+  item: NavItem;
+  badges: Record<string, number | undefined>;
+}) {
+  const count = item.badgeKey ? badges[item.badgeKey] : undefined;
+  return (
+    <NavLink
+      to={item.to}
+      end={item.end}
+      className={({ isActive }) =>
+        cn(
+          'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+          isActive
+            ? 'bg-sidebar-primary text-sidebar-primary-foreground'
+            : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+        )
+      }
+    >
+      <item.icon className="size-4" />
+      <span className="flex-1">{item.label}</span>
+      {typeof count === 'number' && count > 0 && (
+        <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-5 text-white">
+          {count > 99 ? '99+' : count}
+        </span>
+      )}
+    </NavLink>
+  );
+}
+
+/**
+ * Verifica recursivamente se o pathname atual cai em alguma folha do
+ * grupo — usado pra auto-expandir grupos/sub-grupos quando a rota ativa
+ * pertence a eles.
+ */
+function groupContainsPath(group: NavGroup, pathname: string): boolean {
+  for (const c of group.children) {
+    if (isNavGroup(c)) {
+      if (groupContainsPath(c, pathname)) return true;
+    } else if (pathname.startsWith(c.to)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function NavGroupBlock({
+  group,
+  depth,
+  expandedMap,
+  onToggle,
+  badges,
+}: {
+  group: NavGroup;
+  depth: number;
+  expandedMap: Record<string, boolean>;
+  onToggle: (key: string) => void;
+  badges: Record<string, number | undefined>;
+}) {
+  const location = useLocation();
+  const hasActive = groupContainsPath(group, location.pathname);
+  // Grupo nasce FECHADO. Abre quando:
+  //   1) Rota ativa está dentro (auto-expand) — UX importante: chegou
+  //      via link direto pra um filho, o grupo precisa estar aberto.
+  //   2) Usuário clicou pra abrir (registrado em expandedMap).
+  const open = hasActive || expandedMap[group.key] === true;
+
+  // Sub-grupos (depth>0) recebem tipografia menor pra hierarquia ficar
+  // visível sem precisar de bordas/cores extras.
+  const headerClass =
+    depth === 0
+      ? 'text-xs font-semibold uppercase tracking-wide text-sidebar-foreground/70'
+      : 'text-xs font-medium text-sidebar-foreground/85';
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => onToggle(group.key)}
+        className={cn(
+          'flex w-full items-center justify-between rounded-md px-3 py-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+          headerClass,
+        )}
+      >
+        <span className="flex items-center gap-3">
+          <group.icon className="size-4" />
+          {group.label}
+        </span>
+        <ChevronDown
+          className={cn(
+            'size-4 transition-transform',
+            open ? 'rotate-0' : '-rotate-90',
+          )}
+        />
+      </button>
+      {open && (
+        <div className="mt-1 space-y-1 pl-3">
+          {group.children.map((c) =>
+            isNavGroup(c) ? (
+              <NavGroupBlock
+                key={c.key}
+                group={c}
+                depth={depth + 1}
+                expandedMap={expandedMap}
+                onToggle={onToggle}
+                badges={badges}
+              />
+            ) : (
+              <NavLeaf key={c.to} item={c} badges={badges} />
+            ),
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
   const { user } = useAuth();
-  const items = NAV_ITEMS.filter((i) =>
-    canSeeNav(i, user?.profile, { extraModules: user?.extraModules }),
+  const entries = filterNavEntries(NAV_ITEMS, user?.profile, {
+    extraModules: user?.extraModules,
+  });
+
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(() =>
+    loadExpanded(),
   );
+
+  // Contadores exibidos como badge ao lado do label. Hoje só
+  // "Pendências Fiscais" tem badge. O hook é chamado incondicionalmente
+  // (regra de hooks); pra usuários sem permissão o backend devolve 403
+  // e o `data` fica undefined — o badge simplesmente não aparece.
+  const fiscalPendingQ = useFiscalItemRequests({ status: 'PENDING' });
+  const badges: Record<string, number | undefined> = {
+    'fiscal-pending': fiscalPendingQ.data?.total,
+  };
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(expanded));
+  }, [expanded]);
+
+  function toggle(key: string) {
+    setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
   return (
     <>
       {/* Backdrop só em mobile, quando drawer aberto. Clique fora fecha. */}
@@ -61,25 +226,21 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
             <X className="size-5" />
           </button>
         </div>
-        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2">
-          {items.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) =>
-                cn(
-                  'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                  isActive
-                    ? 'bg-sidebar-primary text-sidebar-primary-foreground'
-                    : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-                )
-              }
-            >
-              <item.icon className="size-4" />
-              {item.label}
-            </NavLink>
-          ))}
+        <nav className="sidebar-scroll flex-1 space-y-1 overflow-y-auto px-3 py-2">
+          {entries.map((entry) =>
+            isNavGroup(entry) ? (
+              <NavGroupBlock
+                key={entry.key}
+                group={entry}
+                depth={0}
+                expandedMap={expanded}
+                onToggle={toggle}
+                badges={badges}
+              />
+            ) : (
+              <NavLeaf key={entry.to} item={entry} badges={badges} />
+            ),
+          )}
         </nav>
         <div className="border-t border-sidebar-border px-6 py-4 text-xs text-sidebar-foreground/60">
           Procure-to-Pay · MVP

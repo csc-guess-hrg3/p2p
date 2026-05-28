@@ -49,6 +49,15 @@ export function FiscalClassifyDialog({
   const [tipoCompra, setTipoCompra] = useState(
     requisition.tipoCompra ?? '',
   );
+  // Pré-seleciona o primeiro tipo do Linx quando a requisição não traz
+  // nenhum. Sem isso o fiscal precisava sempre escolher manual — usuária
+  // pediu: "O tipo de compra não veio padrão". Como o MVP é consumíveis
+  // only, o primeiro da lista é o caso típico.
+  useEffect(() => {
+    if (!tipoCompra && tipos.length > 0) {
+      setTipoCompra(tipos[0].tipoCompra);
+    }
+  }, [tipos, tipoCompra]);
   const [ctb, setCtb] = useState<number | null>(
     requisition.ctbTipoOperacao ?? null,
   );
@@ -104,7 +113,7 @@ export function FiscalClassifyDialog({
 
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <Label>Tipo de compra (opcional)</Label>
+            <Label>Tipo de compra</Label>
             <Select
               value={tipoCompra}
               onValueChange={setTipoCompra}

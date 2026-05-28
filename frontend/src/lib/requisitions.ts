@@ -41,6 +41,9 @@ export interface ApprovalStep {
   levelName: string | null;
   status: string;
   decidedAt: string | null;
+  decidedByName: string | null;
+  /** Nome do aprovador esperado (cargo) quando o step ainda está PENDING. */
+  assignedApproverName: string | null;
   comments: string | null;
 }
 
@@ -50,7 +53,8 @@ export interface Requisition {
   companyId: string;
   branchErpCode: string;
   branchName: string;
-  supplierErpCode: string;
+  /** Null quando fornecedor externo (ainda não cadastrado no ERP). */
+  supplierErpCode: string | null;
   supplierName: string;
   title: string;
   justification: string | null;
@@ -62,7 +66,37 @@ export interface Requisition {
   recurring: boolean;
   recurrenceMonths: number | null;
   contractRef: string | null;
+  /** Null se fornecedor externo (ainda não cadastrado no ERP). */
+  supplierCnpj?: string | null;
+  supplierFantasia?: string | null;
+  supplierEmail?: string | null;
+  supplierTelefone?: string | null;
+  supplierLogradouro?: string | null;
+  supplierNumero?: string | null;
+  supplierBairro?: string | null;
+  supplierCidade?: string | null;
+  supplierUf?: string | null;
+  supplierCep?: string | null;
+  supplierCnae?: string | null;
+  needsSupplierErpCreation?: boolean;
+  /** Pedidos de Compra gerados a partir desta requisição (atalho de navegação). */
+  purchaseOrders?: Array<{
+    id: string;
+    number: string;
+    status: string;
+    erpPedido: string | null;
+  }>;
   quotationsCount: number;
+  /** Dispensa de cotação (RN-REQ-02 — exceção). Null = regra padrão vale. */
+  quotationWaiverReason:
+    | 'CONTRATO_VIGENTE'
+    | 'RECORRENTE'
+    | 'UNICO_FORNECEDOR'
+    | 'EMERGENCIA'
+    | 'OUTRO'
+    | null;
+  quotationWaiverNote: string | null;
+  quotationWaiverAt: string | null;
   tipoCompra: string | null;
   ctbTipoOperacao: number | null;
   naturezaEntrada: string | null;
@@ -78,6 +112,20 @@ export interface Requisition {
   requester?: { id: string; name: string };
   items?: RequisitionItem[];
   approvalSteps?: ApprovalStep[];
+  /**
+   * Pendências fiscais que afetam esta requisição (item-fornecedor sem
+   * vínculo no Linx). Exposto pra qualquer perfil que consiga ver a req
+   * — solicitante enxerga a situação sem precisar do módulo Fiscal.
+   */
+  pendingFiscalItems?: Array<{
+    id: string;
+    status: 'PENDING' | 'APPROVED' | 'REJECTED';
+    itemErpCode: string | null;
+    itemDescription: string;
+    rejectionReason: string | null;
+    createdAt: string;
+    resolvedAt: string | null;
+  }>;
 }
 
 export interface Paginated<T> {
@@ -121,7 +169,12 @@ export interface RequisitionItemForm {
 export interface RequisitionInput {
   companyId: string;
   branchErpCode: string;
-  supplierErpCode: string;
+  /** Vazio = fornecedor externo (preencher supplierCnpj). */
+  supplierErpCode?: string;
+  /** CNPJ para fornecedor externo (sem código no ERP). */
+  supplierCnpj?: string;
+  /** Nome digitado manualmente (último fallback). */
+  supplierNameOverride?: string;
   title: string;
   justification: string;
   tipoNotaFiscal: NfType;
@@ -227,6 +280,65 @@ export function useSubmitRequisition() {
   });
 }
 
+/** Re-submete uma requisição em REVISION sem precisar abrir o form. */
+export function useResubmitRequisition() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) =>
+      (await api.post<Requisition>(`/requisitions/${id}/resubmit`)).data,
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['requisitions'] });
+      qc.invalidateQueries({ queryKey: ['requisition', data.id] });
+      qc.invalidateQueries({ queryKey: ['approvals'] });
+    },
+  });
+}
+
+/* --------- Dispensa de cotação (RN-REQ-02 — exceção) ---------------- */
+
+export const QUOTATION_WAIVER_REASONS = [
+  'CONTRATO_VIGENTE',
+  'RECORRENTE',
+  'UNICO_FORNECEDOR',
+  'EMERGENCIA',
+  'OUTRO',
+] as const;
+export type QuotationWaiverReason = (typeof QUOTATION_WAIVER_REASONS)[number];
+
+export const QUOTATION_WAIVER_LABELS: Record<QuotationWaiverReason, string> = {
+  CONTRATO_VIGENTE: 'Contrato vigente',
+  RECORRENTE: 'Compra recorrente',
+  UNICO_FORNECEDOR: 'Fornecedor único',
+  EMERGENCIA: 'Emergência',
+  OUTRO: 'Outro',
+};
+
+export const QUOTATION_WAIVER_MIN_NOTE = 20;
+
+export function useSetQuotationWaiver(id: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { reason: QuotationWaiverReason; note: string }) =>
+      (await api.post(`/requisitions/${id}/quotation-waiver`, input)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['requisitions'] });
+      qc.invalidateQueries({ queryKey: ['requisition', id] });
+    },
+  });
+}
+
+export function useClearQuotationWaiver(id: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () =>
+      (await api.delete(`/requisitions/${id}/quotation-waiver`)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['requisitions'] });
+      qc.invalidateQueries({ queryKey: ['requisition', id] });
+    },
+  });
+}
+
 export function useFiscalClassify() {
   const qc = useQueryClient();
   return useMutation({
@@ -248,6 +360,24 @@ export function useDeleteRequisition() {
   return useMutation({
     mutationFn: async (id: string) => {
       await api.delete(`/requisitions/${id}`);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['requisitions'] }),
+  });
+}
+
+/**
+ * Clona uma requisição como rascunho. Backend cria uma cópia com novo
+ * número, status=DRAFT e solicitante = usuário logado. Devolve o id
+ * da nova requisição para o caller redirecionar.
+ */
+export function useCloneRequisition() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await api.post<{ id: string; number: string }>(
+        `/requisitions/${id}/clone`,
+      );
+      return res.data;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['requisitions'] }),
   });

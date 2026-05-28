@@ -31,6 +31,8 @@
   --success-foreground: hsl(0 0% 100%);
   --warning: hsl(38 92% 45%);
   --warning-foreground: hsl(0 0% 100%);
+  --info: hsl(212 76% 45%);
+  --info-foreground: hsl(0 0% 100%);
 
   --border: hsl(214 32% 91%);
   --input: hsl(214 32% 91%);
@@ -73,6 +75,8 @@
   --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -91,9 +95,88 @@
   * {
     @apply border-border;
   }
+  /*
+   * Sem isso, o navegador renderiza uma scrollbar no <body> em paralelo
+   * à scrollbar do <main> (que tem overflow-auto). Resultado: 2 barras
+   * verticais lado a lado e espaço em branco abaixo do conteúdo. Travar
+   * html/body/#root em 100vh + overflow-hidden força UMA scrollbar só,
+   * dentro do <main>, que é o comportamento esperado.
+   */
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
   body {
     @apply bg-background text-foreground;
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
+}
+
+/*
+ * Esconde o spinner (setinhas pra cima/baixo) dos inputs type="number".
+ * Visual padrão do Chrome/Edge/Firefox é feio, ocupa espaço útil e o
+ * usuário usa teclado/click — nunca o spinner. O comportamento de
+ * digitar números continua normal.
+ */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield; /* Firefox */
+}
+
+/*
+ * Scrollbar fina e discreta (cinza) — aplicada via classe no <main>
+ * pra evitar a barra padrão grossa do Chrome/Windows. Mantém o
+ * scroll funcional e visível, mas sem competir com o conteúdo.
+ */
+.app-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.25) transparent;
+}
+.app-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.app-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.app-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.18);
+  border-radius: 9999px;
+}
+.app-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.32);
+}
+
+/*
+ * Scrollbar fininha (4px) na cor primária — usada no nav do sidebar.
+ * Esconde quando o ponteiro não está sobre a área (apenas no Webkit /
+ * Chromium). Firefox usa só `scrollbar-color` (sem auto-hide nativo,
+ * mas a cor já fica discreta).
+ *
+ * Aplicada via classe `.sidebar-scroll` em vez de seletor global pra
+ * não afetar listas internas do app que podem querer scrollbar nativa.
+ */
+.sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sidebar-primary) transparent;
+}
+.sidebar-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklab, var(--sidebar-primary) 70%, transparent);
+  border-radius: 9999px;
+}
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: var(--sidebar-primary);
 }

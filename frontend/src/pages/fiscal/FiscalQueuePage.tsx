@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { isAxiosError } from 'axios';
+import { extractApiMessage } from '@/lib/api-errors';
+import { useToast } from '@/components/ui/use-toast';
 import {
   AlertTriangle,
   Download,
@@ -70,6 +71,7 @@ function ApproveDialog({
 }) {
   const catalog = useItems(company);
   const approve = useApproveFiscalItemRequest();
+  const { toast } = useToast();
   const [itemCode, setItemCode] = useState(request.itemErpCode ?? '');
 
   async function handleApprove() {
@@ -79,12 +81,17 @@ function ApproveDialog({
         itemErpCode:
           itemCode && itemCode !== request.itemErpCode ? itemCode : undefined,
       });
+      toast({
+        title: 'Pendência aprovada',
+        variant: 'success',
+      });
       onClose();
     } catch (err) {
-      const msg = isAxiosError(err)
-        ? (err.response?.data as { message?: string })?.message
-        : null;
-      alert(msg || 'Não foi possível aprovar a pendência.');
+      toast({
+        title: 'Não foi possível aprovar a pendência',
+        description: extractApiMessage(err),
+        variant: 'destructive',
+      });
     }
   }
 
