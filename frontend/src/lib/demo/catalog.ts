@@ -49,6 +49,40 @@ export function findDemoUser(username: string): DemoUser | undefined {
   return DEMO_USERS.find((u) => u.username === username.toLowerCase());
 }
 
+/**
+ * Vendedores demo — espelham as entradas plantadas em
+ * `state.lojaVendedores` (seed). Usados pelo bloco demo do login no
+ * modo "Loja" para mostrar atalhos de acesso de vendedor.
+ */
+export interface DemoStoreUser {
+  cpf: string;
+  cpfMasked: string;
+  name: string;
+  branchHint: string;
+  needsSetup: boolean;
+  description: string;
+}
+
+export const DEMO_STORE_USERS: DemoStoreUser[] = [
+  {
+    cpf: '11122233344',
+    cpfMasked: '111.222.333-44',
+    name: 'Ana Vendedora',
+    branchHint: 'Matriz SP + Rio',
+    needsSetup: true,
+    description:
+      'Primeiro acesso — vai abrir a tela de definir senha. Atua em 2 filiais.',
+  },
+  {
+    cpf: '55566677788',
+    cpfMasked: '555.666.777-88',
+    name: 'Beto Loja',
+    branchHint: 'CD Campinas',
+    needsSetup: false,
+    description: 'Senha já cadastrada (demo1234) — entra direto.',
+  },
+];
+
 export const PROFILE_LABELS: Record<string, string> = {
   ADMIN: 'Administrador',
   MANAGER: 'Gestor',

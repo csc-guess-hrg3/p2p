@@ -24,13 +24,16 @@ import {
   handleDelegations,
   handleNotifications,
   handleAdminAdSync,
+  handleBranches,
 } from './admin';
 import { handleIntegration, handleDashboard } from './erp';
+import { handleFinancial } from './financial';
 import {
   handleRequisitions,
   handlePurchaseOrders,
   handleFundRequests,
   handleApprovals,
+  handleQuotations,
 } from './documents';
 import {
   handleReceiving,
@@ -68,6 +71,9 @@ export function routeDemoRequest(
     delegations: () => handleDelegations(m, segments, query, data),
     notifications: () => handleNotifications(m, segments, query),
     admin: () => handleAdminAdSync(m, segments),
+    branches: () => handleBranches(m, segments, query, data),
+    quotations: () => handleQuotations(m, segments, data),
+    financial: () => handleFinancial(m, segments, query),
   };
 
   const handler = handlers[root];

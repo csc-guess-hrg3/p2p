@@ -182,18 +182,22 @@ export function handleAttachments(
       return ok(
         state.attachments
           .filter((a: any) => a[field] === parentId)
+          .map((a: any) => ({ ...a, kind: a.kind ?? 'OTHER' }))
           .sort((a: any, b: any) => (a.createdAt < b.createdAt ? 1 : -1)),
       );
     }
     if (method === 'POST') {
       // Em demo o axios envia FormData; o adapter passa o objeto direto.
-      // Pegamos só o nome do arquivo como mock.
       const userId = getDemoSessionUserId();
       const f: File | undefined =
         (data as any)?.get?.('file') ?? (data as any)?.file;
       const fname = f?.name ?? `demo-${Date.now()}.pdf`;
       const fsize = f?.size ?? 1024;
       const fmime = f?.type ?? 'application/pdf';
+      const attachmentKind: string =
+        (data as any)?.get?.('attachmentKind') ??
+        (data as any)?.attachmentKind ??
+        'OTHER';
       return mutateDemoState((s: any) => {
         s.attachments = s.attachments ?? [];
         const att = {
@@ -203,15 +207,29 @@ export function handleAttachments(
           storageKey: `demo/${parentId}/${fname}`,
           sizeBytes: fsize,
           mimeType: fmime,
+          kind: attachmentKind,
           uploadedById: userId,
           createdAt: todayIso(),
         };
         s.attachments.push(att);
+        // Mantém o cache `quotationsCount` da requisição em sincronia
+        // pra simular o que o backend faz via syncQuotationsCount.
+        if (field === 'requisitionId') {
+          const req = (s.requisitions ?? []).find(
+            (r: any) => r.id === parentId,
+          );
+          if (req) {
+            req.quotationsCount = s.attachments.filter(
+              (a: any) => a.requisitionId === parentId && a.kind === 'QUOTATION',
+            ).length;
+          }
+        }
         return ok({
           id: att.id,
           filename: att.filename,
           sizeBytes: att.sizeBytes,
           mimeType: att.mimeType,
+          kind: att.kind,
           createdAt: att.createdAt,
         });
       });
@@ -234,7 +252,19 @@ export function handleAttachments(
   if (segments.length === 2 && method === 'DELETE') {
     const id = segments[1];
     return mutateDemoState((s: any) => {
+      const removed = (s.attachments ?? []).find((a: any) => a.id === id);
       s.attachments = (s.attachments ?? []).filter((a: any) => a.id !== id);
+      if (removed?.requisitionId) {
+        const req = (s.requisitions ?? []).find(
+          (r: any) => r.id === removed.requisitionId,
+        );
+        if (req) {
+          req.quotationsCount = (s.attachments ?? []).filter(
+            (a: any) =>
+              a.requisitionId === removed.requisitionId && a.kind === 'QUOTATION',
+          ).length;
+        }
+      }
       return ok({ ok: true });
     });
   }

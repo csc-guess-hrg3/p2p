@@ -669,3 +669,52 @@ export function handleAdminAdSync(method: string, segments: string[]): DemoRespo
   }
   return null;
 }
+
+/**
+ * Filiais (admin) — combina os "ERP demo" (state.branches) com o
+ * `branchEmails` mockado pra simular a tabela `branch_extensions`.
+ */
+export function handleBranches(
+  method: string,
+  segments: string[],
+  _query: URLSearchParams,
+  data?: any,
+): DemoResponse | null {
+  if (method === 'GET' && segments.length === 1) {
+    const state = getDemoState();
+    const emails = (state as any).branchEmails ?? {};
+    return ok(
+      state.branches.map((b) => ({
+        codigo: b.codigo,
+        nome: b.nome,
+        razaoSocial: b.razaoSocial ?? null,
+        cnpj: b.cnpj ?? null,
+        ie: b.ie ?? null,
+        logradouro: b.logradouro ?? null,
+        numero: b.numero ?? null,
+        bairro: b.bairro ?? null,
+        cidade: b.cidade ?? null,
+        uf: b.uf ?? null,
+        cep: b.cep ?? null,
+        tipo: b.tipo ?? null,
+        inativo: b.inativo,
+        email: emails[b.codigo] ?? null,
+      })),
+    );
+  }
+  if (
+    method === 'PUT' &&
+    segments.length === 3 &&
+    segments[2] === 'email'
+  ) {
+    const code = decodeURIComponent(segments[1]);
+    const next = (data?.email ?? null) as string | null;
+    mutateDemoState((s: any) => {
+      if (!s.branchEmails) s.branchEmails = {};
+      if (next) s.branchEmails[code] = next.trim().toLowerCase();
+      else delete s.branchEmails[code];
+    });
+    return ok({ ok: true });
+  }
+  return null;
+}

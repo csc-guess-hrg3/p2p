@@ -8,6 +8,16 @@
 export interface DemoBranch {
   codigo: string;
   nome: string;
+  razaoSocial?: string | null;
+  cnpj?: string | null;
+  ie?: string | null;
+  logradouro?: string | null;
+  numero?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  uf?: string | null;
+  cep?: string | null;
+  tipo?: string | null;
   inativo: boolean;
 }
 
@@ -74,9 +84,51 @@ export interface DemoNaturezaEntrada {
 }
 
 export const branches: DemoBranch[] = [
-  { codigo: 'FIL-01', nome: 'Matriz São Paulo', inativo: false },
-  { codigo: 'FIL-02', nome: 'Filial Rio de Janeiro', inativo: false },
-  { codigo: 'FIL-03', nome: 'CD Campinas', inativo: false },
+  {
+    codigo: 'FIL-01',
+    nome: 'Matriz São Paulo',
+    razaoSocial: 'HRG3 Indústria e Comércio S.A.',
+    cnpj: '12.345.678/0001-90',
+    ie: '123.456.789.012',
+    logradouro: 'Av. Paulista',
+    numero: '1000',
+    bairro: 'Bela Vista',
+    cidade: 'São Paulo',
+    uf: 'SP',
+    cep: '01310-100',
+    tipo: 'MATRIZ',
+    inativo: false,
+  },
+  {
+    codigo: 'FIL-02',
+    nome: 'Filial Rio de Janeiro',
+    razaoSocial: 'HRG3 Indústria e Comércio S.A.',
+    cnpj: '12.345.678/0002-71',
+    ie: '987.654.321.098',
+    logradouro: 'Av. Rio Branco',
+    numero: '200',
+    bairro: 'Centro',
+    cidade: 'Rio de Janeiro',
+    uf: 'RJ',
+    cep: '20040-002',
+    tipo: 'LOJA',
+    inativo: false,
+  },
+  {
+    codigo: 'FIL-03',
+    nome: 'CD Campinas',
+    razaoSocial: 'HRG3 Indústria e Comércio S.A.',
+    cnpj: '12.345.678/0003-52',
+    ie: '456.789.012.345',
+    logradouro: 'Rod. Anhanguera, Km 100',
+    numero: 's/n',
+    bairro: 'Distrito Industrial',
+    cidade: 'Campinas',
+    uf: 'SP',
+    cep: '13050-000',
+    tipo: 'CD',
+    inativo: false,
+  },
 ];
 
 export const suppliers: DemoSupplier[] = [

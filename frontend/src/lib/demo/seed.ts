@@ -53,6 +53,7 @@ export interface DemoState {
   paItems: any[];
   paGrade: any[];
   paTamanhos: any[];
+  branchEmails?: Record<string, string>;
   lojaVendedores?: Array<{
     empresa: string;
     cpf: string;
@@ -62,7 +63,7 @@ export interface DemoState {
   }>;
 }
 
-export const DEMO_STATE_VERSION = 9;
+export const DEMO_STATE_VERSION = 10;
 
 function uid(prefix = ''): string {
   // crypto.randomUUID em browsers modernos. Fallback simples se faltar.
@@ -584,6 +585,66 @@ export function buildSeed(): DemoState {
     items: [{ itemIdx: 1, qty: 10, price: 50 }],
     daysAgo: 7,
   });
+  // Títulos rotativos pra dar variedade nas listas. Usado tanto pelo
+  // bulk de STATUS_MIX abaixo quanto pelo loop de CONVERTED mais embaixo.
+  const TITULOS_MIX = [
+    'Reposição de material de escritório',
+    'Manutenção predial — ar condicionado',
+    'Café e copa — reposição mensal',
+    'Material de limpeza — trimestral',
+    'Serviços de consultoria sênior',
+    'Compra de equipamentos TI',
+    'Frete dedicado — projeto X',
+    'Toner e cartuchos — administrativo',
+    'Reposição de uniformes',
+    'Hora técnica de manutenção',
+    'Manutenção de impressoras',
+    'Material gráfico — folders',
+  ];
+  // Bulk de reqs em status diversos (sem virar PC). Enche as listas de
+  // Requisições, Aprovações e o histórico do solicitante.
+  const STATUS_MIX: Array<{
+    status: 'DRAFT' | 'IN_APPROVAL' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+    daysAgo: number;
+    pendingLevel?: 1 | 2 | 3;
+    rejectionReason?: string;
+  }> = [
+    { status: 'DRAFT', daysAgo: 1 },
+    { status: 'DRAFT', daysAgo: 3 },
+    { status: 'IN_APPROVAL', daysAgo: 2, pendingLevel: 1 },
+    { status: 'IN_APPROVAL', daysAgo: 3, pendingLevel: 1 },
+    { status: 'IN_APPROVAL', daysAgo: 5, pendingLevel: 2 },
+    { status: 'IN_APPROVAL', daysAgo: 7, pendingLevel: 2 },
+    { status: 'IN_APPROVAL', daysAgo: 10, pendingLevel: 3 },
+    { status: 'APPROVED', daysAgo: 8 },
+    { status: 'APPROVED', daysAgo: 12 },
+    { status: 'APPROVED', daysAgo: 15 },
+    { status: 'REJECTED', daysAgo: 9, rejectionReason: 'Sem verba neste trimestre.' },
+    { status: 'REJECTED', daysAgo: 14, rejectionReason: 'Buscar mais cotações.' },
+    { status: 'CANCELLED', daysAgo: 6 },
+  ];
+  STATUS_MIX.forEach((mix, i) => {
+    const sIdx = (i + 1) % suppliersArr.length;
+    const itIdx = (i + 2) % allItems.length;
+    const lvl = mix.pendingLevel ?? 1;
+    const approverId =
+      lvl === 1 ? manager.id : lvl === 2 ? admin.id : reviewer.id;
+    buildReq({
+      status: mix.status,
+      supplierIdx: sIdx,
+      branchIdx: i % branchesArr.length,
+      title: `${TITULOS_MIX[i % TITULOS_MIX.length]} (${mix.status.toLowerCase()})`,
+      justification:
+        'Requisição operacional dentro do escopo recorrente da equipe.',
+      items: [{ itemIdx: itIdx, qty: 2 + (i % 4), price: 180 + (i % 9) * 110 }],
+      daysAgo: mix.daysAgo,
+      pendingApproverId: mix.status === 'IN_APPROVAL' ? approverId : null,
+      rejectionReason: mix.rejectionReason ?? null,
+      fiscalReady: mix.status === 'APPROVED',
+      quotationsCount: i % 4,
+    });
+  });
+
   // 6 que viram PC (status CONVERTED) — vamos gerar os PCs em seguida
   const reqsForPo: any[] = [];
   for (let i = 0; i < 6; i++) {
@@ -627,7 +688,6 @@ export function buildSeed(): DemoState {
     opts: {
       status:
         | 'APPROVED'
-        | 'SENT_TO_SUPPLIER'
         | 'PARTIALLY_RECEIVED'
         | 'FULLY_RECEIVED'
         | 'INTEGRATED'
@@ -728,8 +788,8 @@ export function buildSeed(): DemoState {
   // Map 1:1 com as requisições CONVERTED
   reqsForPo.forEach((req, idx) => {
     const variants: any[] = [
-      { status: 'SENT_TO_SUPPLIER', deliveryOffsetDays: -5, sentDaysAgo: 3 }, // atrasado vermelho
-      { status: 'SENT_TO_SUPPLIER', deliveryOffsetDays: 3, sentDaysAgo: 1 }, // vencendo amarelo
+      { status: 'INTEGRATED', deliveryOffsetDays: -5, sentDaysAgo: 3 }, // atrasado vermelho
+      { status: 'INTEGRATED', deliveryOffsetDays: 3, sentDaysAgo: 1 }, // vencendo amarelo
       { status: 'PARTIALLY_RECEIVED', deliveryOffsetDays: 10, sentDaysAgo: 4 },
       { status: 'FULLY_RECEIVED', deliveryOffsetDays: -2, sentDaysAgo: 8 },
       { status: 'INTEGRATED', deliveryOffsetDays: 20, sentDaysAgo: 5 },
@@ -740,27 +800,33 @@ export function buildSeed(): DemoState {
   });
 
   // PCs adicionais "soltos" para chegar a ~20 (criamos requisições rápidas)
-  for (let i = 0; i < 14; i++) {
+  // Volume expandido: 60 PCs distribuídos ao longo de 6 meses, com mix
+  // pesado de status (atrasado, vencendo, recebido, integrado, cancelado).
+  // Suficiente pra encher dashboard + lista de PCs + recebimentos +
+  // financeiro com SVs reais. TITULOS_MIX reaproveitado lá de cima.
+  for (let i = 0; i < 60; i++) {
     const sIdx = (i + 3) % suppliersArr.length;
     const itIdx = (i + 4) % allItems.length;
-    const qty = 1 + (i % 5);
-    const price = 220 + (i % 7) * 90;
+    const qty = 1 + (i % 8);
+    const price = 220 + (i % 11) * 95 + (i % 3) * 50;
+    // Spread em 180 dias pra dashboard mostrar evolução temporal.
+    const daysAgo = 7 + Math.floor((i / 60) * 180) + (i % 7);
     const fastReq = buildReq({
       status: 'CONVERTED',
       supplierIdx: sIdx,
       branchIdx: i % branchesArr.length,
-      title: `Compra ${i + 7} — recorrente`,
-      justification: 'Pedido de reposição operacional.',
+      title: `${TITULOS_MIX[i % TITULOS_MIX.length]} #${i + 7}`,
+      justification: 'Pedido de reposição operacional dentro da política recorrente.',
       items: [{ itemIdx: itIdx, qty, price }],
-      daysAgo: 12 + i,
+      daysAgo,
       fiscalReady: true,
       nfType: i % 5 === 0 ? 'NF_FUTURA' : 'NF_EXISTENTE',
-      quotationsCount: i % 3,
+      quotationsCount: i % 4,
     });
     // Distribuição de status
     const cycle = [
-      { status: 'SENT_TO_SUPPLIER', deliveryOffsetDays: -7, sentDaysAgo: 5 }, // atrasado
-      { status: 'SENT_TO_SUPPLIER', deliveryOffsetDays: 5, sentDaysAgo: 2 },
+      { status: 'INTEGRATED', deliveryOffsetDays: -7, sentDaysAgo: 5 }, // atrasado
+      { status: 'INTEGRATED', deliveryOffsetDays: 5, sentDaysAgo: 2 },
       { status: 'PARTIALLY_RECEIVED', deliveryOffsetDays: 15, sentDaysAgo: 6 },
       { status: 'FULLY_RECEIVED', deliveryOffsetDays: -10, sentDaysAgo: 12 },
       { status: 'APPROVED', deliveryOffsetDays: 18, sentDaysAgo: null },
@@ -844,10 +910,9 @@ export function buildSeed(): DemoState {
         purchaseOrder: { id: po.id, number: po.number, status: po.status },
         items: recItems,
       });
-    } else if (
-      po.status === 'SENT_TO_SUPPLIER' &&
-      draftRecCount < 2
-    ) {
+    } else if (po.status === 'INTEGRATED' && draftRecCount < 2) {
+      // Gera recebimentos em DRAFT em alguns INTEGRATED para mostrar
+      // o estado "aguardando inspeção" na lista de recebimentos.
       const recItems = po.items.map((it: any) => ({
         id: uid('recit'),
         purchaseOrderItemId: it.id,
@@ -1161,6 +1226,162 @@ export function buildSeed(): DemoState {
     }
   }
 
+  // ── Pendências fiscais (vínculo de item ao fornecedor) ──────────
+  // Mix de PENDING/APPROVED/REJECTED pra encher a fila do fiscal e
+  // mostrar o badge contador no sidebar.
+  const fiscalItemRequests: any[] = [];
+  const fiscalMix = [
+    { itemIdx: 0, supplierIdx: 0, status: 'PENDING', daysAgo: 1 },
+    { itemIdx: 3, supplierIdx: 1, status: 'PENDING', daysAgo: 2 },
+    { itemIdx: 5, supplierIdx: 2, status: 'PENDING', daysAgo: 3 },
+    { itemIdx: 8, supplierIdx: 4, status: 'PENDING', daysAgo: 1 },
+    { itemIdx: 9, supplierIdx: 5, status: 'PENDING', daysAgo: 4 },
+    { itemIdx: 2, supplierIdx: 0, status: 'APPROVED', daysAgo: 8 },
+    { itemIdx: 4, supplierIdx: 1, status: 'APPROVED', daysAgo: 10 },
+    { itemIdx: 6, supplierIdx: 2, status: 'APPROVED', daysAgo: 12 },
+    { itemIdx: 1, supplierIdx: 0, status: 'APPROVED', daysAgo: 15 },
+    { itemIdx: 7, supplierIdx: 3, status: 'REJECTED', daysAgo: 7 },
+    { itemIdx: 10, supplierIdx: 5, status: 'REJECTED', daysAgo: 20 },
+  ];
+  fiscalMix.forEach((f) => {
+    const it = allItems[f.itemIdx % allItems.length];
+    const sup = suppliersArr[f.supplierIdx];
+    fiscalItemRequests.push({
+      id: uid('fir'),
+      companyId,
+      type: 'LINK',
+      status: f.status,
+      supplierErpCode: sup.codigo,
+      supplierName: sup.nome,
+      itemErpCode: f.status === 'APPROVED' ? it.code : null,
+      itemDescription: it.desc,
+      unit: it.unit,
+      rejectionReason:
+        f.status === 'REJECTED'
+          ? 'Item incompatível com a CTB do fornecedor.'
+          : null,
+      notes: 'Solicitação aberta automaticamente durante a requisição.',
+      createdAt: nowIso(-f.daysAgo),
+      resolvedAt:
+        f.status === 'PENDING' ? null : nowIso(-Math.max(0, f.daysAgo - 2)),
+      requestedBy: { id: operator.id, name: operator.name },
+      resolvedBy:
+        f.status === 'PENDING' ? null : { id: reviewer.id, name: reviewer.name },
+    });
+  });
+
+  // ── Logs de integração extras (incluindo falhas) ────────────────
+  // Mostra na timeline/admin que o sistema TENTA, às vezes falha, e
+  // como o dado de erro fica preservado em integration_logs.
+  integrationLogs.push(
+    {
+      id: uid('log'),
+      companyId,
+      source: 'ERP_DEMO',
+      jobType: 'SEND_PO',
+      status: 'FAILED',
+      recordsProcessed: 0,
+      durationMs: 850,
+      errorDetails:
+        'Linx rejeitou: Fornecedor sem cadastro de condição de pagamento.',
+      executedAt: nowIso(-6),
+    },
+    {
+      id: uid('log'),
+      companyId,
+      source: 'ERP_DEMO',
+      jobType: 'SEND_SV',
+      status: 'FAILED',
+      recordsProcessed: 0,
+      durationMs: 1240,
+      errorDetails:
+        'Linx rejeitou: campo CONTA_CONTABIL obrigatório no item da SV.',
+      executedAt: nowIso(-4),
+    },
+    {
+      id: uid('log'),
+      companyId,
+      source: 'ERP_DEMO',
+      jobType: 'SEND_PO',
+      status: 'SUCCESS',
+      recordsProcessed: 5,
+      durationMs: 432,
+      errorDetails: null,
+      executedAt: nowIso(-2),
+    },
+  );
+
+  // ── Notificações variadas ───────────────────────────────────────
+  // Cobre os tipos típicos: aprovação solicitada, aprovação concedida,
+  // rejeitada, PC recebido, erro de integração. Mistura lida/não lida.
+  const notificationSeeds: Array<{
+    userId: string;
+    type: string;
+    title: string;
+    body: string;
+    daysAgo: number;
+    read: boolean;
+  }> = [];
+  const sampleReqs = requisitions.slice(0, 8);
+  sampleReqs.forEach((r, idx) => {
+    if (r.status === 'IN_APPROVAL') {
+      notificationSeeds.push({
+        userId: manager.id,
+        type: 'APPROVAL_REQUEST',
+        title: `Aprovação pendente — ${r.number}`,
+        body: `${r.title} (R$ ${r.totalAmount}) aguarda sua decisão.`,
+        daysAgo: idx,
+        read: false,
+      });
+    }
+    if (r.status === 'APPROVED') {
+      notificationSeeds.push({
+        userId: operator.id,
+        type: 'APPROVED',
+        title: `Requisição aprovada — ${r.number}`,
+        body: 'Pronto pra conversão em pedido de compra.',
+        daysAgo: idx + 1,
+        read: idx % 2 === 0,
+      });
+    }
+    if (r.status === 'REJECTED') {
+      notificationSeeds.push({
+        userId: operator.id,
+        type: 'REJECTED',
+        title: `Requisição rejeitada — ${r.number}`,
+        body: r.rejectionReason ?? 'Veja o detalhe pra ajustar e reenviar.',
+        daysAgo: idx + 2,
+        read: false,
+      });
+    }
+  });
+  notificationSeeds.push(
+    {
+      userId: admin.id,
+      type: 'ERP_ERROR',
+      title: 'Falha de integração com o Linx',
+      body: 'Última tentativa falhou — campo CONTA_CONTABIL obrigatório.',
+      daysAgo: 4,
+      read: false,
+    },
+    {
+      userId: operator.id,
+      type: 'RECEIVED',
+      title: 'Recebimento confirmado',
+      body: 'OC-DEMO-000003 totalmente recebida.',
+      daysAgo: 2,
+      read: false,
+    },
+    {
+      userId: reviewer.id,
+      type: 'FISCAL_PENDING',
+      title: 'Nova pendência fiscal aberta',
+      body: '5 itens aguardam vínculo com fornecedor.',
+      daysAgo: 1,
+      read: false,
+    },
+  );
+
   return {
     version: DEMO_STATE_VERSION,
     companies: [
@@ -1196,7 +1417,7 @@ export function buildSeed(): DemoState {
     approvalSteps,
     purchaseOrders,
     fundRequests,
-    fiscalItemRequests: [],
+    fiscalItemRequests,
     // Allowlist de rateios da equipe demo — libera todos para a equipe
     // padrão, senão o ItemDialog ficaria com combo vazio.
     teamBranchRateios: branchRateios.map((r: any) => ({
@@ -1209,20 +1430,36 @@ export function buildSeed(): DemoState {
       companyId,
       costCenterRateioCode: r.codigo,
     })),
-    notifications: users.map((u, idx) => ({
-      id: uid('notif'),
-      companyId,
-      userId: u.id,
-      type: 'WELCOME',
-      title: 'Bem-vindo ao modo demonstração',
-      body:
-        'Esta é uma notificação de exemplo — os dados são gerados pelo ' +
-        'seed e nada é persistido no servidor.',
-      entityType: null,
-      entityId: null,
-      readAt: idx % 2 === 0 ? null : nowIso(-1),
-      createdAt: nowIso(-idx),
-    })),
+    notifications: [
+      // Bem-vindo (1 por usuário)
+      ...users.map((u, idx) => ({
+        id: uid('notif'),
+        companyId,
+        userId: u.id,
+        type: 'WELCOME',
+        title: 'Bem-vindo ao modo demonstração',
+        body:
+          'Esta é uma notificação de exemplo — os dados são gerados pelo ' +
+          'seed e nada é persistido no servidor.',
+        entityType: null,
+        entityId: null,
+        readAt: idx % 2 === 0 ? null : nowIso(-1),
+        createdAt: nowIso(-idx),
+      })),
+      // Mix de eventos (aprovações, rejeições, recebimentos, erros ERP).
+      ...notificationSeeds.map((n) => ({
+        id: uid('notif'),
+        companyId,
+        userId: n.userId,
+        type: n.type,
+        title: n.title,
+        body: n.body,
+        entityType: null,
+        entityId: null,
+        readAt: n.read ? nowIso(-Math.max(0, n.daysAgo - 1)) : null,
+        createdAt: nowIso(-n.daysAgo),
+      })),
+    ],
     integrationLogs,
     receivings,
     attachments: attachmentsList,
