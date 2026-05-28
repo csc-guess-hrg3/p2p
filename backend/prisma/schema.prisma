@@ -67,6 +67,8 @@ model Company {
   erpConfig             CompanyErpConfig?
   branchAssignments     UserBranchAssignment[]
   branchExtensions      BranchExtension[]
+  fiscalDocuments       FiscalDocument[]
+  fiscalDocumentSyncStates FiscalDocumentSyncState[]
 
   @@map("companies")
 }
@@ -172,6 +174,94 @@ model FiscalItemRequest {
 
   @@index([companyId, status])
   @@map("fiscal_item_requests")
+}
+
+// ============================================================
+// Documentos fiscais (NFe / NFSe / CTe) baixados da Qive (Arquivei).
+// Por enquanto vamos só listar e VINCULAR manualmente ao PC; o
+// lançamento no Linx e a manifestação ficam pra fase futura
+// (robô de escrituração automática que a TI HRG3 já tem em uso).
+// ============================================================
+
+model FiscalDocument {
+  id              String    @id @default(uuid()) @db.UniqueIdentifier
+  companyId       String    @db.UniqueIdentifier
+  /** NFe | NFSe | CTe — começamos só com NFe. */
+  type            String    @db.NVarChar(10)
+  /** Chave SEFAZ — 44 chars (NFe/CTe) ou identificador da NFSe. */
+  accessKey       String    @unique @db.NVarChar(80)
+  /** Cursor da Qive no momento do fetch — pra rastreabilidade. */
+  qiveCursor      Int?
+  // ─── Emitente (fornecedor externo da nossa perspectiva) ───
+  supplierCnpj    String    @db.NVarChar(14)
+  supplierName    String    @db.NVarChar(255)
+  // ─── Destinatário (uma das nossas filiais) ───
+  destCnpj        String    @db.NVarChar(14)
+  destName        String?   @db.NVarChar(255)
+  // ─── Identificação da NF ───
+  numero          String    @db.NVarChar(20)
+  serie           String?   @db.NVarChar(10)
+  natOp           String?   @db.NVarChar(255)
+  valorTotal      Decimal   @db.Decimal(15, 2)
+  emissao         DateTime
+  /**
+   * Status:
+   *  - PENDING — recém-baixada, sem ação
+   *  - LINKED — operador vinculou ao PC (purchaseOrderId preenchido)
+   *  - IGNORED — operador marcou que não vai virar PC (transferência
+   *              interna, devolução, etc.)
+   *  - INTERNAL — emitente é CNPJ próprio da empresa (auto-classificada
+   *               como transferência interna; pula da lista padrão)
+   */
+  status          String    @default("PENDING") @db.NVarChar(15)
+  purchaseOrderId String?   @db.UniqueIdentifier
+  linkedById      String?   @db.UniqueIdentifier
+  linkedAt        DateTime?
+  notes           String?   @db.NVarChar(Max)
+  /**
+   * XML completo da NFe em base64 (mesmo que a Qive devolve).
+   * Permite re-parse / re-extração sem precisar voltar pra Qive.
+   * Median ~5-10KB por NFe.
+   */
+  rawXmlBase64    String    @db.NVarChar(Max)
+  /**
+   * Itens parseados do XML — JSON serializado pra exibir sem reparse.
+   * Estrutura: [{ cProd, xProd, ncm, cfop, qCom, vUnCom, vProd, uCom }, ...]
+   */
+  itemsJson       String?   @db.NVarChar(Max)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  company       Company        @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  purchaseOrder PurchaseOrder? @relation("FiscalDocumentLinked", fields: [purchaseOrderId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  linkedBy      User?          @relation("FiscalDocumentLinker", fields: [linkedById], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@index([companyId, status, emissao])
+  @@index([supplierCnpj])
+  @@index([purchaseOrderId])
+  @@map("fiscal_documents")
+}
+
+/**
+ * Cursor da última sincronização da Qive por empresa — permite o cron
+ * retomar de onde parou. Uma linha por (companyId, role).
+ */
+model FiscalDocumentSyncState {
+  id          String    @id @default(uuid()) @db.UniqueIdentifier
+  companyId   String    @db.UniqueIdentifier
+  /** role da Qive: received | emitted | transporter | authorized */
+  role        String    @db.NVarChar(20)
+  lastCursor  Int       @default(0)
+  lastSyncAt  DateTime?
+  lastError   String?   @db.NVarChar(Max)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@unique([companyId, role])
+  @@map("fiscal_document_sync_states")
 }
 
 // ============================================================
@@ -416,6 +506,7 @@ model User {
   notifications       Notification[]
   updatedSettings     SystemSetting[]
   fiscalRequests      FiscalItemRequest[] @relation("fiscalRequester")
+  fiscalDocumentsLinked FiscalDocument[]  @relation("FiscalDocumentLinker")
   fiscalResolutions   FiscalItemRequest[] @relation("fiscalResolver")
   createdQuotations   Quotation[]         @relation("quotationCreatedBy")
   selectedQuotations  Quotation[]         @relation("quotationSelectedBy")
@@ -723,6 +814,7 @@ model PurchaseOrder {
   receivings    Receiving[]
   fundRequest   FundRequest?
   attachments   Attachment[]
+  fiscalDocuments FiscalDocument[] @relation("FiscalDocumentLinked")
 
   @@index([companyId, status])
   @@index([expectedDelivery, status])

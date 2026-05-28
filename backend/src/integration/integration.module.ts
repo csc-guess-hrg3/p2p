@@ -5,6 +5,7 @@ import { LinxErpService } from './linx-erp.service';
 import { EmailService } from './email.service';
 import { CnpjPublicService } from './cnpj-public.service';
 import { ErpBackSyncService } from './erp-back-sync.service';
+import { QiveClientService } from './qive-client.service';
 
 @Module({
   providers: [
@@ -13,6 +14,7 @@ import { ErpBackSyncService } from './erp-back-sync.service';
     EmailService,
     CnpjPublicService,
     ErpBackSyncService,
+    QiveClientService,
   ],
   exports: [
     IntegrationService,
@@ -20,6 +22,7 @@ import { ErpBackSyncService } from './erp-back-sync.service';
     EmailService,
     CnpjPublicService,
     ErpBackSyncService,
+    QiveClientService,
   ],
   controllers: [IntegrationController],
 })
