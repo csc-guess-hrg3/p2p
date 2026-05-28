@@ -21,6 +21,7 @@ frontend/.env
 
 # Logs
 *.log
+*.err
 npm-debug.log*
 pm2*.log
 
@@ -36,7 +37,11 @@ Thumbs.db
 
 # Temporários
 *.tmp
+*.tmp-*
 *.bak
+
+# Extração temporária de docx (skill anthropic-skills:docx)
+.prd_unpacked/
 
 # Documentos de trabalho (não versionados)
 # PDFs/docx de especificacao, briefings, analises criticas, caderno de bordo
