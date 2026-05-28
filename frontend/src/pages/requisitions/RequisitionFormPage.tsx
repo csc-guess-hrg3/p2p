@@ -7,7 +7,7 @@ import { isAxiosError } from 'axios';
 import { extractApiMessage } from '@/lib/api-errors';
 import { Copy, Info, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useCompany } from '@/lib/company';
-import { useBranches, usePaymentConditions } from '@/lib/integration';
+import { useBranches, useComprasTipos, usePaymentConditions } from '@/lib/integration';
 import {
   useRequisition,
   useCreateRequisition,
@@ -71,6 +71,12 @@ const schema = z
     recurring: z.boolean(),
     recurrenceMonths: z.string().optional(),
     contractRef: z.string().optional(),
+    // tipoCompra (opcional). Quando o solicitante não escolhe, o backend
+    // cai no default da CompanyErpConfig. Mostrar aqui permite que o
+    // usuário sinalize "esta compra é de manutenção" sem depender do
+    // fiscal renomear depois. O fiscal ainda pode override no
+    // FiscalClassifyDialog antes da conversão em PC.
+    tipoCompra: z.string().optional(),
     // RN-REQ-02 — cotações são contadas automaticamente a partir dos anexos
     // (kind=QUOTATION) lá no AttachmentsSection da tela de detalhe. Aqui
     // o campo deixou de ser editável; mantido no schema só pra hidratar
@@ -102,6 +108,7 @@ export function RequisitionFormPage() {
 
   const branches = useBranches(code);
   const paymentConditions = usePaymentConditions(code);
+  const comprasTipos = useComprasTipos(code);
   const existing = useRequisition(isEdit ? id : undefined);
   const createMut = useCreateRequisition();
   const updateMut = useUpdateRequisition();
@@ -163,6 +170,7 @@ export function RequisitionFormPage() {
       recurrenceMonths: '',
       contractRef: '',
       justification: '',
+      tipoCompra: '',
     },
   });
 
@@ -217,6 +225,7 @@ export function RequisitionFormPage() {
         : '',
       contractRef: r.contractRef ?? '',
       justification: r.justification ?? '',
+      tipoCompra: r.tipoCompra ?? '',
     });
     setSupplier({
       supplierErpCode: r.supplierErpCode ?? '',
@@ -327,6 +336,7 @@ export function RequisitionFormPage() {
         ? Number(values.recurrenceMonths)
         : undefined,
       contractRef: values.contractRef || undefined,
+      tipoCompra: values.tipoCompra || undefined,
       items: items.map((it) => ({
         itemErpCode: it.itemErpCode ?? undefined,
         itemDescription: it.itemDescription,
@@ -394,6 +404,7 @@ export function RequisitionFormPage() {
         ? Number(values.recurrenceMonths)
         : undefined,
       contractRef: values.contractRef || undefined,
+      tipoCompra: values.tipoCompra || undefined,
       items: items.map((it) => ({
         itemErpCode: it.itemErpCode ?? undefined,
         itemDescription: it.itemDescription,
@@ -712,6 +723,45 @@ export function RequisitionFormPage() {
               )}
             />
             <FieldError msg={errors.paymentConditionCode?.message} />
+          </div>
+
+          {/* Tipo de compra do Linx — vem de v_p2p_compras_tipos da empresa
+              ativa. Opcional pro solicitante (loose end 6.1 do SPEC):
+              quando não escolhe, o backend cai no default da empresa OU o
+              fiscal sobrescreve no FiscalClassifyDialog antes de converter. */}
+          <div className="space-y-1.5">
+            <Label>
+              Tipo de compra{' '}
+              <span className="text-muted-foreground">(opcional)</span>
+            </Label>
+            <Controller
+              control={control}
+              name="tipoCompra"
+              render={({ field }) => (
+                <Select
+                  value={field.value || ''}
+                  onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Padrão da empresa (definido pelo fiscal)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">
+                      Padrão (definido pelo fiscal)
+                    </SelectItem>
+                    {(comprasTipos.data ?? []).map((t) => (
+                      <SelectItem key={t.tipoCompra} value={t.tipoCompra}>
+                        {t.tipoCompra}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+            <p className="text-xs text-muted-foreground">
+              Como esta compra deve ser classificada no ERP. Se não souber,
+              deixe em branco — o fiscal decide na revisão.
+            </p>
           </div>
 
           <div className="space-y-1.5">
