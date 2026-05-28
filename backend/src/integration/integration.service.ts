@@ -342,6 +342,29 @@ export class IntegrationService {
     return rows[0] ?? null;
   }
 
+  /**
+   * Busca um fornecedor pelo CNPJ (só dígitos). Usado pelo cadastro de
+   * cotação — quando o solicitante digita o CNPJ, descobrimos se já
+   * existe no ERP e auto-preenchemos nome + condição de pagamento.
+   */
+  async findSupplierByCnpj(
+    company: string,
+    cnpjDigits: string,
+  ): Promise<ErpSupplier | null> {
+    const c = this.assertCompany(company);
+    const clean = cnpjDigits.replace(/\D/g, '');
+    if (clean.length < 11) return null;
+    const rows = await this.prisma.$queryRaw<ErpSupplier[]>`
+      SELECT codigo, nome, razao_social AS razaoSocial, cnpj_cpf AS cnpjCpf,
+             tipo_pessoa AS tipoPessoa, email, telefone, tipo,
+             condicao_pgto AS condicaoPgto, banco, agencia, conta,
+             chave_pix AS chavePix, inativo
+      FROM dbo.v_p2p_suppliers
+      WHERE empresa = ${c}
+        AND REPLACE(REPLACE(REPLACE(cnpj_cpf, '.', ''), '/', ''), '-', '') = ${clean}`;
+    return rows[0] ?? null;
+  }
+
   async findItem(company: string, codigo: string): Promise<ErpItem | null> {
     const c = this.assertCompany(company);
     const rows = await this.prisma.$queryRaw<ErpItem[]>`
@@ -455,6 +478,25 @@ export class IntegrationService {
       throw new BadRequestException(`Banco ERP inválido: ${erpDbName}`);
     }
     return erpDbName;
+  }
+
+  /**
+   * Verifica se o item está vinculado ao fornecedor no Linx
+   * (SS_ITEM_FISCAL_FORNECEDOR). Usado quando o aprovador troca de
+   * cotação: o `itemErpCode` original pode ou não ser válido pro novo
+   * fornecedor — só descobrimos consultando essa tabela.
+   */
+  async isSupplierItemLinked(
+    erpDbName: string,
+    supplierCode: string,
+    itemCode: string,
+  ): Promise<boolean> {
+    const db = this.assertDbName(erpDbName);
+    const rows = await this.prisma.$queryRaw<{ n: number }[]>(Prisma.sql`
+      SELECT COUNT(*) AS n
+      FROM ${Prisma.raw(db)}.dbo.SS_ITEM_FISCAL_FORNECEDOR
+      WHERE CLIFOR = ${supplierCode} AND CODIGO_ITEM = ${itemCode}`);
+    return Number(rows[0]?.n ?? 0) > 0;
   }
 
   /** Cria o vínculo item-fornecedor no Linx (SS_ITEM_FISCAL_FORNECEDOR). */

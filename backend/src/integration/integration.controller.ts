@@ -1,6 +1,7 @@
 import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { IntegrationService } from './integration.service';
+import { CnpjPublicService } from './cnpj-public.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
@@ -14,7 +15,10 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 @UseGuards(JwtAuthGuard)
 @Controller('integration/:company')
 export class IntegrationController {
-  constructor(private readonly integration: IntegrationService) {}
+  constructor(
+    private readonly integration: IntegrationService,
+    private readonly cnpjPublic: CnpjPublicService,
+  ) {}
 
   @Get('branches')
   @ApiOperation({ summary: 'Lista as filiais da empresa' })
@@ -45,6 +49,29 @@ export class IntegrationController {
       onlyActive: includeInactive !== 'true',
       search,
     });
+  }
+
+  @Get('supplier-by-cnpj')
+  @ApiOperation({
+    summary: 'Busca um fornecedor pelo CNPJ. Retorna 404 se não cadastrado.',
+  })
+  async supplierByCnpj(
+    @Param('company') company: string,
+    @Query('cnpj') cnpj: string,
+  ) {
+    const found = await this.integration.findSupplierByCnpj(company, cnpj ?? '');
+    return found ?? { found: false };
+  }
+
+  @Get('cnpj-public')
+  @ApiOperation({
+    summary:
+      'Consulta dados públicos do CNPJ via BrasilAPI (razão social, ' +
+      'endereço, CNAE etc.). Usado como fallback quando o fornecedor não ' +
+      'está cadastrado no ERP — solicitante só digita o CNPJ.',
+  })
+  cnpjPublicLookup(@Query('cnpj') cnpj: string) {
+    return this.cnpjPublic.lookup(cnpj ?? '');
   }
 
   @Get('accounts')
