@@ -138,7 +138,7 @@ export class RequisitionRecurrenceService {
     companyId: string;
     branchErpCode: string;
     branchName: string;
-    supplierErpCode: string;
+    supplierErpCode: string | null;
     supplierName: string;
     requesterId: string;
     teamId: string | null;

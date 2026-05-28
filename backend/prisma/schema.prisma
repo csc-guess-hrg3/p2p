@@ -384,6 +384,16 @@ model User {
   cpf           String?   @unique @db.NVarChar(11)        // só dígitos
   passwordHash  String?   @db.NVarChar(255)
   passwordSetAt DateTime?
+  /**
+   * Proteção contra força bruta: contador de tentativas seguidas que
+   * falharam (zera em login bem-sucedido). Quando `lockedUntil` está no
+   * futuro, o login é rejeitado mesmo com credenciais certas — até
+   * passar a janela. Janelas crescentes: 5 falhas → 15min, 10 → 1h,
+   * 15 → 24h (encerra o burst e dificulta credential stuffing).
+   */
+  failedLoginAttempts Int      @default(0)
+  lockedUntil         DateTime?
+  lastFailedLoginAt   DateTime?
   // Cargo (Position) — usado pela cadeia de aprovação dinâmica.
   positionId    String?   @db.UniqueIdentifier
   lastLoginAt   DateTime?
@@ -407,6 +417,8 @@ model User {
   updatedSettings     SystemSetting[]
   fiscalRequests      FiscalItemRequest[] @relation("fiscalRequester")
   fiscalResolutions   FiscalItemRequest[] @relation("fiscalResolver")
+  createdQuotations   Quotation[]         @relation("quotationCreatedBy")
+  selectedQuotations  Quotation[]         @relation("quotationSelectedBy")
   paApproverFor       CompanyErpConfig[] @relation("PaApprover")
   paDeliveryChanges   PaDeliveryChange[] @relation("PaDeliveryChangeUser")
   position            Position?          @relation(fields: [positionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
@@ -488,8 +500,33 @@ model Requisition {
   companyId        String    @db.UniqueIdentifier
   branchErpCode    String    @db.NVarChar(50)   // filial principal (cabeçalho)
   branchName       String    @db.NVarChar(255)  // snapshot
-  supplierErpCode  String    @db.NVarChar(50)
-  supplierName     String    @db.NVarChar(255)  // snapshot
+  /**
+   * Código do fornecedor no ERP. Nullable quando o solicitante registra
+   * um fornecedor externo (CNPJ ainda não cadastrado no Linx). Nesse
+   * caso, `needsSupplierErpCreation = true` e os campos `supplier*` extras
+   * (CNPJ, endereço, CNAE, etc.) ficam preenchidos para que o cadastro
+   * automático no ERP seja feito ao aprovar.
+   */
+  supplierErpCode  String?   @db.NVarChar(50)
+  supplierName     String    @db.NVarChar(255)  // razão social
+  supplierCnpj     String?   @db.NVarChar(14)   // CNPJ só dígitos
+  supplierFantasia    String? @db.NVarChar(200)
+  supplierEmail       String? @db.NVarChar(200)
+  supplierTelefone    String? @db.NVarChar(50)
+  supplierLogradouro  String? @db.NVarChar(200)
+  supplierNumero      String? @db.NVarChar(20)
+  supplierBairro      String? @db.NVarChar(100)
+  supplierCidade      String? @db.NVarChar(100)
+  supplierUf          String? @db.NVarChar(2)
+  supplierCep         String? @db.NVarChar(10)
+  supplierCnae        String? @db.NVarChar(200)
+  /**
+   * Marca que o fornecedor atual da requisição não está no ERP — vai
+   * ser criado automaticamente no Linx quando a requisição for aprovada.
+   * Substitui o antigo `winningQuotationNeedsErp` (que tratava só o caso
+   * de cotação vencedora — agora unifica os dois caminhos).
+   */
+  needsSupplierErpCreation Boolean @default(false)
   requesterId      String    @db.UniqueIdentifier
   teamId           String?   @db.UniqueIdentifier  // equipe do solicitante (visibilidade)
   title            String    @db.NVarChar(500)
@@ -509,12 +546,36 @@ model Requisition {
   recurrenceParentId String? @db.UniqueIdentifier
   nextRecurrenceAt   DateTime?
   contractRef      String?   @db.NVarChar(100)  // contrato vinculado (quando aplicável)
-  // Número de cotações anexadas pelo solicitante (RN-REQ-02 / REQ-08).
-  // Quando o total >= threshold configurado em SystemSetting, o submit exige
-  // este campo >= mínimo configurado. Quando o upload de anexos estiver
-  // pronto, esta contagem será espelhada automaticamente a partir da relação
-  // `attachments` (com kind = QUOTATION).
+  // Contagem em cache de anexos com kind=QUOTATION — recalculada pelo
+  // AttachmentsService a cada upload/delete. A fonte da verdade pro
+  // submit é o `attachment.count({kind:'QUOTATION'})`, mas mantemos
+  // este campo pra queries de listagem não precisarem fazer join.
   quotationsCount  Int       @default(0)
+  /**
+   * Dispensa de cotação (RN-REQ-02 — exceção). Quando o solicitante
+   * alega motivo aplicável (recorrente, único fornecedor, etc.), o
+   * submit pula a checagem de 3 cotações mas o motivo + justificativa
+   * ficam visíveis pro aprovador, que decide se aceita.
+   * Valores em `QuotationWaiverReason` (TS const). Quando null, a
+   * regra padrão de cotações vale.
+   */
+  quotationWaiverReason String?  @db.NVarChar(30)
+  quotationWaiverNote   String?  @db.NVarChar(Max)
+  quotationWaiverAt     DateTime?
+  /**
+   * Cotação vencedora — quando o aprovador escolheu uma proposta no
+   * lugar dos dados originais (os campos `supplier*` já foram sobrescritos
+   * com os dados da cotação no momento da seleção). A marca de "precisa
+   * cadastrar no ERP" mora em `needsSupplierErpCreation` (campo unificado).
+   */
+  winningQuotationId       String?   @db.UniqueIdentifier
+  /**
+   * Snapshot da proposta original do solicitante (supplier + items + total)
+   * gravado no momento em que o aprovador seleciona a PRIMEIRA cotação
+   * vencedora. Permite restaurar a req ao estado original via clearWinner
+   * quando o aprovador muda de ideia. JSON serializado.
+   */
+  originalProposalSnapshot String?   @db.NVarChar(Max)
   // Classificação Linx — preenchida pelo solicitante (tipoCompra) e pelo
   // fiscal (ctbTipoOperacao + naturezaEntrada) antes da conversão em PC.
   tipoCompra       String?   @db.NVarChar(25)
@@ -549,6 +610,7 @@ model Requisition {
   purchaseOrders PurchaseOrder[]
   fundRequest    FundRequest?
   attachments    Attachment[]
+  quotations     Quotation[]
   recurrenceParent   Requisition?  @relation("ReqRecurrence", fields: [recurrenceParentId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   recurrenceChildren Requisition[] @relation("ReqRecurrence")
 
@@ -748,6 +810,12 @@ model FundRequest {
   erpStagingId    String?   @unique @db.NVarChar(50)
   pendingErpSince DateTime?
   integratedAt    DateTime?
+  // Última mensagem de erro na tentativa de gravação no Linx. Limpado
+  // automaticamente quando a integração tem sucesso. Permite que a UI
+  // mostre "Falha na integração" com tooltip em vez de só "—" silencioso
+  // na coluna Nº Linx.
+  lastErpError    String?   @db.NVarChar(Max)
+  lastErpAttemptAt DateTime?
   submittedAt     DateTime?
   approvedAt      DateTime?
   rejectedAt      DateTime?
@@ -945,17 +1013,111 @@ model Attachment {
   mimeType        String    @db.NVarChar(100)
   uploadedById    String    @db.UniqueIdentifier
   createdAt       DateTime  @default(now())
+  // Tipo do anexo — usado pra validar regras de governança que dependem
+  // do CONTEÚDO do anexo, não só da existência (ex.: RN-REQ-02 exige 3
+  // cotações). Valores em AttachmentKind (TS const). Default 'OTHER' pra
+  // não quebrar uploads antigos sem kind explícito.
+  kind            String    @default("OTHER") @db.NVarChar(30)
 
   requisition   Requisition?   @relation(fields: [requisitionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   fundRequest   FundRequest?   @relation(fields: [fundRequestId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   receiving     Receiving?     @relation(fields: [receivingId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  quotation     Quotation?
 
   @@index([requisitionId])
   @@index([purchaseOrderId])
   @@index([fundRequestId])
   @@index([receivingId])
+  @@index([requisitionId, kind])
   @@map("attachments")
+}
+
+// ============================================================
+// COTAÇÕES (propostas de fornecedores anexadas à requisição)
+// ============================================================
+
+/**
+ * Proposta de cotação anexada pelo solicitante. Cada cotação tem o
+ * CNPJ do fornecedor, sua condição de pagamento e uma tabela de itens
+ * (qty + preço unitário). O aprovador pode selecionar uma cotação
+ * como vencedora — isso substitui o fornecedor + condição + itens da
+ * requisição original.
+ *
+ * Se `supplierErpCode` for null, o fornecedor não está cadastrado no
+ * Linx. Quando uma cotação assim vence, marcamos
+ * `requisition.winningQuotationNeedsErp = true` pra um job/admin criar
+ * o fornecedor no ERP depois.
+ */
+model Quotation {
+  id                    String          @id @default(uuid()) @db.UniqueIdentifier
+  companyId             String          @db.UniqueIdentifier
+  requisitionId         String          @db.UniqueIdentifier
+  /** Anexo (PDF/imagem) que representa esta cotação. Único por cotação. */
+  attachmentId          String?         @unique @db.UniqueIdentifier
+  /** CNPJ do fornecedor (só dígitos, 14 chars). */
+  supplierCnpj          String          @db.NVarChar(14)
+  supplierName          String          @db.NVarChar(200)
+  /** Código do fornecedor no ERP (null se ainda não cadastrado). */
+  supplierErpCode       String?         @db.NVarChar(20)
+  /**
+   * Dados públicos do CNPJ (BrasilAPI) — usados pra criação automática
+   * no ERP quando o fornecedor não está cadastrado e a cotação vence.
+   * Capturados no momento do cadastro da cotação pra refletir o que o
+   * solicitante viu (a Receita pode mudar entre a cotação e o cadastro).
+   */
+  supplierFantasia      String?         @db.NVarChar(200)
+  supplierEmail         String?         @db.NVarChar(200)
+  supplierTelefone      String?         @db.NVarChar(50)
+  supplierLogradouro    String?         @db.NVarChar(200)
+  supplierNumero        String?         @db.NVarChar(20)
+  supplierBairro        String?         @db.NVarChar(100)
+  supplierCidade        String?         @db.NVarChar(100)
+  supplierUf            String?         @db.NVarChar(2)
+  supplierCep           String?         @db.NVarChar(10)
+  supplierCnae          String?         @db.NVarChar(200)
+  paymentConditionCode  String?         @db.NVarChar(20)
+  paymentConditionDesc  String?         @db.NVarChar(100)
+  totalAmount           Decimal         @db.Decimal(18, 2)
+  notes                 String?         @db.NVarChar(Max)
+  isWinner              Boolean         @default(false)
+  selectedAt            DateTime?
+  selectedById          String?         @db.UniqueIdentifier
+  /**
+   * Justificativa da escolha — preenchida pelo aprovador no momento da
+   * seleção. Permite auditar por que ESTA cotação foi escolhida em vez
+   * das outras (ex.: "menor prazo de entrega" ou "única com garantia").
+   */
+  selectionReason       String?         @db.NVarChar(Max)
+  createdAt             DateTime        @default(now())
+  createdById           String          @db.UniqueIdentifier
+
+  requisition   Requisition     @relation(fields: [requisitionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  attachment    Attachment?     @relation(fields: [attachmentId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  selectedBy    User?           @relation("quotationSelectedBy", fields: [selectedById], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  createdBy     User            @relation("quotationCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  items         QuotationItem[]
+
+  @@index([requisitionId])
+  @@index([supplierCnpj])
+  @@map("quotations")
+}
+
+model QuotationItem {
+  id           String   @id @default(uuid()) @db.UniqueIdentifier
+  quotationId  String   @db.UniqueIdentifier
+  /** Posição na lista (ordem de exibição). */
+  position     Int
+  description  String   @db.NVarChar(500)
+  unit         String?  @db.NVarChar(20)
+  quantity     Decimal  @db.Decimal(18, 4)
+  unitPrice    Decimal  @db.Decimal(18, 4)
+  totalPrice   Decimal  @db.Decimal(18, 2)
+
+  quotation    Quotation @relation(fields: [quotationId], references: [id], onUpdate: NoAction, onDelete: Cascade)
+
+  @@index([quotationId])
+  @@map("quotation_items")
 }
 
 // ============================================================

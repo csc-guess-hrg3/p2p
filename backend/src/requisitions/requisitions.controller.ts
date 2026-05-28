@@ -35,6 +35,18 @@ export class RequisitionsController {
     return this.requisitions.create(user, dto);
   }
 
+  @Post(':id/clone')
+  @ApiOperation({
+    summary:
+      'Clona requisição existente como rascunho. O solicitante do clone é o usuário logado.',
+  })
+  clone(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.requisitions.clone(user, id);
+  }
+
   @Get()
   @ApiOperation({ summary: 'Lista requisições do escopo do usuário' })
   findAll(
@@ -60,6 +72,39 @@ export class RequisitionsController {
   @ApiOperation({ summary: 'Submete a requisição para aprovação' })
   submit(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.requisitions.submit(user, id);
+  }
+
+  @Post(':id/resubmit')
+  @ApiOperation({
+    summary:
+      'Re-submete uma requisição em REVISION (sem precisar editar). ' +
+      'Útil quando o solicitante anexou cotações que faltavam ou pediu dispensa.',
+  })
+  resubmit(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.requisitions.resubmitFromRevision(user, id);
+  }
+
+  @Post(':id/quotation-waiver')
+  @ApiOperation({
+    summary:
+      'Solicita dispensa da regra de cotações (RN-REQ-02 — exceção). ' +
+      'Body: { reason: CONTRATO_VIGENTE|RECORRENTE|UNICO_FORNECEDOR|EMERGENCIA|OUTRO, note: string }',
+  })
+  setQuotationWaiver(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: { reason: string; note: string },
+  ) {
+    return this.requisitions.setQuotationWaiver(user, id, dto.reason, dto.note);
+  }
+
+  @Delete(':id/quotation-waiver')
+  @ApiOperation({ summary: 'Remove a dispensa de cotação' })
+  clearQuotationWaiver(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.requisitions.clearQuotationWaiver(user, id);
   }
 
   @Patch(':id')

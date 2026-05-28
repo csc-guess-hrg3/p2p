@@ -7,6 +7,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { IntegrationService } from '../integration/integration.service';
+import { CnpjPublicService } from '../integration/cnpj-public.service';
 import { NumberingService } from '../numbering/numbering.service';
 import { ApprovalsService } from '../approvals/approvals.service';
 import { SettingsService } from '../settings/settings.service';
@@ -23,26 +24,162 @@ import {
 } from './dto/create-requisition.dto';
 import { UpdateRequisitionDto } from './dto/update-requisition.dto';
 import { QueryRequisitionsDto } from './dto/query-requisitions.dto';
+import {
+  isQuotationWaiverReason,
+  QUOTATION_WAIVER_LABELS,
+  QUOTATION_WAIVER_MIN_NOTE,
+  QUOTATION_WAIVER_REASONS,
+  type QuotationWaiverReason,
+} from './quotation-waiver';
 
 @Injectable()
 export class RequisitionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly integration: IntegrationService,
+    private readonly cnpjPublic: CnpjPublicService,
     private readonly numbering: NumberingService,
     private readonly approvals: ApprovalsService,
     private readonly settings: SettingsService,
   ) {}
 
   /**
+   * Resolução do fornecedor — duas vias:
+   *
+   *  1) `supplierErpCode` informado → procura no ERP. Devolve os dados
+   *     já cadastrados; `needsErp = false`.
+   *
+   *  2) `supplierErpCode` vazio + `supplierCnpj` informado → "fornecedor
+   *     externo". Lookup em ordem:
+   *       a) ERP por CNPJ (pode estar lá, só o solicitante não escolheu)
+   *       b) BrasilAPI (Receita Federal)
+   *       c) Nome digitado manualmente (`supplierNameOverride`)
+   *     `needsErp = true` SE o ERP não tem o CNPJ (vai ser criado quando
+   *     a requisição for aprovada).
+   *
+   * Devolve um objeto pronto pra usar nos campos do Requisition.
+   */
+  private async resolveSupplierForRequisition(
+    companyCode: string,
+    dto: {
+      supplierErpCode?: string;
+      supplierCnpj?: string;
+      supplierNameOverride?: string;
+    },
+  ): Promise<{
+    supplierErpCode: string | null;
+    supplierName: string;
+    supplierCnpj: string | null;
+    supplierFantasia: string | null;
+    supplierEmail: string | null;
+    supplierTelefone: string | null;
+    supplierLogradouro: string | null;
+    supplierNumero: string | null;
+    supplierBairro: string | null;
+    supplierCidade: string | null;
+    supplierUf: string | null;
+    supplierCep: string | null;
+    supplierCnae: string | null;
+    needsSupplierErpCreation: boolean;
+  }> {
+    const erpCode = dto.supplierErpCode?.trim();
+    if (erpCode) {
+      const sup = await this.integration.findSupplier(companyCode, erpCode);
+      if (!sup) {
+        throw new BadRequestException(`Fornecedor inválido: ${erpCode}`);
+      }
+      return {
+        supplierErpCode: erpCode,
+        supplierName: sup.nome,
+        supplierCnpj: (sup.cnpjCpf ?? '').replace(/\D/g, '') || null,
+        supplierFantasia: null,
+        supplierEmail: sup.email ?? null,
+        supplierTelefone: sup.telefone ?? null,
+        supplierLogradouro: null,
+        supplierNumero: null,
+        supplierBairro: null,
+        supplierCidade: null,
+        supplierUf: null,
+        supplierCep: null,
+        supplierCnae: null,
+        needsSupplierErpCreation: false,
+      };
+    }
+    // Sem código ERP — fornecedor externo via CNPJ.
+    const cnpj = (dto.supplierCnpj ?? '').replace(/\D/g, '');
+    if (cnpj.length < 11 || cnpj.length > 14) {
+      throw new BadRequestException(
+        'Informe um fornecedor cadastrado OU um CNPJ válido para fornecedor externo.',
+      );
+    }
+    // (a) talvez exista no ERP por CNPJ — usa, ignora o "externo".
+    const erpByCnpj = await this.integration.findSupplierByCnpj(
+      companyCode,
+      cnpj,
+    );
+    if (erpByCnpj) {
+      return {
+        supplierErpCode: erpByCnpj.codigo,
+        supplierName: erpByCnpj.nome,
+        supplierCnpj: cnpj,
+        supplierFantasia: null,
+        supplierEmail: erpByCnpj.email ?? null,
+        supplierTelefone: erpByCnpj.telefone ?? null,
+        supplierLogradouro: null,
+        supplierNumero: null,
+        supplierBairro: null,
+        supplierCidade: null,
+        supplierUf: null,
+        supplierCep: null,
+        supplierCnae: null,
+        needsSupplierErpCreation: false,
+      };
+    }
+    // (b) BrasilAPI
+    let name = dto.supplierNameOverride?.trim() ?? '';
+    let pub: Awaited<ReturnType<CnpjPublicService['lookup']>> | null = null;
+    if (cnpj.length === 14) {
+      pub = await this.cnpjPublic.lookup(cnpj);
+      if (pub.found) name = pub.razaoSocial;
+    }
+    if (!name) {
+      throw new BadRequestException(
+        'Não foi possível identificar o fornecedor pelo CNPJ. Informe o nome do fornecedor manualmente.',
+      );
+    }
+    const found = pub?.found ? pub : null;
+    return {
+      supplierErpCode: null,
+      supplierName: name,
+      supplierCnpj: cnpj,
+      supplierFantasia: found?.nomeFantasia ?? null,
+      supplierEmail: found?.email ?? null,
+      supplierTelefone: found?.telefone ?? null,
+      supplierLogradouro: found?.logradouro ?? null,
+      supplierNumero: found?.numero ?? null,
+      supplierBairro: found?.bairro ?? null,
+      supplierCidade: found?.cidade ?? null,
+      supplierUf: found?.uf ?? null,
+      supplierCep: found?.cep ?? null,
+      supplierCnae: found?.cnaePrincipal ?? null,
+      needsSupplierErpCreation: true,
+    };
+  }
+
+  /**
    * Verifica a regra de cotações mínimas (RN-REQ-02 / REQ-08) — Admin define
    * o threshold (valor da requisição a partir do qual exige cotações) e o
    * mínimo (quantas cotações) em SystemSetting. Threshold 0 desliga a regra.
+   *
+   * IMPORTANTE: o pedido original (fornecedor + itens + valores escolhidos
+   * pelo solicitante) **conta como Cotação 1**. Logo, com minRequired=3 e o
+   * solicitante anexando 2 cotações alternativas, atende a política. O
+   * parâmetro `attachedQuotationsCount` é só as ANEXADAS — o +1 é interno.
    */
   private async assertQuotationsPolicy(
     companyId: string,
     totalAmount: number,
-    quotationsCount: number,
+    attachedQuotationsCount: number,
   ): Promise<void> {
     const threshold = await this.settings.getNumber(
       companyId,
@@ -54,7 +191,10 @@ export class RequisitionsService {
       companyId,
       SETTING_KEYS.REQUISITIONS_MIN_QUOTATIONS_REQUIRED,
     );
-    if (quotationsCount < minRequired) {
+    // +1 = a própria proposta do solicitante (Cotação 1 implícita).
+    const totalCount = attachedQuotationsCount + 1;
+    if (totalCount < minRequired) {
+      const missing = minRequired - totalCount;
       const formatted = totalAmount.toLocaleString('pt-BR', {
         style: 'currency',
         currency: 'BRL',
@@ -64,8 +204,9 @@ export class RequisitionsService {
         currency: 'BRL',
       });
       throw new BadRequestException(
-        `Requisição de ${formatted} exige no mínimo ${minRequired} cotação(ões) ` +
-          `(valor de referência ${thresholdFmt}). Anexadas: ${quotationsCount}.`,
+        `Requisição de ${formatted} exige ${minRequired} cotações no total ` +
+          `(sua proposta + ${minRequired - 1} alternativas). ` +
+          `Acima de ${thresholdFmt}. Faltam ${missing} cotação(ões) alternativa(s).`,
       );
     }
   }
@@ -276,15 +417,11 @@ export class RequisitionsService {
     if (!branch) {
       throw new BadRequestException(`Filial inválida: ${dto.branchErpCode}`);
     }
-    const supplier = await this.integration.findSupplier(
-      company.code,
-      dto.supplierErpCode,
-    );
-    if (!supplier) {
-      throw new BadRequestException(
-        `Fornecedor inválido: ${dto.supplierErpCode}`,
-      );
-    }
+    const supplier = await this.resolveSupplierForRequisition(company.code, {
+      supplierErpCode: dto.supplierErpCode,
+      supplierCnpj: dto.supplierCnpj,
+      supplierNameOverride: dto.supplierNameOverride,
+    });
 
     const paymentCondition = await this.integration.findPaymentCondition(
       company.code,
@@ -310,8 +447,20 @@ export class RequisitionsService {
         companyId: company.id,
         branchErpCode: dto.branchErpCode,
         branchName: branch.nome,
-        supplierErpCode: dto.supplierErpCode,
-        supplierName: supplier.nome,
+        supplierErpCode: supplier.supplierErpCode,
+        supplierName: supplier.supplierName,
+        supplierCnpj: supplier.supplierCnpj,
+        supplierFantasia: supplier.supplierFantasia,
+        supplierEmail: supplier.supplierEmail,
+        supplierTelefone: supplier.supplierTelefone,
+        supplierLogradouro: supplier.supplierLogradouro,
+        supplierNumero: supplier.supplierNumero,
+        supplierBairro: supplier.supplierBairro,
+        supplierCidade: supplier.supplierCidade,
+        supplierUf: supplier.supplierUf,
+        supplierCep: supplier.supplierCep,
+        supplierCnae: supplier.supplierCnae,
+        needsSupplierErpCreation: supplier.needsSupplierErpCreation,
         requesterId: user.id,
         teamId: user.teamId,
         title: dto.title,
@@ -394,7 +543,30 @@ export class RequisitionsService {
       include: {
         items: { include: { rateios: true } },
         requester: { select: { id: true, name: true } },
-        approvalSteps: { orderBy: { level: 'asc' } },
+        approvalSteps: {
+          orderBy: { level: 'asc' },
+          include: {
+            // Nome de quem decidiu (aprovou/reprovou/devolveu) e o nome
+            // do aprovador esperado quando ainda está PENDING — pra UI
+            // mostrar "Quem" em cada linha do fluxo, sem ?.
+            decidedBy: { select: { name: true } },
+            assignedApprover: { select: { name: true } },
+          },
+        },
+        // Pedidos de Compra gerados a partir desta requisição — usado
+        // pela UI pra oferecer atalho de navegação quando a req já foi
+        // convertida. Pode haver mais de um se a req foi quebrada em
+        // múltiplos PCs no futuro, então mandamos array.
+        purchaseOrders: {
+          where: { deletedAt: null },
+          select: {
+            id: true,
+            number: true,
+            status: true,
+            erpPedido: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
     if (!req || req.deletedAt) {
@@ -403,7 +575,49 @@ export class RequisitionsService {
     if (!user.companyIds.includes(req.companyId)) {
       throw new ForbiddenException('Sem acesso a esta requisição.');
     }
-    return req;
+
+    // Pendências fiscais que afetam ESTA requisição. O modelo
+    // FiscalItemRequest é por (supplier + item), não tem FK pra req.
+    // A lógica: se há pendências para (supplierErpCode, itemDescription)
+    // dos itens desta req, listamos aqui para que a UI mostre o status
+    // ao solicitante SEM precisar dar acesso ao módulo Fiscal.
+    const itemDescs = req.items.map((it) => it.itemDescription);
+    const fiscalRows = req.supplierErpCode && itemDescs.length > 0
+      ? await this.prisma.fiscalItemRequest.findMany({
+          where: {
+            companyId: req.companyId,
+            supplierErpCode: req.supplierErpCode,
+            itemDescription: { in: itemDescs },
+          },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            status: true,
+            itemErpCode: true,
+            itemDescription: true,
+            rejectionReason: true,
+            createdAt: true,
+            resolvedAt: true,
+          },
+        })
+      : [];
+
+    // Achata os nomes pra simplificar consumo no front (campos flat
+    // `decidedByName`/`assignedApproverName` em vez de objetos aninhados).
+    return {
+      ...req,
+      approvalSteps: req.approvalSteps.map((s) => ({
+        id: s.id,
+        level: s.level,
+        levelName: s.levelName,
+        status: s.status,
+        decidedAt: s.decidedAt,
+        decidedByName: s.decidedBy?.name ?? null,
+        assignedApproverName: s.assignedApprover?.name ?? null,
+        comments: s.comments,
+      })),
+      pendingFiscalItems: fiscalRows,
+    };
   }
 
   /** Edita uma requisição em rascunho (apenas o solicitante ou admin). */
@@ -443,10 +657,16 @@ export class RequisitionsService {
     if (req.requesterId !== user.id && user.profile !== UserProfile.ADMIN) {
       throw new ForbiddenException('Só o solicitante pode editar.');
     }
-    // RN: edição feita pelo próprio requisitante exige motivo.
+    // RN: edição feita pelo próprio requisitante exige motivo SOMENTE
+    // quando a req já foi submetida e voltou pra revisão. Em DRAFT
+    // (rascunho), não há nada pra justificar — a req ainda nem foi
+    // vista pelo aprovador. Antes o backend exigia motivo SEMPRE, o
+    // que fazia o fluxo "Salvar e enviar para aprovação" quebrar com
+    // "Informe o motivo da edição".
     const isSelfEdit = req.requesterId === user.id;
+    const needsAuditReason = req.status === RequisitionStatus.REVISION;
     const reason = (dto.editReason ?? '').trim();
-    if (isSelfEdit && reason.length < 5) {
+    if (isSelfEdit && needsAuditReason && reason.length < 5) {
       throw new BadRequestException(
         'Informe o motivo da edição (mínimo 5 caracteres).',
       );
@@ -497,18 +717,32 @@ export class RequisitionsService {
       data.branchErpCode = dto.branchErpCode;
       data.branchName = branch.nome;
     }
-    if (dto.supplierErpCode !== undefined) {
-      const supplier = await this.integration.findSupplier(
-        company.code,
-        dto.supplierErpCode,
-      );
-      if (!supplier) {
-        throw new BadRequestException(
-          `Fornecedor inválido: ${dto.supplierErpCode}`,
-        );
-      }
-      data.supplierErpCode = dto.supplierErpCode;
-      data.supplierName = supplier.nome;
+    // Fornecedor: re-resolve quando QUALQUER campo de fornecedor veio no
+    // DTO. Trata os 3 caminhos (ERP / CNPJ externo / fallback manual).
+    if (
+      dto.supplierErpCode !== undefined ||
+      dto.supplierCnpj !== undefined ||
+      dto.supplierNameOverride !== undefined
+    ) {
+      const supplier = await this.resolveSupplierForRequisition(company.code, {
+        supplierErpCode: dto.supplierErpCode,
+        supplierCnpj: dto.supplierCnpj,
+        supplierNameOverride: dto.supplierNameOverride,
+      });
+      data.supplierErpCode = supplier.supplierErpCode;
+      data.supplierName = supplier.supplierName;
+      data.supplierCnpj = supplier.supplierCnpj;
+      data.supplierFantasia = supplier.supplierFantasia;
+      data.supplierEmail = supplier.supplierEmail;
+      data.supplierTelefone = supplier.supplierTelefone;
+      data.supplierLogradouro = supplier.supplierLogradouro;
+      data.supplierNumero = supplier.supplierNumero;
+      data.supplierBairro = supplier.supplierBairro;
+      data.supplierCidade = supplier.supplierCidade;
+      data.supplierUf = supplier.supplierUf;
+      data.supplierCep = supplier.supplierCep;
+      data.supplierCnae = supplier.supplierCnae;
+      data.needsSupplierErpCreation = supplier.needsSupplierErpCreation;
     }
 
     if (dto.items) {
@@ -555,15 +789,37 @@ export class RequisitionsService {
     await this.prisma.requisition.update({ where: { id }, data });
 
     // RN-REQ-05: edição após envio (ou retorno de revisão) reinicia o
-    // fluxo de aprovação.
+    // fluxo de aprovação — e revalida a política de cotações, senão
+    // dava pra burlar a regra fugindo pelo update().
     const reapprove =
       req.status === RequisitionStatus.IN_APPROVAL ||
       req.status === RequisitionStatus.REVISION;
     if (reapprove) {
-      await this.approvals.resetForRequisition(id);
       const updated = await this.prisma.requisition.findUniqueOrThrow({
         where: { id },
       });
+      // Mesmo cheque do submit(): respeita dispensa, senão conta
+      // anexos kind=QUOTATION.
+      if (updated.quotationWaiverReason) {
+        if (
+          !updated.quotationWaiverNote ||
+          updated.quotationWaiverNote.trim().length < QUOTATION_WAIVER_MIN_NOTE
+        ) {
+          throw new BadRequestException(
+            `A dispensa de cotação precisa de uma justificativa de no mínimo ${QUOTATION_WAIVER_MIN_NOTE} caracteres.`,
+          );
+        }
+      } else {
+        const realQuotationsCount = await this.prisma.attachment.count({
+          where: { requisitionId: id, kind: 'QUOTATION' },
+        });
+        await this.assertQuotationsPolicy(
+          updated.companyId,
+          Number(updated.totalAmount),
+          realQuotationsCount,
+        );
+      }
+      await this.approvals.resetForRequisition(id);
       const firstLevel = await this.approvals.startApproval({
         companyId: updated.companyId,
         teamId: updated.teamId,
@@ -576,11 +832,171 @@ export class RequisitionsService {
         where: { id },
         data:
           firstLevel === null
-            ? { status: RequisitionStatus.APPROVED, approvedAt: new Date() }
-            : { currentTierLevel: firstLevel },
+            ? {
+                status: RequisitionStatus.APPROVED,
+                approvedAt: new Date(),
+                revisionReason: null,
+                revisionRequestedAt: null,
+                revisionRequestedById: null,
+              }
+            : {
+                status: RequisitionStatus.IN_APPROVAL,
+                currentTierLevel: firstLevel,
+                revisionReason: null,
+                revisionRequestedAt: null,
+                revisionRequestedById: null,
+              },
       });
     }
     return this.findOne(user, id);
+  }
+
+  /**
+   * Re-submete uma requisição em REVISION sem precisar abrir o form de
+   * edição. Usado quando o solicitante anexou cotações faltantes (ou
+   * pediu dispensa) e quer mandar de volta pra aprovação. Reaproveita
+   * a mesma lógica de reapprove do update().
+   */
+  async resubmitFromRevision(user: AuthenticatedUser, id: string) {
+    const req = await this.findOne(user, id);
+    if (req.status !== RequisitionStatus.REVISION) {
+      throw new BadRequestException(
+        'Só requisições em revisão podem ser re-submetidas por este caminho. Use editar e salvar.',
+      );
+    }
+    if (req.requesterId !== user.id && user.profile !== UserProfile.ADMIN) {
+      throw new ForbiddenException('Só o solicitante pode re-submeter.');
+    }
+    if (req.items.length === 0) {
+      throw new BadRequestException('A requisição não tem itens.');
+    }
+    if (req.quotationWaiverReason) {
+      if (
+        !req.quotationWaiverNote ||
+        req.quotationWaiverNote.trim().length < QUOTATION_WAIVER_MIN_NOTE
+      ) {
+        throw new BadRequestException(
+          `A dispensa de cotação precisa de uma justificativa de no mínimo ${QUOTATION_WAIVER_MIN_NOTE} caracteres.`,
+        );
+      }
+    } else {
+      const realQuotationsCount = await this.prisma.attachment.count({
+        where: { requisitionId: id, kind: 'QUOTATION' },
+      });
+      await this.assertQuotationsPolicy(
+        req.companyId,
+        Number(req.totalAmount),
+        realQuotationsCount,
+      );
+    }
+    await this.approvals.resetForRequisition(id);
+    const firstLevel = await this.approvals.startApproval({
+      companyId: req.companyId,
+      teamId: req.teamId,
+      entityType: ApprovalEntityType.REQUISITION,
+      requisitionId: id,
+      amount: Number(req.totalAmount),
+      documentNumber: req.number,
+    });
+    await this.prisma.requisition.update({
+      where: { id },
+      data:
+        firstLevel === null
+          ? {
+              status: RequisitionStatus.APPROVED,
+              approvedAt: new Date(),
+              revisionReason: null,
+              revisionRequestedAt: null,
+              revisionRequestedById: null,
+            }
+          : {
+              status: RequisitionStatus.IN_APPROVAL,
+              currentTierLevel: firstLevel,
+              revisionReason: null,
+              revisionRequestedAt: null,
+              revisionRequestedById: null,
+            },
+    });
+    return this.findOne(user, id);
+  }
+
+  /**
+   * Solicita dispensa de cotação (RN-REQ-02 — exceção). Só faz sentido
+   * enquanto a requisição é DRAFT (depois entra na cadeia de aprovação
+   * normalmente). Quem pode pedir: o próprio solicitante ou Admin.
+   */
+  async setQuotationWaiver(
+    user: AuthenticatedUser,
+    id: string,
+    reason: string,
+    note: string,
+  ) {
+    const req = await this.findOne(user, id);
+    // Aceita DRAFT e REVISION — em revisão o solicitante pode optar
+    // pela dispensa em vez de anexar cotações.
+    if (
+      req.status !== RequisitionStatus.DRAFT &&
+      req.status !== RequisitionStatus.REVISION
+    ) {
+      throw new BadRequestException(
+        'A dispensa de cotação só pode ser solicitada em rascunho ou revisão.',
+      );
+    }
+    if (req.requesterId !== user.id && user.profile !== UserProfile.ADMIN) {
+      throw new ForbiddenException(
+        'Só o solicitante pode pedir a dispensa.',
+      );
+    }
+    if (!isQuotationWaiverReason(reason)) {
+      throw new BadRequestException(
+        `Motivo inválido. Valores aceitos: ${QUOTATION_WAIVER_REASONS.join(', ')}.`,
+      );
+    }
+    const trimmed = (note ?? '').trim();
+    if (trimmed.length < QUOTATION_WAIVER_MIN_NOTE) {
+      throw new BadRequestException(
+        `A justificativa precisa ter no mínimo ${QUOTATION_WAIVER_MIN_NOTE} caracteres.`,
+      );
+    }
+    await this.prisma.requisition.update({
+      where: { id },
+      data: {
+        quotationWaiverReason: reason satisfies QuotationWaiverReason,
+        quotationWaiverNote: trimmed,
+        quotationWaiverAt: new Date(),
+      },
+    });
+    return {
+      ok: true,
+      reasonLabel: QUOTATION_WAIVER_LABELS[reason],
+    };
+  }
+
+  /** Remove a dispensa — a regra padrão de cotações volta a valer. */
+  async clearQuotationWaiver(user: AuthenticatedUser, id: string) {
+    const req = await this.findOne(user, id);
+    if (
+      req.status !== RequisitionStatus.DRAFT &&
+      req.status !== RequisitionStatus.REVISION
+    ) {
+      throw new BadRequestException(
+        'A dispensa só pode ser removida em rascunho ou revisão.',
+      );
+    }
+    if (req.requesterId !== user.id && user.profile !== UserProfile.ADMIN) {
+      throw new ForbiddenException(
+        'Só o solicitante pode remover a dispensa.',
+      );
+    }
+    await this.prisma.requisition.update({
+      where: { id },
+      data: {
+        quotationWaiverReason: null,
+        quotationWaiverNote: null,
+        quotationWaiverAt: null,
+      },
+    });
+    return { ok: true };
   }
 
   /** Submete a requisição: gera o fluxo de aprovação por alçada. */
@@ -600,11 +1016,32 @@ export class RequisitionsService {
     }
 
     // RN-REQ-02 — exige cotações quando o total atinge o threshold do Admin.
-    await this.assertQuotationsPolicy(
-      req.companyId,
-      Number(req.totalAmount),
-      req.quotationsCount ?? 0,
-    );
+    // Exceção: se houver `quotationWaiverReason` com justificativa, pula
+    // a checagem (o aprovador vai validar o motivo na cadeia normal).
+    if (req.quotationWaiverReason) {
+      // Sanidade: nota não pode estar vazia se a dispensa foi setada.
+      // Em teoria o endpoint de set já garante, mas defendemos aqui também.
+      if (
+        !req.quotationWaiverNote ||
+        req.quotationWaiverNote.trim().length < QUOTATION_WAIVER_MIN_NOTE
+      ) {
+        throw new BadRequestException(
+          `A dispensa de cotação precisa de uma justificativa de no mínimo ${QUOTATION_WAIVER_MIN_NOTE} caracteres.`,
+        );
+      }
+    } else {
+      // Contagem REAL via attachments(kind=QUOTATION) — o campo legacy
+      // `quotationsCount` é só um cache; aqui usamos a fonte da verdade
+      // pra não dar pra burlar editando o contador.
+      const realQuotationsCount = await this.prisma.attachment.count({
+        where: { requisitionId: req.id, kind: 'QUOTATION' },
+      });
+      await this.assertQuotationsPolicy(
+        req.companyId,
+        Number(req.totalAmount),
+        realQuotationsCount,
+      );
+    }
 
     const firstLevel = await this.approvals.startApproval({
       companyId: req.companyId,
@@ -692,17 +1129,34 @@ export class RequisitionsService {
       who: req.requester?.name ?? null,
     });
     if (req.submittedAt) {
+      // Quem submete é sempre o solicitante (regra do submit()).
       events.push({
         at: req.submittedAt.toISOString(),
         kind: 'submitted',
         label: 'Submetida para aprovação',
+        who: req.requester?.name ?? null,
       });
     }
+    // Aprovação final e rejeição vêm da última step decidida do tipo
+    // correspondente — assim sabemos exatamente quem assinou embaixo.
+    // `findOne` retorna approvalSteps achatadas com decidedByName, então
+    // pegamos a mais recente de cada status pra atribuir o `who`.
+    const decidedSteps = req.approvalSteps
+      .filter((s) => s.decidedAt)
+      .sort(
+        (a, b) =>
+          new Date(b.decidedAt!).getTime() - new Date(a.decidedAt!).getTime(),
+      );
+    const lastApprovedName = decidedSteps.find((s) => s.status === 'APPROVED')
+      ?.decidedByName;
+    const lastRejectedName = decidedSteps.find((s) => s.status === 'REJECTED')
+      ?.decidedByName;
     if (req.approvedAt) {
       events.push({
         at: req.approvedAt.toISOString(),
         kind: 'approved',
         label: 'Requisição aprovada',
+        who: lastApprovedName ?? null,
       });
     }
     if (req.rejectedAt) {
@@ -710,6 +1164,7 @@ export class RequisitionsService {
         at: req.rejectedAt.toISOString(),
         kind: 'rejected',
         label: 'Requisição rejeitada',
+        who: lastRejectedName ?? null,
         detail: req.rejectionReason,
       });
     }
@@ -802,5 +1257,92 @@ export class RequisitionsService {
       data: { deletedAt: new Date(), status: RequisitionStatus.CANCELLED },
     });
     return { ok: true };
+  }
+
+  /**
+   * Clona uma requisição existente como rascunho. Útil quando o
+   * solicitante quer reaproveitar uma compra antiga e ajustar só
+   * alguns dados (item, valor, vencimento).
+   *
+   * O clone:
+   *   - mantém solicitante (usuário logado) — mesmo que a original
+   *     seja de outra pessoa, o clone vira do usuário atual
+   *   - mantém empresa, filial, equipe, fornecedor (se cadastrado),
+   *     título, justificativa, tipo NF, condição pgto, contrato ref,
+   *     tipo de compra
+   *   - copia itens com seus rateios
+   *   - **zera**: status (DRAFT), datas de aprovação/submissão/rejeição,
+   *     número (gera novo), erp fields, anexos, cotações, aprovações
+   *   - **não copia** flags `recurring` (a cópia não recorre)
+   *   - **não copia** `quotationWaiverReason` (cada cópia decide)
+   *
+   * Devolve o `id` do novo rascunho — o front redireciona pra edição.
+   */
+  async clone(user: AuthenticatedUser, sourceId: string) {
+    const src = await this.prisma.requisition.findUniqueOrThrow({
+      where: { id: sourceId },
+      include: {
+        items: { include: { rateios: true } },
+        company: { select: { code: true } },
+      },
+    });
+    if (!user.companyIds.includes(src.companyId)) {
+      throw new ForbiddenException('Sem acesso a esta empresa.');
+    }
+    const number = await this.numbering.next(src.company.code, 'REQ');
+    const stamp = new Date().toLocaleDateString('pt-BR');
+    const created = await this.prisma.requisition.create({
+      select: { id: true, number: true },
+      data: {
+        number,
+        companyId: src.companyId,
+        branchErpCode: src.branchErpCode,
+        branchName: src.branchName,
+        supplierErpCode: src.supplierErpCode,
+        supplierName: src.supplierName,
+        requesterId: user.id,
+        teamId: user.teamId,
+        title: `${src.title} (cópia ${stamp})`,
+        justification: src.justification,
+        tipoNotaFiscal: src.tipoNotaFiscal,
+        status: RequisitionStatus.DRAFT,
+        totalAmount: src.totalAmount,
+        paymentConditionCode: src.paymentConditionCode,
+        paymentConditionDesc: src.paymentConditionDesc,
+        contractRef: src.contractRef,
+        tipoCompra: src.tipoCompra,
+        ctbTipoOperacao: src.ctbTipoOperacao,
+        naturezaEntrada: src.naturezaEntrada,
+        recurring: false,
+        items: {
+          create: src.items.map((it) => ({
+            itemErpCode: it.itemErpCode,
+            itemDescription: it.itemDescription,
+            quantity: it.quantity,
+            unit: it.unit,
+            estimatedPrice: it.estimatedPrice,
+            totalPrice: it.totalPrice,
+            accountingAccount: it.accountingAccount,
+            accountName: it.accountName,
+            branchRateioCode: it.branchRateioCode,
+            branchRateioDesc: it.branchRateioDesc,
+            costCenterRateioCode: it.costCenterRateioCode,
+            costCenterRateioDesc: it.costCenterRateioDesc,
+            notes: it.notes,
+            rateios: {
+              create: it.rateios.map((r) => ({
+                kind: r.kind,
+                rateioCode: r.rateioCode,
+                targetCode: r.targetCode,
+                branchCode: r.branchCode,
+                percentage: r.percentage,
+                amount: r.amount,
+              })),
+            },
+          })),
+        },
+      },
+    });
+    return created;
   }
 }

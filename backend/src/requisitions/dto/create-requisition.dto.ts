@@ -74,10 +74,31 @@ export class CreateRequisitionDto {
   @IsNotEmpty()
   branchErpCode!: string;
 
-  @ApiProperty({ description: 'Código do fornecedor no ERP' })
+  /**
+   * Fornecedor — duas vias:
+   *  1) `supplierErpCode` preenchido = fornecedor JÁ cadastrado no ERP
+   *     (o usuário escolheu na busca/combobox).
+   *  2) `supplierErpCode` vazio + `supplierCnpj` preenchido = fornecedor
+   *     EXTERNO. O backend resolve via BrasilAPI e marca a requisição
+   *     com `needsSupplierErpCreation = true`. Ao aprovar, o fornecedor
+   *     é cadastrado automaticamente no Linx.
+   */
+  @ApiPropertyOptional({ description: 'Código do fornecedor no ERP (vazio para fornecedor externo via CNPJ)' })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  supplierErpCode!: string;
+  supplierErpCode?: string;
+
+  @ApiPropertyOptional({ description: 'CNPJ do fornecedor — obrigatório quando supplierErpCode vazio' })
+  @IsOptional()
+  @IsString()
+  supplierCnpj?: string;
+
+  @ApiPropertyOptional({
+    description: 'Nome do fornecedor — usado como fallback quando o CNPJ não está nem no ERP nem na Receita Federal',
+  })
+  @IsOptional()
+  @IsString()
+  supplierNameOverride?: string;
 
   @ApiProperty()
   @IsString()
