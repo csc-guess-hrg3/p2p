@@ -7,7 +7,7 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -15,6 +15,7 @@ import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LocalAuthService, PASSWORD_POLICY } from './local-auth.service';
 import { StoreAuthService } from './store-auth.service';
+import { TurnstileService } from './turnstile.service';
 import { LoginDto, RefreshDto } from './dto/login.dto';
 import { LdapAuthGuard } from './guards/ldap-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -31,6 +32,11 @@ class LocalLoginDto {
   @IsString()
   @IsNotEmpty()
   password!: string;
+
+  @ApiProperty({ required: false, description: 'Token Cloudflare Turnstile (anti-bot).' })
+  @IsOptional()
+  @IsString()
+  turnstileToken?: string;
 }
 
 class SetupPasswordDto {
@@ -50,6 +56,11 @@ class StoreLookupDto {
   @IsString()
   @IsNotEmpty()
   cpf!: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  turnstileToken?: string;
 }
 
 class StoreLoginDto {
@@ -62,6 +73,11 @@ class StoreLoginDto {
   @IsString()
   @IsNotEmpty()
   password!: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  turnstileToken?: string;
 }
 
 class StoreSetupPasswordDto {
@@ -74,6 +90,11 @@ class StoreSetupPasswordDto {
   @IsString()
   @IsNotEmpty()
   password!: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  turnstileToken?: string;
 }
 
 class DemoLoginDto {
@@ -115,7 +136,33 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly localAuth: LocalAuthService,
     private readonly storeAuth: StoreAuthService,
+    private readonly turnstile: TurnstileService,
   ) {}
+
+  /**
+   * Extrai o IP do cliente respeitando proxies reversos (Nginx/Cloudflare).
+   * Em PROD, o gateway deve setar `x-forwarded-for` com o IP real.
+   * Em dev, cai no socket direto.
+   */
+  private clientIp(req: Request): string {
+    const xff = req.headers['x-forwarded-for'];
+    if (typeof xff === 'string' && xff.length > 0) {
+      return xff.split(',')[0].trim();
+    }
+    return req.ip ?? req.socket?.remoteAddress ?? '';
+  }
+
+  /**
+   * Lê o token Turnstile do header (preferido) ou do body. Ambos os
+   * caminhos são suportados pra evitar dor de cabeça com diferentes
+   * clientes HTTP.
+   */
+  private turnstileToken(req: Request, body?: { turnstileToken?: string }): string | undefined {
+    const hdr = req.headers['x-turnstile-token'];
+    if (typeof hdr === 'string' && hdr) return hdr;
+    if (Array.isArray(hdr) && hdr[0]) return hdr[0];
+    return body?.turnstileToken;
+  }
 
   /**
    * Login via Active Directory. O LdapAuthGuard autentica contra o AD;
@@ -156,8 +203,13 @@ export class AuthController {
   @ApiBody({ type: LocalLoginDto })
   async loginLocal(
     @Body() dto: LocalLoginDto,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
+    await this.turnstile.assertValid(
+      this.turnstileToken(req, dto),
+      this.clientIp(req),
+    );
     const userId = await this.localAuth.login(dto.username, dto.password);
     const tokens = await this.authService.issueTokens(userId);
     res.cookie(
@@ -189,18 +241,29 @@ export class AuthController {
   @Post('store-lookup')
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @ApiOperation({ summary: 'Pré-flight do login de loja (valida CPF)' })
-  async storeLookup(@Body() dto: StoreLookupDto) {
+  async storeLookup(@Body() dto: StoreLookupDto, @Req() req: Request) {
+    // CAPTCHA aqui evita enumeração de CPFs cadastrados — o endpoint
+    // revela se um CPF é vendedor, então é alvo natural pra atacantes.
+    await this.turnstile.assertValid(
+      this.turnstileToken(req, dto),
+      this.clientIp(req),
+    );
     return this.storeAuth.lookup(dto.cpf);
   }
 
   /** Primeiro acesso do vendedor — cria/ativa o User com a senha. */
   @Post('store-setup-password')
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
   @ApiOperation({ summary: 'Define a senha no primeiro acesso do vendedor' })
   async storeSetupPassword(
     @Body() dto: StoreSetupPasswordDto,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
+    await this.turnstile.assertValid(
+      this.turnstileToken(req, dto),
+      this.clientIp(req),
+    );
     const userId = await this.storeAuth.setupPassword(dto.cpf, dto.password);
     const tokens = await this.authService.issueTokens(userId);
     res.cookie(
@@ -218,12 +281,17 @@ export class AuthController {
 
   /** Login do vendedor com CPF + senha. */
   @Post('store-login')
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: 'Login do vendedor de loja (CPF + senha)' })
   async storeLogin(
     @Body() dto: StoreLoginDto,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
+    await this.turnstile.assertValid(
+      this.turnstileToken(req, dto),
+      this.clientIp(req),
+    );
     const userId = await this.storeAuth.login(dto.cpf, dto.password);
     const tokens = await this.authService.issueTokens(userId);
     res.cookie(

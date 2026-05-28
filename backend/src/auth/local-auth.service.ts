@@ -10,6 +10,7 @@ import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import * as nodemailer from 'nodemailer';
 import { PrismaService } from '../prisma/prisma.service';
+import { AccountLockoutService } from './account-lockout.service';
 import { UserStatus } from '../common/enums';
 
 const TOKEN_LIFETIME_HOURS = 24;
@@ -70,6 +71,7 @@ export class LocalAuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly lockout: AccountLockoutService,
   ) {}
 
   /**
@@ -82,19 +84,28 @@ export class LocalAuthService {
     const user = await this.prisma.user.findUnique({
       where: { username: username.trim() },
     });
+    // Mensagens genéricas em todos os 401 — sem revelar se foi user/senha/status.
+    // Evita enumeração de usernames válidos.
     if (!user || user.deletedAt || user.loginType !== 'LOCAL') {
       throw new UnauthorizedException('Credenciais inválidas.');
     }
+    // Bloqueio temporário em vigor? Rejeita antes mesmo de checar a senha
+    // (e antes de incrementar tentativa — não acumula durante o lockout).
+    await this.lockout.assertNotLocked(user.id);
     if (!user.passwordHash) {
       throw new UnauthorizedException(
         'Senha ainda não definida. Use o link recebido por e-mail.',
       );
     }
     const ok = await bcrypt.compare(password, user.passwordHash);
-    if (!ok) throw new UnauthorizedException('Credenciais inválidas.');
+    if (!ok) {
+      await this.lockout.recordFailure(user.id);
+      throw new UnauthorizedException('Credenciais inválidas.');
+    }
     if (user.status === UserStatus.INACTIVE) {
       throw new UnauthorizedException('Usuário inativo.');
     }
+    await this.lockout.clearOnSuccess(user.id);
     return user.id;
   }
 

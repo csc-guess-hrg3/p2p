@@ -7,6 +7,8 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { LocalAuthService } from './local-auth.service';
 import { StoreAuthService } from './store-auth.service';
+import { AccountLockoutService } from './account-lockout.service';
+import { TurnstileService } from './turnstile.service';
 import { LdapStrategy } from './strategies/ldap.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { CryptoModule } from '../common/crypto/crypto.module';
@@ -32,9 +34,17 @@ import { CryptoModule } from '../common/crypto/crypto.module';
     AuthService,
     LocalAuthService,
     StoreAuthService,
+    AccountLockoutService,
+    TurnstileService,
     LdapStrategy,
     JwtStrategy,
   ],
-  exports: [AuthService, LocalAuthService, StoreAuthService],
+  exports: [
+    AuthService,
+    LocalAuthService,
+    StoreAuthService,
+    AccountLockoutService,
+    TurnstileService,
+  ],
 })
 export class AuthModule {}

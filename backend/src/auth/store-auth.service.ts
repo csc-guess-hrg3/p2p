@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
+import { AccountLockoutService } from './account-lockout.service';
 import { UserStatus } from '../common/enums';
 
 const BCRYPT_ROUNDS = 10;
@@ -45,7 +46,10 @@ function normalizeCpf(raw: string): string {
 @Injectable()
 export class StoreAuthService {
   private readonly logger = new Logger(StoreAuthService.name);
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly lockout: AccountLockoutService,
+  ) {}
 
   /** Lê todas as linhas da view para um CPF. */
   private async findVendorRows(cpf: string): Promise<LojaVendedorRow[]> {
@@ -185,11 +189,18 @@ export class StoreAuthService {
     if (!user || user.deletedAt || !user.passwordHash) {
       throw new UnauthorizedException('Credenciais inválidas.');
     }
+    // Lockout aplicado ANTES da verificação de senha. Conta bloqueada
+    // recebe 401 imediato mesmo com senha correta — frustra atacante
+    // testando senhas em rajada e protege a CPU/bcrypt do servidor.
+    await this.lockout.assertNotLocked(user.id);
     if (user.status === UserStatus.INACTIVE) {
       throw new UnauthorizedException('Usuário inativo.');
     }
     const ok = await bcrypt.compare(password, user.passwordHash);
-    if (!ok) throw new UnauthorizedException('Credenciais inválidas.');
+    if (!ok) {
+      await this.lockout.recordFailure(user.id);
+      throw new UnauthorizedException('Credenciais inválidas.');
+    }
 
     // Confirma que ainda está no LOJA_VENDEDORES (vendedor demitido
     // perde o acesso ao P2P imediatamente, mesmo sem job de sync).
@@ -199,6 +210,7 @@ export class StoreAuthService {
         'Vendedor não está mais ativo no cadastro do varejo.',
       );
     }
+    await this.lockout.clearOnSuccess(user.id);
     return user.id;
   }
 }

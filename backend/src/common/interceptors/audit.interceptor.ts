@@ -61,7 +61,10 @@ export class AuditInterceptor implements NestInterceptor {
       tap((responseBody: unknown) => {
         // Falha de auditoria nunca quebra a requisição do usuário.
         void this.writeLog(req, responseBody).catch((e) =>
-          this.logger.error(`Falha ao registrar auditoria: ${String(e)}`),
+          this.logger.error(
+            `Falha ao registrar auditoria [${req.method} ${req.path ?? req.url}]: ${String(e)}`,
+            e instanceof Error ? e.stack : undefined,
+          ),
         );
       }),
     );
