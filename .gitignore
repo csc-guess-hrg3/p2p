@@ -55,6 +55,9 @@ Thumbs.db
 /SPEC*.md
 /CLAUDE.md
 *.pdf
+# Exceção: docs/ versiona documentação técnica em PDF (Qive, integrações,
+# etc.) — gerados a partir de markdown sources via scripts/.
+!docs/*.pdf
 
 # Scripts ad-hoc de inspeção do ERP (locais, não versionar)
 backend/inspect-*.js
