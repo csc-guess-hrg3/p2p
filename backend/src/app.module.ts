@@ -31,6 +31,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { ReportsModule } from './reports/reports.module';
 import { IntegrationModule } from './integration/integration.module';
 import { AttachmentsModule } from './attachments/attachments.module';
+import { QuotationsModule } from './quotations/quotations.module';
 import { ProductOrdersPaModule } from './product-orders-pa/product-orders-pa.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AdminModule } from './admin/admin.module';
@@ -40,10 +41,14 @@ import { AdminModule } from './admin/admin.module';
     ConfigModule.forRoot({ isGlobal: true }),
     // Jobs agendados (cron). Hoje só rodam: notificação PA pendente.
     ScheduleModule.forRoot(),
-    // Throttle global — 60 req / minuto por IP por padrão.
-    // Endpoints sensíveis (login) recebem throttle adicional via @Throttle.
+    // Throttle global — 300 req / minuto por IP. App interno corporativo,
+    // com uploads/downloads de anexos em burst (preview, listas com
+    // várias chamadas paralelas, etc.) — 60/min era curto demais.
+    // Endpoints sensíveis (login) mantém throttle adicional via @Throttle.
+    // O controller de anexos usa @SkipThrottle pra não bloquear bursts
+    // de download (várias cotações abertas em sequência).
     ThrottlerModule.forRoot([
-      { name: 'default', ttl: 60_000, limit: 60 },
+      { name: 'default', ttl: 60_000, limit: 300 },
     ]),
     CryptoModule,
     PrismaModule,
@@ -70,6 +75,7 @@ import { AdminModule } from './admin/admin.module';
     ReportsModule,
     IntegrationModule,
     AttachmentsModule,
+    QuotationsModule,
     ProductOrdersPaModule,
     NotificationsModule,
     AdminModule,

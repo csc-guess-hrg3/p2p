@@ -47,6 +47,8 @@ export class ApprovalsController {
     @Param('stepId') stepId: string,
     @Body() dto: RequestRevisionDto,
   ) {
-    return this.approvals.requestRevision(user, stepId, dto.reason);
+    return this.approvals.requestRevision(user, stepId, dto.reason, {
+      clearQuotationWaiver: dto.clearQuotationWaiver,
+    });
   }
 }

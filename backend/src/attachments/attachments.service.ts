@@ -9,6 +9,11 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../auth/auth.types';
+import {
+  ATTACHMENT_KINDS,
+  isAttachmentKind,
+  type AttachmentKind,
+} from './attachment-kinds';
 
 /**
  * Upload/listagem/download de anexos. PRD § 9.1 (recebimento) e § 8.2
@@ -95,7 +100,12 @@ export class AttachmentsService {
     if (!user.companyIds.includes(companyId)) {
       throw new ForbiddenException('Sem acesso a esta empresa.');
     }
-    return this.prisma.attachment.findMany({
+    // Cotações têm relação 1-1 com anexo (Quotation.attachmentId).
+    // Trazemos junto pro frontend identificar "este anexo é da cotação
+    // do fornecedor X" sem precisar de uma chamada separada — atende a
+    // queixa "Os anexos não são vinculados com as cotações... qual será
+    // a de qual?".
+    const rows = await this.prisma.attachment.findMany({
       where: { [this.parentField(kind)]: parentId },
       orderBy: { createdAt: 'desc' },
       select: {
@@ -103,9 +113,41 @@ export class AttachmentsService {
         filename: true,
         sizeBytes: true,
         mimeType: true,
+        kind: true,
         createdAt: true,
         uploadedById: true,
       },
+    });
+    // Busca em lote os Quotations cujo attachmentId está nos anexos.
+    const ids = rows.map((r) => r.id);
+    const quotations = ids.length
+      ? await this.prisma.quotation.findMany({
+          where: { attachmentId: { in: ids } },
+          select: {
+            id: true,
+            attachmentId: true,
+            supplierName: true,
+            supplierErpCode: true,
+            totalAmount: true,
+            isWinner: true,
+          },
+        })
+      : [];
+    const byAttId = new Map(quotations.map((q) => [q.attachmentId, q]));
+    return rows.map((r) => {
+      const q = byAttId.get(r.id);
+      return q
+        ? {
+            ...r,
+            quotation: {
+              id: q.id,
+              supplierName: q.supplierName,
+              supplierErpCode: q.supplierErpCode,
+              totalAmount: q.totalAmount.toString(),
+              isWinner: q.isWinner,
+            },
+          }
+        : r;
     });
   }
 
@@ -114,6 +156,7 @@ export class AttachmentsService {
     kind: ParentKind,
     parentId: string,
     file: Express.Multer.File,
+    attachmentKind: AttachmentKind = 'OTHER',
   ) {
     if (!file) throw new BadRequestException('Arquivo ausente.');
     if (file.size > MAX_BYTES) {
@@ -121,6 +164,11 @@ export class AttachmentsService {
     }
     if (!ALLOWED_MIME.has(file.mimetype)) {
       throw new BadRequestException(`Tipo não permitido: ${file.mimetype}.`);
+    }
+    if (!isAttachmentKind(attachmentKind)) {
+      throw new BadRequestException(
+        `Tipo de anexo inválido. Valores aceitos: ${ATTACHMENT_KINDS.join(', ')}.`,
+      );
     }
     const { companyId, companyCode } = await this.resolveParent(kind, parentId);
     if (!user.companyIds.includes(companyId)) {
@@ -143,7 +191,7 @@ export class AttachmentsService {
     await fs.writeFile(absPath, file.buffer);
     const storageKey = path.posix.join(relDir.replace(/\\/g, '/'), diskName);
 
-    return this.prisma.attachment.create({
+    const created = await this.prisma.attachment.create({
       data: {
         companyId,
         [this.parentField(kind)]: parentId,
@@ -152,14 +200,36 @@ export class AttachmentsService {
         sizeBytes: file.size,
         mimeType: file.mimetype,
         uploadedById: user.id,
+        kind: attachmentKind,
       },
       select: {
         id: true,
         filename: true,
         sizeBytes: true,
         mimeType: true,
+        kind: true,
         createdAt: true,
       },
+    });
+
+    // Quando o anexo é de uma requisição, mantemos o campo legacy
+    // `requisitions.quotationsCount` em sincronia com a contagem real de
+    // anexos do tipo QUOTATION — assim queries existentes continuam
+    // funcionando enquanto a UI migra pra contagem por kind.
+    if (kind === 'requisition') {
+      await this.syncQuotationsCount(parentId);
+    }
+    return created;
+  }
+
+  /** Recalcula `requisitions.quotationsCount` a partir dos anexos QUOTATION. */
+  private async syncQuotationsCount(requisitionId: string): Promise<void> {
+    const count = await this.prisma.attachment.count({
+      where: { requisitionId, kind: 'QUOTATION' },
+    });
+    await this.prisma.requisition.update({
+      where: { id: requisitionId },
+      data: { quotationsCount: count },
     });
   }
 
@@ -191,6 +261,11 @@ export class AttachmentsService {
     }
     const abs = path.join(this.uploadRoot, att.storageKey);
     await this.prisma.attachment.delete({ where: { id: attachmentId } });
+    // Recalcula a contagem se for um anexo de requisição (independente do
+    // kind — assim se o usuário apagar um QUOTATION, o número cai).
+    if (att.requisitionId) {
+      await this.syncQuotationsCount(att.requisitionId);
+    }
     // best-effort: se o arquivo já sumiu, ignora — só logamos pra
     // diagnosticar problemas de permissão/storage corrompido.
     try {

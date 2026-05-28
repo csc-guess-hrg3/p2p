@@ -14,6 +14,7 @@ import {
   PurchaseOrderStatus,
   RequisitionStatus,
   FundRequestStatus,
+  UserProfile,
 } from '../common/enums';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { LinxErpService } from '../integration/linx-erp.service';
@@ -139,15 +140,27 @@ export class ApprovalsService {
     await this.prisma.approvalStep.deleteMany({ where: { purchaseOrderId } });
   }
 
-  /** Lista os steps pendentes que o usuário pode decidir agora. */
+  /**
+   * Lista os steps pendentes que o usuário pode decidir agora.
+   *
+   * - Admin: vê TODOS os pendentes das empresas a que tem acesso (mesmo
+   *   sem ser o aprovador atribuído). Isso permite destravar fluxos
+   *   quando o aprovador original está fora — a decisão fica registrada
+   *   como override de admin e exige justificativa.
+   * - Demais perfis: só os steps onde ele é o aprovador atribuído
+   *   (direto ou por delegação).
+   */
   async pendingForUser(user: AuthenticatedUser) {
-    const approverIds = await this.engine.getActingApproverIds(user.id);
+    const isAdmin = user.profile === UserProfile.ADMIN;
+    const approverIds = isAdmin
+      ? null
+      : await this.engine.getActingApproverIds(user.id);
 
     const steps = await this.prisma.approvalStep.findMany({
       where: {
         status: ApprovalStepStatus.PENDING,
-        assignedApproverId: { in: approverIds },
         companyId: { in: user.companyIds },
+        ...(isAdmin ? {} : { assignedApproverId: { in: approverIds! } }),
       },
       include: {
         requisition: {
@@ -157,8 +170,11 @@ export class ApprovalsService {
             title: true,
             totalAmount: true,
             requester: { select: { name: true } },
+            quotationWaiverReason: true,
+            quotationWaiverNote: true,
           },
         },
+        assignedApprover: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -244,20 +260,44 @@ export class ApprovalsService {
 
     // O usuário precisa ser o aprovador do nível — direto, por delegação,
     // ou (na cadeia dinâmica — Fase 1) ter o cargo + filial correspondentes
-    // ao nível. Quando o step não tem assignedApproverId (aprovador dinâmico
-    // ainda não resolvido), checamos position+branch.
+    // ao nível. Admin pode fazer override de qualquer step (precisa
+    // destravar fluxos quando o aprovador titular está fora). O override
+    // exige justificativa e fica registrado em audit + nas observações
+    // da decisão.
+    const isAdmin = user.profile === UserProfile.ADMIN;
     const allowed = await this.engine.userCanDecideStep(user.id, step);
-    if (!allowed) {
+    const isAdminOverride = isAdmin && !allowed;
+    if (!allowed && !isAdmin) {
       throw new ForbiddenException('Você não é o aprovador desta etapa.');
     }
-
-    // RN-ALC-03: o solicitante nunca aprova o próprio documento.
-    const requesterId = await this.engine.documentRequester(step);
-    if (requesterId && requesterId === user.id) {
-      throw new ForbiddenException(
-        'Você não pode aprovar um documento que você mesmo solicitou.',
+    if (isAdminOverride && (!comments || comments.trim().length < 10)) {
+      throw new BadRequestException(
+        'Decisões fora da sua alçada exigem uma justificativa de pelo menos 10 caracteres.',
       );
     }
+
+    // Auto-aprovação: por padrão o solicitante não aprova o próprio
+    // documento. Admin pode (com justificativa) porque pode precisar
+    // destravar casos de exceção — fica auditado.
+    const requesterId = await this.engine.documentRequester(step);
+    if (requesterId && requesterId === user.id) {
+      if (!isAdmin) {
+        throw new ForbiddenException(
+          'Você não pode aprovar um documento que você mesmo solicitou.',
+        );
+      }
+      if (!comments || comments.trim().length < 10) {
+        throw new BadRequestException(
+          'Para aprovar um documento que você mesmo criou, escreva uma justificativa de pelo menos 10 caracteres.',
+        );
+      }
+    }
+
+    // Prefixa o comentário no override de admin pra ficar óbvio na
+    // auditoria/UX que não foi o aprovador titular.
+    const finalComments = isAdminOverride
+      ? `[Decisão por Administrador — ${user.name}] ${(comments ?? '').trim()}`
+      : comments ?? null;
 
     const filter = this.engine.entityFilter(step);
     const lowerPending = await this.prisma.approvalStep.count({
@@ -281,12 +321,12 @@ export class ApprovalsService {
           : ApprovalStepStatus.REJECTED,
         decidedById: user.id,
         decidedAt: new Date(),
-        comments: comments ?? null,
+        comments: finalComments,
       },
     });
 
     if (!approved) {
-      await this.updateEntityStatus(step, false, comments);
+      await this.updateEntityStatus(step, false, finalComments ?? undefined);
       const rejectedRequesterId = await this.engine.documentRequester(step);
       if (rejectedRequesterId) {
         const docNum = await this.engine.documentNumber(step);
@@ -368,6 +408,7 @@ export class ApprovalsService {
     user: AuthenticatedUser,
     stepId: string,
     reason: string,
+    options: { clearQuotationWaiver?: boolean } = {},
   ) {
     const trimmed = (reason ?? '').trim();
     if (trimmed.length < 5) {
@@ -382,10 +423,18 @@ export class ApprovalsService {
     if (step.status !== ApprovalStepStatus.PENDING) {
       throw new BadRequestException('Esta etapa já foi decidida.');
     }
+    // Admin pode devolver uma etapa de outro aprovador (mesmo princípio
+    // do decide() — destravar fluxos). Override fica registrado nos
+    // comments com prefixo "[Decisão por Administrador]".
+    const isAdmin = user.profile === UserProfile.ADMIN;
     const allowed = await this.engine.userCanDecideStep(user.id, step);
-    if (!allowed) {
+    const isOverride = isAdmin && !allowed;
+    if (!allowed && !isAdmin) {
       throw new ForbiddenException('Você não é o aprovador desta etapa.');
     }
+    const finalComments = isOverride
+      ? `[Decisão por Administrador — ${user.name}] ${trimmed}`
+      : trimmed;
 
     const filter = this.engine.entityFilter(step);
     const now = new Date();
@@ -398,7 +447,7 @@ export class ApprovalsService {
           status: ApprovalStepStatus.REVISION,
           decidedById: user.id,
           decidedAt: now,
-          comments: trimmed,
+          comments: finalComments,
         },
       });
       // Atualiza o documento — só Requisição e PC suportam revisão
@@ -408,10 +457,20 @@ export class ApprovalsService {
           where: { id: step.requisitionId as string },
           data: {
             status: RequisitionStatus.REVISION,
-            revisionReason: trimmed,
+            revisionReason: finalComments,
             revisionRequestedAt: now,
             revisionRequestedById: user.id,
             currentTierLevel: null,
+            // Recusa da dispensa de cotação — limpa os 3 campos pra que
+            // o solicitante anexe cotações de verdade ao re-submeter
+            // (a regra padrão volta a valer).
+            ...(options.clearQuotationWaiver
+              ? {
+                  quotationWaiverReason: null,
+                  quotationWaiverNote: null,
+                  quotationWaiverAt: null,
+                }
+              : {}),
           },
         });
       } else if (step.entityType === ApprovalEntityType.PURCHASE_ORDER) {
@@ -419,7 +478,7 @@ export class ApprovalsService {
           where: { id: step.purchaseOrderId as string },
           data: {
             status: PurchaseOrderStatus.DRAFT,
-            lastEditReason: `REVISÃO: ${trimmed}`,
+            lastEditReason: `REVISÃO: ${finalComments}`,
           },
         });
       } else {
@@ -437,7 +496,7 @@ export class ApprovalsService {
         userId: requesterId,
         type: NotificationType.REVISION_REQUESTED,
         title: `Revisão solicitada: ${docNum}`,
-        body: `${user.name ?? user.adUsername} pediu ajustes em ${docNum}. Motivo: ${trimmed}`,
+        body: `${user.name ?? user.adUsername} pediu ajustes em ${docNum}. Motivo: ${finalComments}`,
         entityType: step.entityType,
         entityId:
           step.requisitionId ?? (step.purchaseOrderId as string),
@@ -500,6 +559,36 @@ export class ApprovalsService {
               rejectionReason: rejectionReason ?? null,
             },
       });
+      // Quando a requisição é aprovada e tem cotação vencedora com
+      // fornecedor não cadastrado no ERP, dispara o cadastro
+      // automático. Best-effort: falha aqui não bloqueia a aprovação
+      // (logada em integration_logs, admin pode reprocessar pelo
+      // endpoint /admin/suppliers/from-quotation/:id).
+      if (approved) {
+        try {
+          const winners = await this.prisma.quotation.findMany({
+            where: {
+              requisitionId: step.requisitionId as string,
+              isWinner: true,
+              supplierErpCode: null,
+            },
+            select: { id: true },
+          });
+          for (const q of winners) {
+            try {
+              await this.linx.criarFornecedorDeQuotation(q.id);
+            } catch (e) {
+              this.logger.warn(
+                `Falha ao criar fornecedor da cotação ${q.id}: ${(e as Error).message}`,
+              );
+            }
+          }
+        } catch (e) {
+          this.logger.warn(
+            `Falha ao buscar cotações vencedoras: ${(e as Error).message}`,
+          );
+        }
+      }
     } else if (step.entityType === ApprovalEntityType.PURCHASE_ORDER) {
       await this.prisma.purchaseOrder.update({
         where: { id: step.purchaseOrderId as string },

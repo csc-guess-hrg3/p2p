@@ -22,6 +22,7 @@ export const KNOWN_MODULES = [
   'REPORTS',
   'RECEIVING',
   'APPROVALS',
+  'FINANCE',
 ] as const;
 export type ModuleKey = (typeof KNOWN_MODULES)[number];
 

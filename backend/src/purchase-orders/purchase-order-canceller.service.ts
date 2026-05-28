@@ -47,8 +47,8 @@ export class PurchaseOrderCancellerService {
     const anyReceived = po.items.some((it) => Number(it.receivedQty) > 0);
     if (anyReceived) {
       throw new BadRequestException(
-        'Pedido já tem recebimento. Use "Cancelar itens em aberto" pra ' +
-          'cancelar só o saldo não recebido (PRD RN-OC-03).',
+        'Este pedido já tem itens recebidos. Use "Cancelar itens em aberto" ' +
+          'para cancelar somente o saldo que ainda não chegou.',
       );
     }
     const now = new Date();
