@@ -13,6 +13,9 @@ import { PurchaseOrderHistoryService } from './purchase-order-history.service';
 import { PurchaseOrderConverterService } from './purchase-order-converter.service';
 import { PurchaseOrderEditorService } from './purchase-order-editor.service';
 import { PurchaseOrderCancellerService } from './purchase-order-canceller.service';
+import { ErpBackSyncService } from '../integration/erp-back-sync.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ConvertToPurchaseOrderDto } from './dto/convert-to-po.dto';
 import { QueryPurchaseOrdersDto } from './dto/query-purchase-orders.dto';
 import { CancelPurchaseOrderDto } from './dto/cancel-po.dto';
@@ -33,6 +36,8 @@ export class PurchaseOrdersController {
     private readonly converter: PurchaseOrderConverterService,
     private readonly editor: PurchaseOrderEditorService,
     private readonly canceller: PurchaseOrderCancellerService,
+    private readonly erpBackSync: ErpBackSyncService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Post()
@@ -59,6 +64,48 @@ export class PurchaseOrdersController {
   @ApiOperation({ summary: 'Detalhe do pedido de compra' })
   findOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.purchaseOrders.findOne(user, id);
+  }
+
+  @Get(':id/erp-status')
+  @ApiOperation({
+    summary:
+      'Consulta read-through do estado atual do PC no Linx — QTDE_ENTREGUE, ' +
+      'QTDE_CANCEL_PEDIDO, VALOR_ENTREGUE e status do cabeçalho. NÃO ' +
+      'atualiza o P2P (isso é responsabilidade do cron BACK_SYNC); só ' +
+      'mostra o estado real do ERP em tempo real.',
+  })
+  async erpStatus(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    const po = await this.purchaseOrders.findOne(user, id);
+    if (!po.erpPedido) {
+      throw new NotFoundException(
+        'PC sem número no Linx — ainda não foi integrado.',
+      );
+    }
+    const company = await this.prisma.company.findUniqueOrThrow({
+      where: { id: po.companyId },
+    });
+    return this.erpBackSync.readErpStatusByPedido(
+      company.erpDbName,
+      po.erpPedido,
+    );
+  }
+
+  @Post('admin/erp-back-sync')
+  @ApiOperation({
+    summary:
+      'Dispara manualmente o cron de back-sync (mão de volta do Linx → P2P). ' +
+      'Útil pra testar/forçar atualização sem esperar o cron de 30min. Admin only.',
+  })
+  async triggerBackSync(@CurrentUser() user: AuthenticatedUser) {
+    if (user.profile !== 'ADMIN') {
+      throw new ForbiddenException('Só Admin pode disparar o back-sync.');
+    }
+    // Não awaita — devolve imediatamente e roda async.
+    void this.erpBackSync.syncAll();
+    return { ok: true, message: 'Back-sync disparado. Veja o log do servidor.' };
   }
 
   // Rotas /send-to-supplier e /resend foram removidas — para consumíveis

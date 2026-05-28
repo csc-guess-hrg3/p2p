@@ -14,7 +14,13 @@ import { ErpBackSyncService } from './erp-back-sync.service';
     CnpjPublicService,
     ErpBackSyncService,
   ],
-  exports: [IntegrationService, LinxErpService, EmailService, CnpjPublicService],
+  exports: [
+    IntegrationService,
+    LinxErpService,
+    EmailService,
+    CnpjPublicService,
+    ErpBackSyncService,
+  ],
   controllers: [IntegrationController],
 })
 export class IntegrationModule {}

@@ -115,6 +115,53 @@ export function usePurchaseOrder(id: string | undefined) {
   });
 }
 
+/**
+ * Estado read-through do PC no Linx (QTDE_ENTREGUE, QTDE_CANCEL_PEDIDO,
+ * status do cabeçalho). Cron BACK_SYNC atualiza o P2P a cada 30 min;
+ * este hook pega o estado AGORA, sob demanda, sem mexer no banco P2P.
+ */
+export interface ErpStatusItem {
+  codigo: string | null;
+  consumivel: string | null;
+  qtde_original: number;
+  qtde_entregue: number;
+  qtde_cancel_pedido: number;
+  qtde_entregar: number;
+  valor_original: number;
+  valor_entregue: number;
+  valor_entregar: number;
+}
+export interface ErpStatus {
+  items: ErpStatusItem[];
+  cabecalho: {
+    status_compra: string | null;
+    status_aprovacao: string | null;
+    lx_status_compra: number | null;
+    data_aprovacao: string | null;
+    aprovado_por: string | null;
+  } | null;
+}
+
+export function usePurchaseOrderErpStatus(
+  id: string | undefined,
+  enabled = false,
+) {
+  return useQuery({
+    queryKey: ['purchase-order-erp-status', id],
+    queryFn: async () =>
+      (await api.get<ErpStatus>(`/purchase-orders/${id}/erp-status`)).data,
+    enabled: !!id && enabled,
+    staleTime: 0, // sempre pede de novo — a graça do read-through é ver agora
+  });
+}
+
+export function useTriggerErpBackSync() {
+  return useMutation({
+    mutationFn: async () =>
+      (await api.post('/purchase-orders/admin/erp-back-sync')).data,
+  });
+}
+
 export function useConvertToPurchaseOrder() {
   const qc = useQueryClient();
   return useMutation({

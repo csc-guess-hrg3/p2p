@@ -62,6 +62,85 @@ export class ErpBackSyncService {
    * operação exigir reflexão mais rápida do Linx → P2P; tem que medir
    * o load no Linx primeiro (cada execução faz N queries cross-db).
    */
+  /**
+   * Consulta read-through pro estado atual de um PC no Linx — não toca
+   * em nada do P2P, só lê e devolve. Usado pela UI do detalhe do PC
+   * quando o user clica "Atualizar do Linx" pra ver o estado real
+   * sem esperar o cron de 30min.
+   */
+  async readErpStatusByPedido(
+    erpDbName: string,
+    erpPedido: string,
+  ): Promise<{
+    items: Array<{
+      codigo: string | null;
+      consumivel: string | null;
+      qtde_original: number;
+      qtde_entregue: number;
+      qtde_cancel_pedido: number;
+      qtde_entregar: number;
+      valor_original: number;
+      valor_entregue: number;
+      valor_entregar: number;
+    }>;
+    cabecalho: {
+      status_compra: string | null;
+      status_aprovacao: string | null;
+      lx_status_compra: number | null;
+      data_aprovacao: Date | null;
+      aprovado_por: string | null;
+    } | null;
+  }> {
+    const pedido = erpPedido.trim();
+    const items = await this.prisma.$queryRawUnsafe<
+      Array<{
+        codigo: string | null;
+        consumivel: string | null;
+        qtde_original: number;
+        qtde_entregue: number;
+        qtde_cancel_pedido: number;
+        qtde_entregar: number;
+        valor_original: number;
+        valor_entregue: number;
+        valor_entregar: number;
+      }>
+    >(
+      `SELECT CODIGO_ITEM AS codigo, CONSUMIVEL AS consumivel,
+              SUM(QTDE_ORIGINAL) AS qtde_original,
+              SUM(QTDE_ENTREGUE) AS qtde_entregue,
+              SUM(QTDE_CANCEL_PEDIDO) AS qtde_cancel_pedido,
+              SUM(QTDE_ENTREGAR) AS qtde_entregar,
+              SUM(VALOR_ORIGINAL) AS valor_original,
+              SUM(VALOR_ENTREGUE) AS valor_entregue,
+              SUM(VALOR_ENTREGAR) AS valor_entregar
+         FROM [${erpDbName}].dbo.COMPRAS_CONSUMIVEL WITH (NOLOCK)
+        WHERE PEDIDO = '${pedido}'
+        GROUP BY CODIGO_ITEM, CONSUMIVEL`,
+    );
+    const cabecalho = await this.prisma.$queryRawUnsafe<
+      Array<{
+        status_compra: string | null;
+        status_aprovacao: string | null;
+        lx_status_compra: number | null;
+        data_aprovacao: Date | null;
+        aprovado_por: string | null;
+      }>
+    >(
+      `SELECT TOP 1
+              RTRIM(STATUS_COMPRA) AS status_compra,
+              RTRIM(STATUS_APROVACAO) AS status_aprovacao,
+              LX_STATUS_COMPRA AS lx_status_compra,
+              DATA_APROVACAO AS data_aprovacao,
+              RTRIM(APROVADOR_POR) AS aprovado_por
+         FROM [${erpDbName}].dbo.COMPRAS WITH (NOLOCK)
+        WHERE PEDIDO = '${pedido}'`,
+    );
+    return {
+      items,
+      cabecalho: cabecalho[0] ?? null,
+    };
+  }
+
   @Cron(CronExpression.EVERY_30_MINUTES, { name: 'erp-back-sync' })
   async syncAll(): Promise<void> {
     const started = Date.now();

@@ -12,6 +12,7 @@ import {
 import {
   useCancelPurchaseOrder,
   usePurchaseOrder,
+  usePurchaseOrderErpStatus,
   usePurchaseOrderHistory,
 } from '@/lib/purchase-orders';
 import { HistoryTimeline } from '@/components/HistoryTimeline';
@@ -354,7 +355,127 @@ export function PurchaseOrderDetailPage() {
         </CardContent>
       </Card>
 
+      {po.erpPedido && <ErpStatusCard pcId={po.id} erpPedido={po.erpPedido} />}
+
       <HistoryTimeline events={historyQ.data} />
     </div>
+  );
+}
+
+/**
+ * Card "Estado atual no Linx" — consulta read-through sob demanda.
+ * Cron BACK_SYNC atualiza os campos do P2P a cada 30min; este card pega
+ * o estado AGORA, direto do Linx. Útil quando o user quer ver o que
+ * mudou no ERP desde a última sync.
+ */
+function ErpStatusCard({
+  pcId,
+  erpPedido,
+}: {
+  pcId: string;
+  erpPedido: string;
+}) {
+  const erpStatus = usePurchaseOrderErpStatus(pcId, false);
+  return (
+    <Card>
+      <CardHeader className="flex-row items-start justify-between">
+        <div>
+          <CardTitle className="text-base">Estado atual no Linx</CardTitle>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Consulta direta do ERP (PEDIDO {erpPedido}). O cron de back-sync
+            atualiza estes valores no P2P a cada 30 min — use "Atualizar"
+            para ver o estado agora.
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => erpStatus.refetch()}
+          disabled={erpStatus.isFetching}
+        >
+          {erpStatus.isFetching ? 'Consultando…' : 'Atualizar'}
+        </Button>
+      </CardHeader>
+      {erpStatus.data && (
+        <CardContent>
+          {erpStatus.data.cabecalho && (
+            <div className="mb-3 grid grid-cols-2 gap-2 rounded-md border bg-muted/40 p-2 text-xs sm:grid-cols-4">
+              <div>
+                <p className="text-muted-foreground">Status compra</p>
+                <p className="font-medium">
+                  {erpStatus.data.cabecalho.status_compra ?? '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Status aprovação</p>
+                <p className="font-medium">
+                  {erpStatus.data.cabecalho.status_aprovacao ?? '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Aprovado por</p>
+                <p className="font-medium">
+                  {erpStatus.data.cabecalho.aprovado_por || '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Data aprovação</p>
+                <p className="font-medium">
+                  {erpStatus.data.cabecalho.data_aprovacao
+                    ? new Date(
+                        erpStatus.data.cabecalho.data_aprovacao,
+                      ).toLocaleDateString('pt-BR')
+                    : '—'}
+                </p>
+              </div>
+            </div>
+          )}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Item</TableHead>
+                <TableHead className="text-right">Qtde original</TableHead>
+                <TableHead className="text-right">Entregue</TableHead>
+                <TableHead className="text-right">Cancelada</TableHead>
+                <TableHead className="text-right">A entregar</TableHead>
+                <TableHead className="text-right">Valor a entregar</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {erpStatus.data.items.map((it, i) => (
+                <TableRow key={i}>
+                  <TableCell className="font-mono text-xs">
+                    {it.codigo ?? it.consumivel ?? '—'}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {formatNumber(it.qtde_original)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {formatNumber(it.qtde_entregue)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {formatNumber(it.qtde_cancel_pedido)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums font-medium">
+                    {formatNumber(it.qtde_entregar)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {formatCurrency(it.valor_entregar)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      )}
+      {!erpStatus.data && !erpStatus.isFetching && (
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Clique em "Atualizar" para consultar o Linx agora.
+          </p>
+        </CardContent>
+      )}
+    </Card>
   );
 }
