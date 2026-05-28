@@ -34,26 +34,27 @@ import {
 import { StatusBadge } from '@/components/StatusBadge';
 import { Pagination } from '@/components/ui/pagination';
 
-const STATUS_OPTIONS: Array<{ value: '' | FiscalDocStatus; label: string }> = [
+const ALL = 'ALL';
+const STATUS_OPTIONS: Array<{ value: typeof ALL | FiscalDocStatus; label: string }> = [
   { value: 'PENDING', label: 'Pendentes' },
   { value: 'LINKED', label: 'Vinculadas' },
   { value: 'IGNORED', label: 'Ignoradas' },
   { value: 'INTERNAL', label: 'Transferências internas' },
-  { value: '', label: 'Todas' },
+  { value: ALL, label: 'Todas' },
 ];
 
 export function FiscalDocumentsListPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { toast } = useToast();
-  const [status, setStatus] = useState<'' | FiscalDocStatus>('PENDING');
+  const [status, setStatus] = useState<typeof ALL | FiscalDocStatus>('PENDING');
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
   const { data, isLoading, refetch, isFetching } = useFiscalDocuments({
-    status: status || undefined,
+    status: status === ALL ? undefined : status,
     search: search || undefined,
     page,
     pageSize,
@@ -129,7 +130,7 @@ export function FiscalDocumentsListPage() {
           <Select
             value={status}
             onValueChange={(v) => {
-              setStatus(v as '' | FiscalDocStatus);
+              setStatus(v as typeof ALL | FiscalDocStatus);
               setPage(1);
             }}
           >
@@ -138,7 +139,7 @@ export function FiscalDocumentsListPage() {
             </SelectTrigger>
             <SelectContent>
               {STATUS_OPTIONS.map((o) => (
-                <SelectItem key={o.value || 'all'} value={o.value}>
+                <SelectItem key={o.value} value={o.value}>
                   {o.label}
                 </SelectItem>
               ))}
