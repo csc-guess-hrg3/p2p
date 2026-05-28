@@ -26,6 +26,7 @@ import { ReceivingModule } from './receiving/receiving.module';
 import { SettingsModule } from './settings/settings.module';
 import { FiscalItemRequestsModule } from './fiscal-item-requests/fiscal-item-requests.module';
 import { FiscalDocumentsModule } from './fiscal-documents/fiscal-documents.module';
+import { LegacyOrdersModule } from './legacy-orders/legacy-orders.module';
 import { FinancialModule } from './financial/financial.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { ReportsModule } from './reports/reports.module';
@@ -70,6 +71,7 @@ import { AdminModule } from './admin/admin.module';
     SettingsModule,
     FiscalItemRequestsModule,
     FiscalDocumentsModule,
+    LegacyOrdersModule,
     FinancialModule,
     DashboardModule,
     ReportsModule,

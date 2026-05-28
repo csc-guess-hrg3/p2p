@@ -207,6 +207,12 @@ export const NAV_ITEMS: NavEntry[] = [
     roles: ['ADMIN', 'MANAGER', 'REVIEWER'],
     module: 'REPORTS',
   },
+  {
+    to: '/legacy-orders',
+    label: 'Pedidos Legados',
+    icon: ShoppingCart,
+    roles: ['ADMIN'],
+  },
   { to: '/admin', label: 'Administração', icon: Settings, roles: ['ADMIN'] },
 ];
 

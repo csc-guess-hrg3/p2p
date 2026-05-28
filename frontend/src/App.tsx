@@ -11,6 +11,8 @@ import { RequisitionDetailPage } from '@/pages/requisitions/RequisitionDetailPag
 import { FiscalQueuePage } from '@/pages/fiscal/FiscalQueuePage';
 import { FiscalDocumentsListPage } from '@/pages/fiscal-documents/FiscalDocumentsListPage';
 import { FiscalDocumentDetailPage } from '@/pages/fiscal-documents/FiscalDocumentDetailPage';
+import { LegacyOrdersListPage } from '@/pages/legacy-orders/LegacyOrdersListPage';
+import { LegacyOrderDetailPage } from '@/pages/legacy-orders/LegacyOrderDetailPage';
 import { ContasPagarPage } from '@/pages/financeiro/ContasPagarPage';
 import { IadsPage } from '@/pages/financeiro/IadsPage';
 import { ProvisoesPage } from '@/pages/financeiro/ProvisoesPage';
@@ -184,6 +186,18 @@ function App() {
                     }
                   >
                     <Route path="relatorios" element={<ReportsPage />} />
+                  </Route>
+
+                  {/* Pedidos Legados — Admin somente (read-through Linx). */}
+                  <Route element={<RequireProfile roles={['ADMIN']} />}>
+                    <Route
+                      path="legacy-orders"
+                      element={<LegacyOrdersListPage />}
+                    />
+                    <Route
+                      path="legacy-orders/:companyId/:pedido"
+                      element={<LegacyOrderDetailPage />}
+                    />
                   </Route>
 
                   {/* Administração — Admin somente. */}
