@@ -15,7 +15,6 @@ import { PurchaseOrderEditorService } from './purchase-order-editor.service';
 import { PurchaseOrderCancellerService } from './purchase-order-canceller.service';
 import { ConvertToPurchaseOrderDto } from './dto/convert-to-po.dto';
 import { QueryPurchaseOrdersDto } from './dto/query-purchase-orders.dto';
-import { SendToSupplierDto } from './dto/send-to-supplier.dto';
 import { CancelPurchaseOrderDto } from './dto/cancel-po.dto';
 import { CancelPurchaseOrderItemsDto } from './dto/cancel-po-items.dto';
 import { EditPurchaseOrderDto } from './dto/edit-po.dto';
@@ -62,27 +61,11 @@ export class PurchaseOrdersController {
     return this.purchaseOrders.findOne(user, id);
   }
 
-  @Post(':id/send-to-supplier')
-  @ApiOperation({
-    summary: 'Envia o pedido ao fornecedor — grava no Linx e envia e-mail',
-  })
-  sendToSupplier(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id') id: string,
-    @Body() dto: SendToSupplierDto,
-  ) {
-    return this.purchaseOrders.sendToSupplier(user, id, dto);
-  }
-
-  @Post(':id/resend')
-  @ApiOperation({ summary: 'Reenvia o e-mail do pedido ao fornecedor' })
-  resend(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id') id: string,
-    @Body() dto: SendToSupplierDto,
-  ) {
-    return this.purchaseOrders.resendToSupplier(user, id, dto);
-  }
+  // Rotas /send-to-supplier e /resend foram removidas — para consumíveis
+  // a integração com o Linx é automática no convert (sem etapa de
+  // e-mail). O EmailService e o status SENT_TO_SUPPLIER seguem no
+  // schema reservados para o módulo de Produto Acabado (PA) futuro,
+  // que terá fluxo de envio próprio.
 
   @Post(':id/cancel')
   @ApiOperation({ summary: 'Cancela o pedido de compra (com justificativa)' })

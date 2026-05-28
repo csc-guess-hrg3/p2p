@@ -47,18 +47,28 @@ function buildHistory(entity: 'requisition' | 'po' | 'sv', id: string) {
         at: r.submittedAt,
         kind: 'submitted',
         label: 'Submetida para aprovação',
+        who: findUser(r.requesterId)?.name ?? null,
       });
+    // Última step decidida (APPROVED/REJECTED) define o "who" da
+    // aprovação/rejeição final — espelha o backend.
+    const decidedSteps = (state.approvalSteps ?? [])
+      .filter((s: any) => s.requisitionId === id && s.decidedAt)
+      .sort((a: any, b: any) => (a.decidedAt < b.decidedAt ? 1 : -1));
+    const lastApproved = decidedSteps.find((s: any) => s.status === 'APPROVED');
+    const lastRejected = decidedSteps.find((s: any) => s.status === 'REJECTED');
     if (r.approvedAt)
       events.push({
         at: r.approvedAt,
         kind: 'approved',
         label: 'Requisição aprovada',
+        who: findUser(lastApproved?.decidedById)?.name ?? null,
       });
     if (r.rejectedAt)
       events.push({
         at: r.rejectedAt,
         kind: 'rejected',
         label: 'Requisição rejeitada',
+        who: findUser(lastRejected?.decidedById)?.name ?? null,
         detail: r.rejectionReason,
       });
     const steps = (state.approvalSteps ?? []).filter(
@@ -162,10 +172,42 @@ export function handleRequisitions(method: string, segments: string[], query: UR
   }
   if (method === 'GET' && id && !action) {
     const r = state.requisitions.find((x) => x.id === id);
-    return r ? ok(r) : notFound();
+    if (!r) return notFound();
+    // Acopla approvalSteps com nomes (decidedByName / assignedApproverName)
+    // — espelha o que o backend retorna no findOne.
+    const findUser = (uid?: string) =>
+      uid ? state.users.find((u: any) => u.id === uid) : undefined;
+    const steps = (state.approvalSteps ?? [])
+      .filter((s: any) => s.requisitionId === id)
+      .sort((a: any, b: any) => a.level - b.level)
+      .map((s: any) => ({
+        id: s.id,
+        level: s.level,
+        levelName: s.levelName,
+        status: s.status,
+        decidedAt: s.decidedAt,
+        decidedByName: findUser(s.decidedById)?.name ?? null,
+        assignedApproverName: findUser(s.assignedApproverId)?.name ?? null,
+        comments: s.comments,
+      }));
+    // POs gerados desta req (atalho pro detalhe).
+    const pos = (state.purchaseOrders ?? [])
+      .filter((p: any) => p.requisitionId === id && !p.deletedAt)
+      .sort((a: any, b: any) => (a.createdAt < b.createdAt ? 1 : -1))
+      .map((p: any) => ({
+        id: p.id,
+        number: p.number,
+        status: p.status,
+        erpPedido: p.erpPedido ?? null,
+      }));
+    return ok({ ...r, approvalSteps: steps, purchaseOrders: pos });
   }
   if (method === 'GET' && id && action === 'history') {
     return ok(buildHistory('requisition', id));
+  }
+  if (id && action === 'quotations') {
+    // GET /requisitions/:id/quotations | POST /requisitions/:id/quotations
+    return handleRequisitionQuotations(method, id, data, state);
   }
   if (method === 'POST' && !id) {
     return mutateDemoState((s) => {
@@ -258,6 +300,80 @@ export function handleRequisitions(method: string, segments: string[], query: UR
       return ok(s.requisitions[idx]);
     });
   }
+  if (method === 'POST' && id && action === 'quotation-waiver') {
+    return mutateDemoState((s) => {
+      const req = s.requisitions.find((x) => x.id === id) as any;
+      if (!req) return notFound();
+      if (req.status !== 'DRAFT' && req.status !== 'REVISION') {
+        return badRequest(
+          'A dispensa só pode ser solicitada em rascunho ou revisão.',
+        );
+      }
+      const reason = String((data as any)?.reason ?? '');
+      const note = String((data as any)?.note ?? '').trim();
+      const valid = [
+        'CONTRATO_VIGENTE',
+        'RECORRENTE',
+        'UNICO_FORNECEDOR',
+        'EMERGENCIA',
+        'OUTRO',
+      ];
+      if (!valid.includes(reason)) {
+        return badRequest('Motivo de dispensa inválido.');
+      }
+      if (note.length < 20) {
+        return badRequest(
+          'A justificativa precisa ter no mínimo 20 caracteres.',
+        );
+      }
+      req.quotationWaiverReason = reason;
+      req.quotationWaiverNote = note;
+      req.quotationWaiverAt = todayIso();
+      return ok({ ok: true });
+    });
+  }
+  if (method === 'DELETE' && id && action === 'quotation-waiver') {
+    return mutateDemoState((s) => {
+      const req = s.requisitions.find((x) => x.id === id) as any;
+      if (!req) return notFound();
+      if (req.status !== 'DRAFT' && req.status !== 'REVISION') {
+        return badRequest(
+          'A dispensa só pode ser removida em rascunho ou revisão.',
+        );
+      }
+      req.quotationWaiverReason = null;
+      req.quotationWaiverNote = null;
+      req.quotationWaiverAt = null;
+      return ok({ ok: true });
+    });
+  }
+  if (method === 'POST' && id && action === 'clone') {
+    return mutateDemoState((s) => {
+      const src = s.requisitions.find((x: any) => x.id === id);
+      if (!src) return notFound();
+      const newId = uid();
+      const stamp = new Date().toLocaleDateString('pt-BR');
+      const seq = (s.requisitions.length + 1).toString().padStart(6, '0');
+      const cloned = {
+        ...src,
+        id: newId,
+        number: `REQ-${new Date().getFullYear()}-${seq}`,
+        title: `${src.title} (cópia ${stamp})`,
+        status: 'DRAFT',
+        submittedAt: null,
+        approvedAt: null,
+        rejectedAt: null,
+        rejectionReason: null,
+        recurring: false,
+        quotationWaiverReason: null,
+        quotationWaiverNote: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      s.requisitions.push(cloned);
+      return ok({ id: newId, number: cloned.number });
+    });
+  }
   if (method === 'POST' && id && action === 'submit') {
     return mutateDemoState((s) => {
       const req = s.requisitions.find((x) => x.id === id);
@@ -266,12 +382,19 @@ export function handleRequisitions(method: string, segments: string[], query: UR
         return badRequest('Apenas requisições em rascunho podem ser submetidas.');
       }
       // Regra de cotações simulada — threshold 10k / mínimo 3.
+      // Exceção: dispensa explícita pula a checagem (RN-REQ-02).
       const threshold = 10000;
       const minRequired = 3;
-      if (Number(req.totalAmount) >= threshold && (req.quotationsCount ?? 0) < minRequired) {
-        return badRequest(
-          `Requisição de R$ ${Number(req.totalAmount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} exige no mínimo ${minRequired} cotações (anexadas: ${req.quotationsCount ?? 0}).`,
-        );
+      const waiver = (req as any).quotationWaiverReason;
+      if (!waiver) {
+        const realCount = (s.attachments ?? []).filter(
+          (a: any) => a.requisitionId === req.id && a.kind === 'QUOTATION',
+        ).length;
+        if (Number(req.totalAmount) >= threshold && realCount < minRequired) {
+          return badRequest(
+            `Requisição de R$ ${Number(req.totalAmount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} exige no mínimo ${minRequired} cotação(ões) anexada(s) (atual: ${realCount}).`,
+          );
+        }
       }
       // Gera steps da cadeia até o nível que cobre o valor.
       const levels = s.approvalLevels
@@ -315,6 +438,77 @@ export function handleRequisitions(method: string, segments: string[], query: UR
       req.status = needed.length === 0 ? 'APPROVED' : 'IN_APPROVAL';
       req.submittedAt = todayIso();
       req.currentTierLevel = needed[0]?.level ?? null;
+      if (needed.length === 0) req.approvedAt = todayIso();
+      return ok(req);
+    });
+  }
+  if (method === 'POST' && id && action === 'resubmit') {
+    return mutateDemoState((s) => {
+      const req = s.requisitions.find((x) => x.id === id) as any;
+      if (!req) return notFound();
+      if (req.status !== 'REVISION') {
+        return badRequest(
+          'Só requisições em revisão podem ser re-submetidas por este caminho.',
+        );
+      }
+      // Mesma checagem de cotações do submit.
+      const threshold = 10000;
+      const minRequired = 3;
+      if (!req.quotationWaiverReason) {
+        const realCount = (s.attachments ?? []).filter(
+          (a: any) => a.requisitionId === req.id && a.kind === 'QUOTATION',
+        ).length;
+        if (Number(req.totalAmount) >= threshold && realCount < minRequired) {
+          return badRequest(
+            `Requisição de R$ ${Number(req.totalAmount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} exige no mínimo ${minRequired} cotação(ões) anexada(s) (atual: ${realCount}).`,
+          );
+        }
+      }
+      // Recria a cadeia.
+      const levels = s.approvalLevels
+        .filter((l) => l.teamId === req.teamId)
+        .sort((a, b) => a.level - b.level);
+      const amount = Number(req.totalAmount);
+      const needed: any[] = [];
+      for (const lvl of levels) {
+        needed.push(lvl);
+        const max = lvl.maxAmount === null ? null : Number(lvl.maxAmount);
+        if (max === null || max >= amount) break;
+      }
+      s.approvalSteps = s.approvalSteps.filter(
+        (st) => st.requisitionId !== req.id,
+      );
+      const newSteps = needed.map((lvl) => ({
+        id: uid('step'),
+        companyId: req.companyId,
+        entityType: 'REQUISITION',
+        requisitionId: req.id,
+        purchaseOrderId: null,
+        fundRequestId: null,
+        teamApprovalLevelId: lvl.id,
+        level: lvl.level,
+        levelName: lvl.name,
+        assignedApproverId: lvl.approverId,
+        decidedById: null,
+        status: 'PENDING',
+        decidedAt: null,
+        comments: null,
+        createdAt: todayIso(),
+        updatedAt: todayIso(),
+        requisition: {
+          id: req.id,
+          number: req.number,
+          title: req.title,
+          totalAmount: req.totalAmount,
+          requester: { name: req.requester?.name ?? '' },
+        },
+      }));
+      s.approvalSteps.push(...newSteps);
+      req.status = needed.length === 0 ? 'APPROVED' : 'IN_APPROVAL';
+      req.currentTierLevel = needed[0]?.level ?? null;
+      req.revisionReason = null;
+      req.revisionRequestedAt = null;
+      req.revisionRequestedById = null;
       if (needed.length === 0) req.approvedAt = todayIso();
       return ok(req);
     });
@@ -370,8 +564,13 @@ export function handleApprovals(method: string, segments: string[], data?: any):
   if (method === 'GET' && sub === 'pending') {
     const userId = getDemoSessionUserId();
     const state = getDemoState();
+    const me = state.users.find((u: any) => u.id === userId);
+    const isAdmin = me?.profile === 'ADMIN';
+    // Admin vê todas as pendentes; demais perfis só as atribuídas a eles.
     const steps = state.approvalSteps.filter(
-      (st) => st.status === 'PENDING' && st.assignedApproverId === userId,
+      (st) =>
+        st.status === 'PENDING' &&
+        (isAdmin ? true : st.assignedApproverId === userId),
     );
     // Mantém só os "ativos" — sem nível anterior pendente do mesmo documento.
     const active = steps.filter((st) => {
@@ -383,7 +582,37 @@ export function handleApprovals(method: string, segments: string[], data?: any):
       );
       return lower.length === 0;
     });
-    return ok(active);
+    // Hidrata o assignedApprover + waiver (mesmo formato do backend).
+    return ok(
+      active.map((st: any) => {
+        const approver = state.users.find(
+          (u: any) => u.id === st.assignedApproverId,
+        );
+        const req = state.requisitions.find(
+          (r: any) => r.id === st.requisitionId,
+        );
+        const requester = state.users.find(
+          (u: any) => u.id === req?.requesterId,
+        );
+        return {
+          ...st,
+          assignedApprover: approver
+            ? { id: approver.id, name: approver.name }
+            : null,
+          requisition: req
+            ? {
+                id: req.id,
+                number: req.number,
+                title: req.title,
+                totalAmount: req.totalAmount,
+                requester: { name: requester?.name ?? '—' },
+                quotationWaiverReason: req.quotationWaiverReason ?? null,
+                quotationWaiverNote: req.quotationWaiverNote ?? null,
+              }
+            : st.requisition,
+        };
+      }),
+    );
   }
   if (method === 'POST' && sub && segments[2] === 'decide') {
     const stepId = sub;
@@ -391,17 +620,50 @@ export function handleApprovals(method: string, segments: string[], data?: any):
       const step = s.approvalSteps.find((x) => x.id === stepId);
       if (!step) return notFound();
       const userId = getDemoSessionUserId();
-      if (step.assignedApproverId !== userId) {
+      const me = (s.users as any[]).find((u: any) => u.id === userId);
+      const isAdmin = me?.profile === 'ADMIN';
+      const isTitular = step.assignedApproverId === userId;
+      const isOverride = isAdmin && !isTitular;
+      const comments = String(data?.comments ?? '').trim();
+      if (!isTitular && !isAdmin) {
         return { status: 403, data: { message: 'Você não é o aprovador desta etapa.' } };
+      }
+      if (isOverride && comments.length < 10) {
+        return {
+          status: 400,
+          data: {
+            message:
+              'Decisões fora da sua alçada exigem uma justificativa de pelo menos 10 caracteres.',
+          },
+        };
       }
       const req = s.requisitions.find((x) => x.id === step.requisitionId);
       if (req && req.requesterId === userId) {
-        return { status: 403, data: { message: 'Você não pode aprovar a própria requisição (RN-ALC-03).' } };
+        if (!isAdmin) {
+          return {
+            status: 403,
+            data: {
+              message:
+                'Você não pode aprovar uma requisição criada por você mesmo.',
+            },
+          };
+        }
+        if (comments.length < 10) {
+          return {
+            status: 400,
+            data: {
+              message:
+                'Para aprovar um documento que você mesmo criou, escreva uma justificativa de pelo menos 10 caracteres.',
+            },
+          };
+        }
       }
       step.status = data.approved ? 'APPROVED' : 'REJECTED';
       step.decidedById = userId;
       step.decidedAt = todayIso();
-      step.comments = data.comments ?? null;
+      step.comments = isOverride
+        ? `[Decisão por Administrador — ${me?.name ?? '—'}] ${comments}`
+        : comments || null;
       if (!data.approved) {
         if (req) {
           req.status = 'REJECTED';
@@ -550,37 +812,10 @@ export function handlePurchaseOrders(method: string, segments: string[], query: 
       return ok(po);
     });
   }
-  if (method === 'POST' && id && action === 'send-to-supplier') {
-    return mutateDemoState((s) => {
-      const po = s.purchaseOrders.find((p) => p.id === id);
-      if (!po) return notFound();
-      if (po.status !== 'APPROVED') {
-        return badRequest('Só PCs aprovados podem ser enviados.');
-      }
-      po.status = 'SENT_TO_SUPPLIER';
-      po.sentToSupplierAt = todayIso();
-      po.integratedAt = todayIso();
-      po.erpPedido = `DEMO${Date.now().toString().slice(-5)}`;
-      po.updatedAt = todayIso();
-      const recipient = data?.recipientEmail ?? null;
-      // Loga "integração" no demo
-      s.integrationLogs.push({
-        id: uid('log'),
-        companyId: po.companyId,
-        source: 'ERP_DEMO',
-        jobType: 'SEND_PO',
-        status: 'SUCCESS',
-        recordsProcessed: 1 + (po.items?.length ?? 0),
-        durationMs: 250,
-        errorDetails: null,
-        executedAt: todayIso(),
-      });
-      return ok({ ...po, emailSent: !!recipient && !data?.skipEmail, emailRecipient: recipient });
-    });
-  }
-  if (method === 'POST' && id && action === 'resend') {
-    return ok({ ok: true, recipient: data?.recipientEmail ?? null });
-  }
+  // Handlers /send-to-supplier e /resend foram REMOVIDOS — o fluxo de
+  // e-mail ao fornecedor não existe pra consumíveis. Em PROD/HML a
+  // gravação no Linx acontece automaticamente no convert(); o demo
+  // não precisa mais simular esse endpoint.
   if (method === 'POST' && id && action === 'cancel') {
     const reason = String(data?.cancellationReason ?? '').trim();
     if (reason.length < 10) {
@@ -627,5 +862,270 @@ export function handleFundRequests(method: string, segments: string[], query: UR
   if (method === 'GET' && id && action === 'history') {
     return ok(buildHistory('sv', id));
   }
+  return null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Cotacoes                                                            */
+/* ------------------------------------------------------------------ */
+
+function cleanCnpj(raw: string): string {
+  return (raw ?? '').replace(/\D/g, '');
+}
+
+function findSupplierByCnpj(state: any, cnpj: string) {
+  const d = cleanCnpj(cnpj);
+  if (!d) return null;
+  return (
+    state.suppliers.find(
+      (s: any) => cleanCnpj(s.cnpjCpf ?? '') === d && !s.inativo,
+    ) ?? null
+  );
+}
+
+function findPaymentCondition(state: any, code: string) {
+  return state.paymentConditions.find((c: any) => c.codigo === code) ?? null;
+}
+
+function hydrateQuotation(state: any, q: any) {
+  const att = q.attachmentId
+    ? (state.attachments ?? []).find((a: any) => a.id === q.attachmentId)
+    : null;
+  return {
+    ...q,
+    attachment: att
+      ? { id: att.id, filename: att.filename, mimeType: att.mimeType }
+      : null,
+    createdBy: q.createdById
+      ? { name: state.users.find((u: any) => u.id === q.createdById)?.name ?? '' }
+      : null,
+    selectedBy: q.selectedById
+      ? { name: state.users.find((u: any) => u.id === q.selectedById)?.name ?? '' }
+      : null,
+  };
+}
+
+function handleRequisitionQuotations(
+  method: string,
+  reqId: string,
+  data: any,
+  state: any,
+): DemoResponse | null {
+  if (method === 'GET') {
+    const list = ((state.quotations as any[]) ?? [])
+      .filter((q: any) => q.requisitionId === reqId)
+      .sort((a: any, b: any) => {
+        if (a.isWinner !== b.isWinner) return a.isWinner ? -1 : 1;
+        return a.createdAt < b.createdAt ? -1 : 1;
+      })
+      .map((q: any) => hydrateQuotation(state, q));
+    return ok(list);
+  }
+  if (method === 'POST') {
+    return mutateDemoState((s: any) => {
+      const req = s.requisitions.find((r: any) => r.id === reqId);
+      if (!req) return notFound();
+      if (!['DRAFT', 'REVISION'].includes(req.status)) {
+        return badRequest(
+          'Cotacoes so podem ser cadastradas em rascunho ou revisao.',
+        );
+      }
+      const cnpj = cleanCnpj(data?.supplierCnpj ?? '');
+      if (cnpj.length < 11) return badRequest('CNPJ invalido.');
+      const items = Array.isArray(data?.items) ? data.items : [];
+      if (items.length === 0) return badRequest('Informe ao menos 1 item.');
+
+      const erp = findSupplierByCnpj(s, cnpj);
+      const supplierName: string =
+        erp?.nome ?? (data?.supplierNameOverride ?? '').trim();
+      if (!supplierName) {
+        return badRequest(
+          'Fornecedor nao cadastrado — informe o nome do fornecedor.',
+        );
+      }
+
+      let paymentCode: string | null = data?.paymentConditionCode ?? null;
+      let paymentDesc: string | null = null;
+      if (paymentCode) {
+        const cond = findPaymentCondition(s, paymentCode);
+        if (!cond) return badRequest('Condicao de pagamento invalida.');
+        paymentDesc = cond.descricao;
+      } else if (erp?.condicaoPgto) {
+        paymentCode = erp.condicaoPgto;
+        const cond = findPaymentCondition(s, paymentCode as string);
+        paymentDesc = cond?.descricao ?? null;
+      }
+
+      const total = items.reduce(
+        (sum: number, it: any) =>
+          sum + Number(it.quantity ?? 0) * Number(it.unitPrice ?? 0),
+        0,
+      );
+
+      const id = uid('quotation');
+      const quotation: any = {
+        id,
+        companyId: req.companyId,
+        requisitionId: reqId,
+        attachmentId: data?.attachmentId ?? null,
+        supplierCnpj: cnpj,
+        supplierName,
+        supplierErpCode: erp?.codigo ?? null,
+        paymentConditionCode: paymentCode,
+        paymentConditionDesc: paymentDesc,
+        totalAmount: total.toFixed(2),
+        notes: data?.notes ?? null,
+        isWinner: false,
+        selectedAt: null,
+        selectedById: null,
+        createdAt: todayIso(),
+        createdById: getDemoSessionUserId(),
+        items: items.map((it: any, idx: number) => ({
+          id: uid('qitem'),
+          position: idx,
+          description: String(it.description ?? '').trim(),
+          unit: it.unit ?? null,
+          quantity: String(Number(it.quantity)),
+          unitPrice: String(Number(it.unitPrice)),
+          totalPrice: (Number(it.quantity) * Number(it.unitPrice)).toFixed(2),
+        })),
+      };
+      s.quotations = s.quotations ?? [];
+      s.quotations.push(quotation);
+      return ok(hydrateQuotation(s, quotation));
+    });
+  }
+  return null;
+}
+
+export function handleQuotations(
+  method: string,
+  segments: string[],
+  data: any,
+): DemoResponse | null {
+  const id = segments[1];
+  const action = segments[2];
+  if (!id) return null;
+
+  if (method === 'PATCH' && !action) {
+    return mutateDemoState((s: any) => {
+      s.quotations = s.quotations ?? [];
+      const q = s.quotations.find((x: any) => x.id === id);
+      if (!q) return notFound();
+      if (q.isWinner) {
+        return badRequest(
+          'Esta cotacao e a vencedora — cancele a selecao antes.',
+        );
+      }
+      if (data?.supplierCnpj !== undefined) {
+        const cnpj = cleanCnpj(data.supplierCnpj);
+        const erp = findSupplierByCnpj(s, cnpj);
+        const name = erp?.nome ?? (data.supplierNameOverride ?? '').trim();
+        if (!name) return badRequest('Nome do fornecedor obrigatorio.');
+        q.supplierCnpj = cnpj;
+        q.supplierName = name;
+        q.supplierErpCode = erp?.codigo ?? null;
+      }
+      if (data?.paymentConditionCode !== undefined) {
+        if (data.paymentConditionCode) {
+          const cond = findPaymentCondition(s, data.paymentConditionCode);
+          if (!cond) return badRequest('Condicao de pagamento invalida.');
+          q.paymentConditionCode = data.paymentConditionCode;
+          q.paymentConditionDesc = cond.descricao;
+        } else {
+          q.paymentConditionCode = null;
+          q.paymentConditionDesc = null;
+        }
+      }
+      if (data?.notes !== undefined) q.notes = data.notes ?? null;
+      if (Array.isArray(data?.items)) {
+        q.items = data.items.map((it: any, idx: number) => ({
+          id: uid('qitem'),
+          position: idx,
+          description: String(it.description ?? '').trim(),
+          unit: it.unit ?? null,
+          quantity: String(Number(it.quantity)),
+          unitPrice: String(Number(it.unitPrice)),
+          totalPrice: (Number(it.quantity) * Number(it.unitPrice)).toFixed(2),
+        }));
+        const total = q.items.reduce(
+          (sum: number, it: any) =>
+            sum + Number(it.quantity) * Number(it.unitPrice),
+          0,
+        );
+        q.totalAmount = total.toFixed(2);
+      }
+      return ok(hydrateQuotation(s, q));
+    });
+  }
+
+  if (method === 'DELETE' && !action) {
+    return mutateDemoState((s: any) => {
+      s.quotations = s.quotations ?? [];
+      const idx = s.quotations.findIndex((x: any) => x.id === id);
+      if (idx < 0) return notFound();
+      if (s.quotations[idx].isWinner) {
+        return badRequest('Cotacao vencedora — cancele a selecao antes.');
+      }
+      s.quotations.splice(idx, 1);
+      return ok({ ok: true });
+    });
+  }
+
+  if (method === 'POST' && action === 'select') {
+    return mutateDemoState((s: any) => {
+      s.quotations = s.quotations ?? [];
+      const q = s.quotations.find((x: any) => x.id === id);
+      if (!q) return notFound();
+      const req = s.requisitions.find((r: any) => r.id === q.requisitionId);
+      if (!req) return notFound();
+      if (!['SUBMITTED', 'IN_APPROVAL', 'REVISION'].includes(req.status)) {
+        return badRequest(
+          'Cotacao so pode ser selecionada com a requisicao em aprovacao.',
+        );
+      }
+      for (const other of s.quotations) {
+        if (other.requisitionId === q.requisitionId && other.id !== q.id) {
+          other.isWinner = false;
+          other.selectedAt = null;
+          other.selectedById = null;
+        }
+      }
+      q.isWinner = true;
+      q.selectedAt = todayIso();
+      q.selectedById = getDemoSessionUserId();
+
+      req.supplierErpCode = q.supplierErpCode ?? req.supplierErpCode;
+      req.supplierName = q.supplierName;
+      req.paymentConditionCode = q.paymentConditionCode;
+      req.paymentConditionDesc = q.paymentConditionDesc;
+      req.totalAmount = q.totalAmount;
+      req.winningQuotationId = q.id;
+      req.winningQuotationNeedsErp = q.supplierErpCode === null;
+
+      const template = (req.items ?? [])[0];
+      if (template) {
+        req.items = q.items.map((qi: any) => ({
+          id: uid('item'),
+          requisitionId: req.id,
+          itemErpCode: template.itemErpCode,
+          itemDescription: qi.description,
+          unit: qi.unit ?? template.unit,
+          quantity: qi.quantity,
+          estimatedPrice: qi.unitPrice,
+          totalPrice: qi.totalPrice,
+          accountingAccount: template.accountingAccount,
+          accountName: template.accountName,
+          branchRateioCode: template.branchRateioCode,
+          branchRateioDesc: template.branchRateioDesc,
+          costCenterRateioCode: template.costCenterRateioCode,
+          costCenterRateioDesc: template.costCenterRateioDesc,
+          notes: template.notes,
+        }));
+      }
+      return ok(hydrateQuotation(s, q));
+    });
+  }
+
   return null;
 }

@@ -19,6 +19,7 @@ import { ReceiveDialog } from '@/pages/receiving/ReceiveDialog';
 import { CancelItemsDialog } from './CancelItemsDialog';
 import { EditPoDialog } from './EditPoDialog';
 import { AttachmentsSection } from '@/components/AttachmentsSection';
+import { useAuth } from '@/lib/auth';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
@@ -48,6 +49,7 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 export function PurchaseOrderDetailPage() {
   const { id } = useParams();
   const { data: po, isLoading } = usePurchaseOrder(id);
+  const { user } = useAuth();
   const { toast } = useToast();
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [cancelItemsOpen, setCancelItemsOpen] = useState(false);
@@ -74,11 +76,12 @@ export function PurchaseOrderDetailPage() {
 
   // Recebimento aceito enquanto o pedido está aberto. APPROVED é raro
   // hoje (a gravação no Linx é automática ao converter, status já vira
-  // INTEGRATED), mas mantemos compatibilidade.
+  // INTEGRATED), mas mantemos compatibilidade. SENT_TO_SUPPLIER foi
+  // removido — só existirá no módulo PA futuro, que terá sua própria
+  // tela de recebimento.
   const canReceive =
     po.status === 'APPROVED' ||
     po.status === 'INTEGRATED' ||
-    po.status === 'SENT_TO_SUPPLIER' ||
     po.status === 'PARTIALLY_RECEIVED';
   // Cancelamento permitido em estados não finais. O backend ainda bloqueia
   // se houver item já recebido (RN-OC-03), mas o botão fica visível pra
@@ -228,7 +231,7 @@ export function PurchaseOrderDetailPage() {
           />
           <Field
             label="Oficializado no ERP"
-            value={formatDate(po.integratedAt ?? po.sentToSupplierAt)}
+            value={formatDate(po.integratedAt)}
           />
           <Field
             label="Valor total"
@@ -339,8 +342,14 @@ export function PurchaseOrderDetailPage() {
           <AttachmentsSection
             kind="purchaseOrder"
             parentId={po.id}
-            readOnly={['CANCELLED'].includes(po.status)}
+            // Só o comprador (quem criou o PC) anexa; demais visualizam.
+            readOnly={
+              ['CANCELLED'].includes(po.status) ||
+              user?.id !== po.buyer?.id
+            }
             hint="Cotações, contrato com o fornecedor, anexos da negociação (PDF/DOCX/XLSX/imagens — até 10 MB cada, máx. 10)."
+            allowedDocKinds={['QUOTATION', 'CONTRACT', 'INVOICE', 'OTHER']}
+            defaultDocKind="CONTRACT"
           />
         </CardContent>
       </Card>

@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import type { Paginated } from './requisitions';
 
@@ -35,6 +35,9 @@ export interface FundRequest {
   status: string;
   totalAmount: string;
   erpSolicitacao: string | null;
+  integratedAt: string | null;
+  lastErpError: string | null;
+  lastErpAttemptAt: string | null;
   submittedAt: string | null;
   approvedAt: string | null;
   rejectedAt: string | null;
@@ -80,6 +83,25 @@ export interface SvHistoryEvent {
   label: string;
   who?: string | null;
   detail?: string | null;
+}
+
+/**
+ * Reintegração manual da SV no Linx — usado pelo botão "Reintegrar Linx"
+ * que aparece na tela de detalhe quando há `lastErpError`. O backend é
+ * idempotente: se já tem erpSolicitacao, devolve sem nova gravação.
+ */
+export function useRetryFundRequestErp(id: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () =>
+      (await api.post<{ erpSolicitacao: string }>(
+        `/fund-requests/${id}/retry-erp`,
+      )).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['fund-request', id] });
+      qc.invalidateQueries({ queryKey: ['fund-requests'] });
+    },
+  });
 }
 
 export function useFundRequestHistory(id: string | undefined) {

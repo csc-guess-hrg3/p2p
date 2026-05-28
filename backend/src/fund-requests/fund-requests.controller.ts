@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FundRequestsService } from './fund-requests.service';
 import { QueryFundRequestsDto } from './dto/query-fund-requests.dto';
@@ -32,5 +32,14 @@ export class FundRequestsController {
   @ApiOperation({ summary: 'Timeline cronológica da SV' })
   history(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.fundRequests.history(user, id);
+  }
+
+  @Post(':id/retry-erp')
+  @ApiOperation({
+    summary:
+      'Reprocessa a integração da SV com o Linx. Usado quando a tentativa inicial (no convert) falhou — a SV mostra "Falha" no badge e o usuário pode tentar de novo após corrigir o problema.',
+  })
+  retryErp(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.fundRequests.retryErp(user, id);
   }
 }

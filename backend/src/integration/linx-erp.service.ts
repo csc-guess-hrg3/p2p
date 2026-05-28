@@ -5,7 +5,12 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { PurchaseOrder, PurchaseOrderItem } from '@prisma/client';
+import {
+  FundRequest,
+  FundRequestItem,
+  PurchaseOrder,
+  PurchaseOrderItem,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { IntegrationLogStatus } from '../common/enums';
@@ -38,7 +43,49 @@ import { IntegrationLogStatus } from '../common/enums';
 export class LinxErpService {
   private readonly logger = new Logger(LinxErpService.name);
 
+  /**
+   * Cache lazy da moeda padrão por banco — `dbo.MOEDAS.INDICA_PADRAO=1`.
+   * O Linx armazena moeda como `char(6)` com padding à direita, mas as
+   * outras colunas que usam moeda (COMPRAS.MOEDA, CTB_*.MOEDA etc.)
+   * aceitam o valor já trimado, então cachamos o código limpo.
+   *
+   * TTL de 1h — moeda padrão muda raramente; em caso de mudança, basta
+   * reiniciar o backend.
+   */
+  private readonly moedaPadraoCache = new Map<
+    string,
+    { code: string; at: number }
+  >();
+  private readonly MOEDA_CACHE_TTL_MS = 60 * 60 * 1000;
+
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Devolve o código da moeda padrão do Linx (R$ no caso GUESS/HRG3).
+   * Lê de `dbo.MOEDAS WHERE INDICA_PADRAO=1` com cache em memória.
+   * Em caso de qualquer falha, devolve 'R$' como fallback seguro —
+   * 100% das empresas brasileiras Linx usam Real como padrão.
+   */
+  private async getDefaultMoeda(erpDb: string): Promise<string> {
+    const cached = this.moedaPadraoCache.get(erpDb);
+    if (cached && Date.now() - cached.at < this.MOEDA_CACHE_TTL_MS) {
+      return cached.code;
+    }
+    try {
+      const rows = await this.prisma.$queryRawUnsafe<{ MOEDA: string }[]>(
+        `SELECT TOP 1 MOEDA FROM [${erpDb}].dbo.MOEDAS WITH (NOLOCK)
+         WHERE INDICA_PADRAO = 1`,
+      );
+      const code = (rows[0]?.MOEDA ?? 'R$').trim() || 'R$';
+      this.moedaPadraoCache.set(erpDb, { code, at: Date.now() });
+      return code;
+    } catch (e) {
+      this.logger.warn(
+        `Falha lendo MOEDA padrão de ${erpDb}: ${(e as Error).message} — usando 'R$'`,
+      );
+      return 'R$';
+    }
+  }
 
   /**
    * Pad esquerda com zeros até `len`. Linx armazena `PEDIDO` como char(8)
@@ -288,7 +335,10 @@ export class LinxErpService {
         }
         const pedido = this.pad(pedidoNum, 8); // PEDIDO em COMPRAS é char(8)
 
-        // 2) Cabeçalho.
+        // 2) Cabeçalho. Moeda lida da tabela MOEDAS (cache lazy) em
+        //    vez de hardcode — protege contra empresa que altera o
+        //    padrão (raro, mas barato de fazer certo).
+        const moeda = await this.getDefaultMoeda(erpDb);
         await tx.$executeRawUnsafe(
           // PEDIDO_UX é IDENTITY no Linx (auto-incremento) — não pode
           // ir explicitamente no INSERT (erro IDENTITY_INSERT off).
@@ -303,7 +353,7 @@ export class LinxErpService {
               CTB_TIPO_OPERACAO, DATA_PARA_TRANSFERENCIA,
               ORIGEM_DA_COMPRA)
            VALUES
-             (@P1, @P2, @P3, @P3, @P3, @P4, @P15, N'R$',
+             (@P1, @P2, @P3, @P3, @P3, @P4, @P15, @P17,
               @P5, GETDATE(), GETDATE(), @P6,
               N' ', @P7, @P8,
               @P9, @P10, @P11, @P12,
@@ -338,6 +388,8 @@ export class LinxErpService {
           // @P16 — ORIGEM_DA_COMPRA (varchar(15)): rastreio P2P↔Linx
           // com o número P2P completo (ex.: "OC-2026-000123" — 14 chars).
           this.trunc(po.number, 15, 'ORIGEM_DA_COMPRA') ?? '',
+          // @P17 — MOEDA padrão da empresa (lida de dbo.MOEDAS).
+          moeda,
         );
 
         // 3) Itens.
@@ -526,5 +578,524 @@ export class LinxErpService {
         `Falha ao gravar integration_log: ${(err as Error).message}`,
       );
     }
+  }
+
+  /*
+   * ============================================================
+   * TODO: createSupplier — cadastro automático no Linx
+   * ============================================================
+   *
+   * Disparado quando uma cotação vencedora tem `supplierErpCode = null`
+   * e o admin/cron decide processar (`requisition.needsSupplierErpCreation`).
+   * Schema descoberto via inspeção (scripts/inspect-linx-supplier*.ts).
+   *
+   * PASSO 1 — Sequencial:
+   *
+   *   DECLARE @CLIFOR CHAR(6);
+   *   EXEC dbo.LX_SEQUENCIAL 'FORNECEDORES.CLIFOR', NULL, @CLIFOR OUTPUT;
+   *
+   *   Tamanho = 6, padding com zero à esquerda (já formatado pela proc).
+   *   O pool é compartilhado com CLIENTES_ATACADO.CLIFOR e FILIAIS.CLIFOR
+   *   — mesmo espaço de IDs do CADASTRO_CLI_FOR.
+   *
+   * PASSO 2 — INSERT em `dbo.CADASTRO_CLI_FOR` (mestre cliente/fornecedor):
+   *
+   *   NOT NULL sem default que PRECISAMOS preencher:
+   *     CLIFOR             char(6)      ← @CLIFOR
+   *     NOME_CLIFOR        varchar(25)  ← nome curto (truncar pra 25!)
+   *     RAZAO_SOCIAL       varchar(90)  ← supplierName (BrasilAPI)
+   *     CGC_CPF            varchar(19)  ← supplierCnpj
+   *     RG_IE              varchar(19)  ← 'ISENTO' (não temos IE do CNPJ)
+   *     UF                 char(2)      ← supplierUf
+   *     COBRANCA_UF        char(2)      ← = UF
+   *     ENTREGA_UF         char(2)      ← = UF
+   *     COBRANCA_CGC       varchar(19)  ← = CGC_CPF
+   *     ENTREGA_CGC        varchar(19)  ← = CGC_CPF
+   *     COBRANCA_IE        varchar(19)  ← = RG_IE
+   *     ENTREGA_IE         varchar(19)  ← = RG_IE
+   *     CADASTRAMENTO      datetime     ← GETDATE()
+   *
+   *   Flags NOT NULL com default 0 que PRECISAMOS sobrescrever:
+   *     PJ_PF              bit          ← 1 (PJ) se cnpj.length === 14
+   *     INDICA_FORNECEDOR  bit          ← 1 (este registro é fornecedor)
+   *
+   *   Opcionais (do que veio da BrasilAPI):
+   *     ENDERECO, NUMERO (não tem coluna — vai no ENDERECO), BAIRRO,
+   *     CIDADE, CEP, TELEFONE1, DDD1, e os equivalentes COBRANCA_* e
+   *     ENTREGA_* (copiar do principal).
+   *
+   * PASSO 3 — INSERT em `dbo.FORNECEDORES` (dados específicos):
+   *
+   *   NOT NULL sem default:
+   *     COD_FORNECEDOR     char(6)      ← = @CLIFOR
+   *     CLIFOR             char(6)      ← = @CLIFOR (FK)
+   *     FORNECEDOR         varchar(25)  ← nome curto (= NOME_CLIFOR)
+   *     CGC_CPF            varchar(19)  ← = CGC_CPF da master
+   *     CONDICAO_PGTO      char(3)      ← q.paymentConditionCode (3 chars!)
+   *
+   *   Flags NOT NULL com default 0 que vale a pena sobrescrever:
+   *     FORNECE_MAT_CONSUMO bit         ← 1 (P2P é compra de consumível)
+   *     INATIVO            bit          ← 0 (já é o default mas explicitar)
+   *
+   * PASSO 4 — Atualiza P2P:
+   *     UPDATE quotations SET supplierErpCode = @CLIFOR WHERE id = ...
+   *     UPDATE requisitions SET supplierErpCode = @CLIFOR,
+   *                             needsSupplierErpCreation = 0
+   *      WHERE id = (req da cotação)
+   *
+   * PASSO 5 — integration_logs (jobType = 'CREATE_SUPPLIER'),
+   *           status SUCCESS / FAILED, duração e erro detalhado.
+   *
+   * IDEMPOTÊNCIA: antes do INSERT, checar se já existe
+   *   SELECT 1 FROM CADASTRO_CLI_FOR
+   *    WHERE REPLACE(REPLACE(REPLACE(CGC_CPF,'.',''),'/',''),'-','') = @cnpj
+   * — se existir, usar aquele CLIFOR e pular o INSERT (cobre o caso onde
+   * outro processo cadastrou em paralelo).
+   *
+   * EXPOSIÇÃO: provavelmente um endpoint admin manual
+   * `POST /admin/suppliers/from-quotation/:id` é o caminho mais seguro
+   * pro MVP — admin valida na listagem de pendências e dispara um
+   * por vez. Em uma fase 2, @Cron noturno que processa `needsSupplierErpCreation`.
+   *
+   * Dados disponíveis no `quotation` row (vieram da BrasilAPI):
+   *   supplierCnpj, supplierName, supplierFantasia, supplierEmail,
+   *   supplierTelefone, supplierLogradouro, supplierNumero, supplierBairro,
+   *   supplierCidade, supplierUf, supplierCep, supplierCnae,
+   *   paymentConditionCode.
+   */
+
+  /**
+   * Grava a Solicitação de Verba (SV / FundRequest) no Linx.
+   *
+   * Schema validado via inspeção do banco real (GUESS_PRODUCAO):
+   *   - Sequencial `SOLICITACAO_VERBA` tamanho 6
+   *   - Cabeçalho `CTB_SOLICITACAO_VERBA`: EMPRESA + SOLICITACAO_VERBA
+   *   - Itens `CTB_SOLICITACAO_VERBA_ITEM`: EMPRESA + CONTA_CONTABIL +
+   *     ID_SOLICITACAO_ITEM (char(4) zero-paddeado) + SOLICITACAO_VERBA
+   *     + VALOR_SOLICITADO + VENCIMENTO + INDICA_FLUXO
+   *
+   * Idempotência: curto-circuito por `erpSolicitacao`; staging id em
+   * `erpStagingId`; recovery via `VERBA_OBS LIKE 'P2P SV <number>%'`.
+   */
+  async gravarSolicitacaoVerba(
+    sv: FundRequest & { items: FundRequestItem[] },
+    user: AuthenticatedUser,
+  ): Promise<{ solicitacao: string }> {
+    if (sv.erpSolicitacao) {
+      this.logger.log(
+        `SV ${sv.number} já integrada (Linx SOLICITACAO=${sv.erpSolicitacao})`,
+      );
+      return { solicitacao: sv.erpSolicitacao };
+    }
+
+    const company = await this.prisma.company.findUniqueOrThrow({
+      where: { id: sv.companyId },
+    });
+    const erpDb = company.erpDbName;
+    if (!['GUESS_PRODUCAO', 'HML_GUESS', 'DB_HRG3'].includes(erpDb)) {
+      throw new BadRequestException(`Banco ERP inválido: ${erpDb}`);
+    }
+
+    if (!sv.erpStagingId) {
+      await this.prisma.fundRequest.update({
+        where: { id: sv.id },
+        data: { erpStagingId: `SV-${sv.id}`, pendingErpSince: new Date() },
+      });
+    }
+    // OBS rastreio P2P. `sv.number` já vem com prefixo "SV-AAAA-NNNNNN"
+    // (definido no schema do P2P), então só "P2P " é suficiente. Espelha
+    // o padrão do PC ("P2P OC-2026-000001"). Usado também pelo recovery
+    // idempotente (`findExistingSvByObs` faz LIKE 'P2P SV-…%').
+    const obsTag = `P2P ${sv.number}`;
+
+    const recovered = await this.findExistingSvByObs(erpDb, obsTag);
+    if (recovered) {
+      this.logger.warn(
+        `SV ${sv.number}: SOLICITACAO ${recovered} já existe no Linx — re-acoplando.`,
+      );
+      await this.prisma.fundRequest.update({
+        where: { id: sv.id },
+        data: { erpSolicitacao: recovered, integratedAt: new Date() },
+      });
+      return { solicitacao: recovered };
+    }
+
+    const requester = await this.prisma.user.findUniqueOrThrow({
+      where: { id: sv.requesterId },
+      select: { adUsername: true, name: true },
+    });
+    const emitente = requester.name ?? requester.adUsername ?? '';
+    const usuario = requester.adUsername ?? requester.name ?? '';
+    const start = Date.now();
+
+    try {
+      const seqResult = await this.prisma.$queryRawUnsafe<
+        { sequencia: string }[]
+      >(
+        `DECLARE @seq VARCHAR(20);
+         EXEC [${erpDb}].dbo.LX_SEQUENCIAL @TABELA_COLUNA = N'SOLICITACAO_VERBA',
+                                           @SEQUENCIA = @seq OUTPUT;
+         SELECT @seq AS sequencia;`,
+      );
+      const raw = seqResult[0]?.sequencia?.trim();
+      if (!raw) {
+        throw new InternalServerErrorException(
+          'LX_SEQUENCIAL não devolveu número de SOLICITACAO_VERBA.',
+        );
+      }
+      const solicitacao = String(parseInt(raw, 10));
+
+      await this.prisma.$executeRawUnsafe(
+        `INSERT INTO [${erpDb}].dbo.CTB_SOLICITACAO_VERBA
+           (EMPRESA, SOLICITACAO_VERBA, DESC_SOLICITACAO_VERBA,
+            VERBA_EMISSAO, VERBA_EMITENTE, USUARIO, VERBA_OBS,
+            LX_VERBA_APROVACAO)
+         VALUES
+           (1, @P1, @P2, GETDATE(), @P3, @P4, @P5, N'A')`,
+        Number(solicitacao),
+        this.trunc(sv.title, 40, 'DESC_SOLICITACAO_VERBA') ?? '',
+        this.trunc(emitente, 50, 'VERBA_EMITENTE') ?? '',
+        this.trunc(usuario, 25, 'USUARIO') ?? '',
+        // VERBA_OBS é varchar(250) — rastreio do P2P no Linx.
+        // Quem olhar a SV no Linx vê direto qual número P2P originou.
+        this.trunc(obsTag, 250, 'VERBA_OBS') ?? '',
+      );
+
+      // Moeda padrão da empresa (cache 1h) — usada em todos os itens.
+      const moedaSV = await this.getDefaultMoeda(erpDb);
+      let idx = 1;
+      for (const it of sv.items) {
+        const idItem = String(idx).padStart(4, '0');
+        const valor = Number(it.amount);
+        await this.prisma.$executeRawUnsafe(
+          `INSERT INTO [${erpDb}].dbo.CTB_SOLICITACAO_VERBA_ITEM
+             (EMPRESA, SOLICITACAO_VERBA, ID_SOLICITACAO_ITEM,
+              CONTA_CONTABIL, DESC_SOLICITACAO_VERBA_ITEM,
+              VALOR_SOLICITADO, VALOR_SOLICITADO_PADRAO,
+              VALOR_ORIGINAL, VALOR_ORIGINAL_PADRAO, VALOR_A_PAGAR,
+              VENCIMENTO, VENCIMENTO_REAL, MOEDA,
+              COD_CLIFOR, COD_FILIAL,
+              RATEIO_FILIAL, RATEIO_CENTRO_CUSTO,
+              BENEFICIARIO, BENEFICIARIO_BANCO,
+              BENEFICIARIO_AGENCIA, BENEFICIARIO_CONTA_CORRENTE,
+              LX_TIPO_LANCAMENTO, LX_VERBA_STATUS,
+              TIPO_MOVIMENTO, INDICA_FLUXO, CAMBIO_NA_DATA_EMISSAO)
+           VALUES
+             (1, @P1, @P2, @P3, @P4,
+              @P5, @P5, @P5, @P5, @P5,
+              @P6, @P6, @P15,
+              @P7, @P8,
+              @P9, @P10,
+              @P11, @P12, @P13, @P14,
+              N'ITP', N'A',
+              1, 1, 1)`,
+          Number(solicitacao),
+          idItem,
+          this.trunc(it.accountingAccount, 20, 'CONTA_CONTABIL') ?? '',
+          this.trunc(it.description, 40, 'DESC_SV_ITEM') ?? '',
+          valor,
+          it.dueDate,
+          '', // COD_CLIFOR vazio quando beneficiário é PF sem cadastro
+          this.trunc(it.branchRateioCode, 6, 'COD_FILIAL') ?? '',
+          this.trunc(it.branchRateioCode, 15, 'RATEIO_FILIAL') ?? '',
+          this.trunc(it.costCenterRateioCode, 15, 'RATEIO_CENTRO_CUSTO') ?? '',
+          this.trunc(it.beneficiaryName, 50, 'BENEFICIARIO') ?? '',
+          this.trunc(it.beneficiaryBank, 4, 'BENEFICIARIO_BANCO') ?? '',
+          this.trunc(it.beneficiaryAgency, 6, 'BENEFICIARIO_AGENCIA') ?? '',
+          this.trunc(it.beneficiaryAccount, 20, 'BENEFICIARIO_CC') ?? '',
+          moedaSV, // @P15
+        );
+        idx++;
+      }
+
+      await this.prisma.fundRequest.update({
+        where: { id: sv.id },
+        data: {
+          erpSolicitacao: solicitacao,
+          integratedAt: new Date(),
+          // Limpa o flag de erro — se tentativas anteriores falharam, a UI
+          // não pode continuar mostrando o aviso vermelho de "falha".
+          lastErpError: null,
+          lastErpAttemptAt: new Date(),
+        },
+      });
+
+      await this.prisma.integrationLog.create({
+        data: {
+          companyId: sv.companyId,
+          source: erpDb === 'DB_HRG3' ? 'ERP_HRG3' : 'ERP_GUESS',
+          jobType: 'SEND_SV',
+          status: IntegrationLogStatus.SUCCESS,
+          recordsProcessed: 1 + sv.items.length,
+          durationMs: Date.now() - start,
+        },
+      });
+      this.logger.log(
+        `SV ${sv.number} integrada (Linx SOLICITACAO=${solicitacao}, ${sv.items.length} item(s))`,
+      );
+      return { solicitacao };
+    } catch (err) {
+      const msg = (err as Error).message;
+      // Persiste o erro na própria SV — assim a UI consegue mostrar
+      // "Falha na integração" com tooltip explicativo em vez de só "—"
+      // silencioso na coluna Nº Linx. Best-effort: se o update falhar
+      // (db down, etc.), pelo menos o integrationLog abaixo registra.
+      try {
+        await this.prisma.fundRequest.update({
+          where: { id: sv.id },
+          data: {
+            lastErpError: msg.slice(0, 4000),
+            lastErpAttemptAt: new Date(),
+          },
+        });
+      } catch (updErr) {
+        this.logger.error(
+          `SV ${sv.number}: falha ao salvar lastErpError — ${(updErr as Error).message}`,
+        );
+      }
+      await this.prisma.integrationLog.create({
+        data: {
+          companyId: sv.companyId,
+          source: erpDb === 'DB_HRG3' ? 'ERP_HRG3' : 'ERP_GUESS',
+          jobType: 'SEND_SV',
+          status: IntegrationLogStatus.FAILED,
+          durationMs: Date.now() - start,
+          errorDetails: `SV ${sv.number}: ${msg.slice(0, 1900)}`,
+        },
+      });
+      throw err;
+    }
+  }
+
+  /**
+   * Cadastra um fornecedor novo no Linx a partir de uma cotação
+   * vencedora cujo `supplierErpCode` ainda está null.
+   *
+   * Schema validado via INFORMATION_SCHEMA (CADASTRO_CLI_FOR +
+   * FORNECEDORES). Sequencial: `FORNECEDORES.CLIFOR` (tamanho 6).
+   *
+   * Fluxo:
+   *  1) Idempotência por CNPJ: se já existe em CADASTRO_CLI_FOR com
+   *     mesmo CGC_CPF (limpando máscara), reaproveita o CLIFOR.
+   *  2) `LX_SEQUENCIAL('FORNECEDORES.CLIFOR')` → novo CLIFOR de 6 chars.
+   *  3) INSERT em CADASTRO_CLI_FOR (mestre cli/for) com todos os
+   *     campos NOT NULL preenchidos. PJ_PF=1 (PJ), INDICA_FORNECEDOR=1.
+   *  4) INSERT em FORNECEDORES (dados específicos). FORNECE_MAT_CONSUMO=1.
+   *  5) UPDATE quotations.supplierErpCode + requisitions.supplierErpCode
+   *     + needsSupplierErpCreation=false.
+   *  6) Log em integration_logs (jobType='CREATE_SUPPLIER').
+   *
+   * Dispara: chamado pelo fluxo de aprovação da requisição quando a
+   * cotação vencedora tem `supplierErpCode=null`. Também exposto via
+   * endpoint admin `POST /admin/suppliers/from-quotation/:id` pra
+   * reprocessamento manual.
+   */
+  async criarFornecedorDeQuotation(
+    quotationId: string,
+  ): Promise<{ clifor: string; reused: boolean }> {
+    const quotation = await this.prisma.quotation.findUniqueOrThrow({
+      where: { id: quotationId },
+      include: { requisition: true },
+    });
+
+    // Idempotência no P2P: cotação já tem fornecedor? só devolve.
+    if (quotation.supplierErpCode) {
+      return { clifor: quotation.supplierErpCode, reused: true };
+    }
+
+    const company = await this.prisma.company.findUniqueOrThrow({
+      where: { id: quotation.companyId },
+      include: { erpConfig: true },
+    });
+    const erpDb = company.erpDbName;
+    if (!['GUESS_PRODUCAO', 'HML_GUESS', 'DB_HRG3'].includes(erpDb)) {
+      throw new BadRequestException(`Banco ERP inválido: ${erpDb}`);
+    }
+    const cnpj = (quotation.supplierCnpj ?? '').replace(/\D/g, '');
+    if (cnpj.length !== 14 && cnpj.length !== 11) {
+      throw new BadRequestException(
+        `CNPJ/CPF inválido (${cnpj.length} dígitos): ${quotation.supplierCnpj}`,
+      );
+    }
+    const isPJ = cnpj.length === 14;
+    const start = Date.now();
+
+    try {
+      // Idempotência cross-DB: já existe alguém com esse CGC no Linx?
+      // CADASTRO_CLI_FOR armazena com máscara (12.345.678/0001-90) —
+      // comparamos só os dígitos.
+      const existing = await this.prisma.$queryRawUnsafe<
+        Array<{ CLIFOR: string }>
+      >(
+        `SELECT TOP 1 CLIFOR FROM [${erpDb}].dbo.CADASTRO_CLI_FOR
+         WHERE REPLACE(REPLACE(REPLACE(REPLACE(CGC_CPF,'.',''),'/',''),'-',''),' ','') = '${cnpj}'`,
+      );
+      let clifor: string;
+      let reused = false;
+      if (existing[0]?.CLIFOR) {
+        clifor = String(existing[0].CLIFOR).trim();
+        reused = true;
+        this.logger.warn(
+          `Fornecedor CNPJ ${cnpj} já existia no Linx — reaproveitando CLIFOR ${clifor}`,
+        );
+      } else {
+        // 2) Sequencial.
+        const seqResult = await this.prisma.$queryRawUnsafe<
+          { sequencia: string }[]
+        >(
+          `DECLARE @seq VARCHAR(20);
+           EXEC [${erpDb}].dbo.LX_SEQUENCIAL @TABELA_COLUNA = N'FORNECEDORES.CLIFOR',
+                                             @SEQUENCIA = @seq OUTPUT;
+           SELECT @seq AS sequencia;`,
+        );
+        const raw = seqResult[0]?.sequencia?.trim();
+        if (!raw) {
+          throw new InternalServerErrorException(
+            'LX_SEQUENCIAL não devolveu CLIFOR.',
+          );
+        }
+        clifor = raw.padStart(6, '0').slice(0, 6);
+
+        const uf = this.trunc(quotation.supplierUf, 2, 'UF') ?? 'SP';
+        const nomeCurto = this.trunc(
+          quotation.supplierFantasia ?? quotation.supplierName,
+          25,
+          'NOME_CLIFOR',
+        );
+        const razao = this.trunc(quotation.supplierName, 90, 'RAZAO_SOCIAL');
+        const cgcMasked = isPJ
+          ? `${cnpj.slice(0, 2)}.${cnpj.slice(2, 5)}.${cnpj.slice(5, 8)}/${cnpj.slice(8, 12)}-${cnpj.slice(12)}`
+          : `${cnpj.slice(0, 3)}.${cnpj.slice(3, 6)}.${cnpj.slice(6, 9)}-${cnpj.slice(9)}`;
+        const endereco = this.trunc(
+          quotation.supplierLogradouro
+            ? `${quotation.supplierLogradouro}${quotation.supplierNumero ? ', ' + quotation.supplierNumero : ''}`
+            : null,
+          60,
+          'ENDERECO',
+        );
+        const bairro = this.trunc(quotation.supplierBairro, 25, 'BAIRRO');
+        const cidade = this.trunc(quotation.supplierCidade, 25, 'CIDADE');
+        const cep = this.trunc(
+          (quotation.supplierCep ?? '').replace(/\D/g, ''),
+          9,
+          'CEP',
+        );
+        const tel = this.trunc(
+          (quotation.supplierTelefone ?? '').replace(/\D/g, ''),
+          15,
+          'TELEFONE1',
+        );
+
+        // 3) CADASTRO_CLI_FOR. Os flags com default vão sozinhos;
+        //    explicitamos PJ_PF + INDICA_FORNECEDOR pra não cair
+        //    como cliente.
+        await this.prisma.$executeRawUnsafe(
+          `INSERT INTO [${erpDb}].dbo.CADASTRO_CLI_FOR
+             (CLIFOR, NOME_CLIFOR, RAZAO_SOCIAL, CGC_CPF, RG_IE,
+              UF, COBRANCA_UF, ENTREGA_UF,
+              COBRANCA_CGC, ENTREGA_CGC, COBRANCA_IE, ENTREGA_IE,
+              ENDERECO, BAIRRO, CIDADE, CEP, TELEFONE1,
+              COBRANCA_ENDERECO, COBRANCA_BAIRRO, COBRANCA_CIDADE, COBRANCA_CEP,
+              CADASTRAMENTO, PJ_PF, INDICA_FORNECEDOR, INDICA_CLIENTE)
+           VALUES
+             (@P1, @P2, @P3, @P4, N'ISENTO',
+              @P5, @P5, @P5,
+              @P4, @P4, N'ISENTO', N'ISENTO',
+              @P6, @P7, @P8, @P9, @P10,
+              @P6, @P7, @P8, @P9,
+              GETDATE(), @P11, 1, 0)`,
+          clifor,
+          nomeCurto ?? '',
+          razao ?? '',
+          cgcMasked,
+          uf,
+          endereco ?? '',
+          bairro ?? '',
+          cidade ?? '',
+          cep ?? '',
+          tel ?? '',
+          isPJ ? 1 : 0,
+        );
+
+        // 4) FORNECEDORES.
+        const condPgto =
+          this.trunc(quotation.paymentConditionCode, 3, 'CONDICAO_PGTO') ??
+          '030';
+        await this.prisma.$executeRawUnsafe(
+          `INSERT INTO [${erpDb}].dbo.FORNECEDORES
+             (COD_FORNECEDOR, CLIFOR, FORNECEDOR, CGC_CPF, CONDICAO_PGTO,
+              FORNECE_MAT_CONSUMO, INATIVO)
+           VALUES
+             (@P1, @P1, @P2, @P3, @P4, 1, 0)`,
+          clifor,
+          nomeCurto ?? '',
+          cgcMasked,
+          condPgto,
+        );
+
+        this.logger.log(
+          `Fornecedor cadastrado no Linx: CLIFOR=${clifor} CNPJ=${cnpj} nome="${nomeCurto}"`,
+        );
+      }
+
+      // 5) Atualiza P2P — cotação + requisição.
+      await this.prisma.quotation.update({
+        where: { id: quotationId },
+        data: { supplierErpCode: clifor },
+      });
+      if (quotation.requisition.needsSupplierErpCreation) {
+        await this.prisma.requisition.update({
+          where: { id: quotation.requisitionId },
+          data: {
+            supplierErpCode: clifor,
+            needsSupplierErpCreation: false,
+          },
+        });
+      }
+
+      await this.prisma.integrationLog.create({
+        data: {
+          companyId: quotation.companyId,
+          source: erpDb === 'DB_HRG3' ? 'ERP_HRG3' : 'ERP_GUESS',
+          jobType: 'CREATE_SUPPLIER',
+          status: IntegrationLogStatus.SUCCESS,
+          recordsProcessed: reused ? 0 : 2,
+          durationMs: Date.now() - start,
+        },
+      });
+      return { clifor, reused };
+    } catch (err) {
+      const msg = (err as Error).message;
+      await this.prisma.integrationLog.create({
+        data: {
+          companyId: quotation.companyId,
+          source: erpDb === 'DB_HRG3' ? 'ERP_HRG3' : 'ERP_GUESS',
+          jobType: 'CREATE_SUPPLIER',
+          status: IntegrationLogStatus.FAILED,
+          durationMs: Date.now() - start,
+          errorDetails: `quotation ${quotationId} cnpj ${cnpj}: ${msg.slice(0, 1900)}`,
+        },
+      });
+      throw err;
+    }
+  }
+
+  /**
+   * Procura SV no Linx pela marca OBS — usado pra retry idempotente.
+   */
+  private async findExistingSvByObs(
+    erpDb: string,
+    obsTag: string,
+  ): Promise<string | null> {
+    const rows = await this.prisma.$queryRawUnsafe<
+      Array<{ SOLICITACAO_VERBA: number }>
+    >(
+      `SELECT TOP 1 SOLICITACAO_VERBA FROM [${erpDb}].dbo.CTB_SOLICITACAO_VERBA
+       WHERE VERBA_OBS LIKE N'${obsTag.replace(/'/g, "''")}%'
+       ORDER BY SOLICITACAO_VERBA DESC`,
+    );
+    return rows[0]?.SOLICITACAO_VERBA
+      ? String(rows[0].SOLICITACAO_VERBA)
+      : null;
   }
 }

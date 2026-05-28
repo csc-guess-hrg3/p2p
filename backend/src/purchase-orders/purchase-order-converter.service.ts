@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -57,6 +58,8 @@ interface EnrichedRequisitionItem {
  */
 @Injectable()
 export class PurchaseOrderConverterService {
+  private readonly logger = new Logger(PurchaseOrderConverterService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly numbering: NumberingService,
@@ -265,6 +268,20 @@ export class PurchaseOrderConverterService {
         'Requisição sem nota fiscal não gera pedido de compra — gera Solicitação de Verba.',
       );
     }
+    // Fornecedor externo precisa estar no ERP antes da conversão — o
+    // PC grava no Linx com o COD_FORNECEDOR e isso exige cadastro lá.
+    // Em teoria, o fluxo de aprovação já criou o fornecedor (via
+    // `needsSupplierErpCreation`); este guard pega o caso de falha de
+    // integração que não chegou a popular o erpCode.
+    if (!req.supplierErpCode) {
+      throw new BadRequestException(
+        'Fornecedor desta requisição ainda não está cadastrado no ERP. ' +
+          'Acione o cadastro automático ou cadastre manualmente antes de converter.',
+      );
+    }
+    // TS não propaga a narrowing do guard acima através do callback de
+    // transação — usamos uma const não-nula localmente.
+    const supplierErpCode: string = req.supplierErpCode;
     const existing = await this.prisma.purchaseOrder.findFirst({
       where: { requisitionId: req.id, deletedAt: null },
     });
@@ -283,6 +300,39 @@ export class PurchaseOrderConverterService {
       ? new Date(dto.expectedDelivery)
       : null;
     this.validateForConvert(req, company, expectedDelivery);
+
+    // RN-FIS-02: bloqueia se há FiscalItemRequest PENDING aberto pra
+    // qualquer combinação (req.supplierErpCode, item.itemErpCode) da req.
+    // Casos típicos: cotação vencedora de outro fornecedor cujo item
+    // não está vinculado no Linx. Aprovar a pendência fiscal antes do
+    // convert evita gravar PC com item-fornecedor incoerente no Linx.
+    if (supplierErpCode) {
+      const itemCodes = req.items
+        .map((it) => it.itemErpCode)
+        .filter((c): c is string => !!c);
+      if (itemCodes.length > 0) {
+        const pendings = await this.prisma.fiscalItemRequest.findMany({
+          where: {
+            companyId: req.companyId,
+            supplierErpCode,
+            itemErpCode: { in: itemCodes },
+            status: 'PENDING',
+          },
+          select: { itemErpCode: true, itemDescription: true },
+        });
+        if (pendings.length > 0) {
+          const summary = pendings
+            .map((p) => `• ${p.itemErpCode} — ${p.itemDescription}`)
+            .join('\n');
+          throw new BadRequestException(
+            `Conversão bloqueada — há ${pendings.length} pendência(s) fiscal(is) ` +
+              `aberta(s) pro fornecedor ${supplierErpCode}:\n${summary}\n\n` +
+              'O time fiscal precisa aprovar o vínculo item-fornecedor antes do PC ' +
+              'ser gravado no Linx. Acompanhe em Pendências Fiscais.',
+          );
+        }
+      }
+    }
 
     // Transportadora: DTO (escolha do comprador no diálogo) ou fallback
     // pra default da empresa (CompanyErpConfig.transportadoraPadrao).
@@ -374,7 +424,7 @@ export class PurchaseOrderConverterService {
               companyId: req.companyId,
               branchErpCode: req.branchErpCode,
               branchName: req.branchName,
-              supplierErpCode: req.supplierErpCode,
+              supplierErpCode,
               supplierName: req.supplierName,
               buyerId: user.id,
               status: PurchaseOrderStatus.APPROVED,
@@ -441,6 +491,35 @@ export class PurchaseOrderConverterService {
             erpPedido: pedido,
           },
         });
+        // Se o PC tem SV vinculada (NF_FUTURA), grava a SV em seguida.
+        // A SV já está APROVADA + com vencimento preenchido aqui (decidido
+        // no diálogo de conversão), então temos todas as informações
+        // necessárias pra integrar com o Linx automaticamente — sem
+        // depender do envio de e-mail nem de ação manual posterior.
+        //
+        // Falha do envio de SV NÃO derruba o convert: o PC continua íntegro
+        // no Linx, a SV fica com `lastErpError` setado, e o usuário pode
+        // reintegrar pela tela de detalhe da SV.
+        if (po.fundRequest) {
+          const svFull = await this.prisma.fundRequest.findUniqueOrThrow({
+            where: { id: po.fundRequest.id },
+            include: { items: true },
+          });
+          try {
+            await this.linx.gravarSolicitacaoVerba(svFull, user);
+            await this.prisma.fundRequest.update({
+              where: { id: svFull.id },
+              data: { status: FundRequestStatus.INTEGRATED },
+            });
+          } catch (svErr) {
+            // O catch interno de gravarSolicitacaoVerba já gravou
+            // lastErpError + integration_log. Aqui só logamos e seguimos
+            // — o convert do PC NÃO é abortado por causa da SV.
+            this.logger.warn(
+              `PC ${po.number}: SV ${svFull.number} não integrada — ${(svErr as Error).message}`,
+            );
+          }
+        }
         created.push({
           id: po.id,
           number: po.number,

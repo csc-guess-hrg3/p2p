@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -7,6 +8,8 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { QueryFundRequestsDto } from './dto/query-fund-requests.dto';
+import { LinxErpService } from '../integration/linx-erp.service';
+import { FundRequestStatus } from '../common/enums';
 
 /**
  * Solicitações de Verba (SV).
@@ -18,7 +21,48 @@ import { QueryFundRequestsDto } from './dto/query-fund-requests.dto';
  */
 @Injectable()
 export class FundRequestsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly linx: LinxErpService,
+  ) {}
+
+  /**
+   * Reprocessa a integração de uma SV no Linx.
+   *
+   * A SV é criada com status APPROVED no convert() do PC; a integração
+   * com o Linx é disparada na sequência. Se a integração falhar (campo
+   * obrigatório, restrição do trigger, indisponibilidade do ERP, etc.),
+   * o erro fica em `lastErpError` e o usuário pode reintegrar por aqui.
+   *
+   * Idempotência: se a SV já tem `erpSolicitacao`, devolve o número
+   * existente sem nova gravação. Se não tem mas o Linx encontra uma SV
+   * com o mesmo OBS (P2P <number>), faz re-acoplamento.
+   */
+  async retryErp(user: AuthenticatedUser, id: string) {
+    const sv = await this.prisma.fundRequest.findUnique({
+      where: { id },
+      include: { items: true },
+    });
+    if (!sv || sv.deletedAt) {
+      throw new NotFoundException('Solicitação de verba não encontrada.');
+    }
+    if (!user.companyIds.includes(sv.companyId)) {
+      throw new ForbiddenException('Sem acesso a esta solicitação.');
+    }
+    if (sv.status === FundRequestStatus.DRAFT) {
+      throw new BadRequestException(
+        'SV ainda não foi aprovada — não há o que integrar no Linx.',
+      );
+    }
+    const { solicitacao } = await this.linx.gravarSolicitacaoVerba(sv, user);
+    // gravarSolicitacaoVerba já atualiza erpSolicitacao + integratedAt
+    // + limpa lastErpError. Aqui só promovemos o status pra INTEGRATED.
+    await this.prisma.fundRequest.update({
+      where: { id: sv.id },
+      data: { status: FundRequestStatus.INTEGRATED },
+    });
+    return { erpSolicitacao: solicitacao };
+  }
 
   /** Lista solicitações de verba do escopo do usuário. */
   async findAll(user: AuthenticatedUser, query: QueryFundRequestsDto) {

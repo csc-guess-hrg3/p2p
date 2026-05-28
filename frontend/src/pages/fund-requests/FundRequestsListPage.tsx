@@ -5,6 +5,9 @@ import { useCompany } from '@/lib/company';
 import { useFundRequests } from '@/lib/fund-requests';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
+import { AlertCircle, CheckCircle2, Clock } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import type { FundRequest } from '@/lib/fund-requests';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -25,6 +28,60 @@ import { Pagination } from '@/components/ui/pagination';
 import { usePagination } from '@/lib/use-pagination';
 import { Button } from '@/components/ui/button';
 import { exportToCsv } from '@/lib/csv';
+
+/**
+ * Badge de integração Linx — pinta a SV pelo desfecho real da gravação
+ * no ERP, separado do status de negócio (DRAFT/APPROVED/…). Cobre os três
+ * desfechos visíveis ao usuário:
+ *  - Integrada     → tem erpSolicitacao, sem erro recente.
+ *  - Falha         → última tentativa falhou (lastErpError preenchido)
+ *                    e ainda não tem número Linx. Tooltip mostra o motivo.
+ *  - Aguardando    → SV aprovada esperando o cron/nova tentativa.
+ *  - "—"           → ainda nem foi aprovada (sem ação de integração).
+ */
+function IntegrationBadge({ sv }: { sv: FundRequest }) {
+  if (sv.erpSolicitacao) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-xs font-medium text-success">
+            <CheckCircle2 className="size-3" />
+            Linx #{sv.erpSolicitacao}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>
+          Integrada em {sv.integratedAt
+            ? new Date(sv.integratedAt).toLocaleString('pt-BR')
+            : '—'}
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+  if (sv.lastErpError) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex items-center gap-1 rounded-full bg-destructive/15 px-2 py-0.5 text-xs font-medium text-destructive">
+            <AlertCircle className="size-3" />
+            Falha
+          </span>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-sm whitespace-pre-wrap break-words">
+          {sv.lastErpError}
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+  if (sv.status === 'APPROVED' || sv.status === 'PENDING_ERP') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning">
+        <Clock className="size-3" />
+        Aguardando
+      </span>
+    );
+  }
+  return <span className="text-xs text-muted-foreground">—</span>;
+}
 
 const STATUS_OPTIONS = [
   { value: 'ALL', label: 'Todos os status' },
@@ -65,6 +122,10 @@ export function FundRequestsListPage() {
               [
                 { header: 'Número', value: (sv) => sv.number },
                 { header: 'Nº Linx', value: (sv) => sv.erpSolicitacao ?? '' },
+                {
+                  header: 'Erro integração',
+                  value: (sv) => sv.lastErpError ?? '',
+                },
                 { header: 'Título', value: (sv) => sv.title },
                 {
                   header: 'Pedido vinculado',
@@ -118,7 +179,7 @@ export function FundRequestsListPage() {
           <TableHeader>
             <TableRow>
               <TableHead>Número</TableHead>
-              <TableHead>Nº Linx</TableHead>
+              <TableHead>Integração Linx</TableHead>
               <TableHead>Título</TableHead>
               <TableHead>Pedido vinculado</TableHead>
               <TableHead>Solicitante</TableHead>
@@ -155,8 +216,8 @@ export function FundRequestsListPage() {
                 onClick={() => navigate(`/solicitacoes-verba/${sv.id}`)}
               >
                 <TableCell className="font-medium">{sv.number}</TableCell>
-                <TableCell className="font-mono text-xs text-muted-foreground">
-                  {sv.erpSolicitacao ?? '—'}
+                <TableCell>
+                  <IntegrationBadge sv={sv} />
                 </TableCell>
                 <TableCell>{sv.title}</TableCell>
                 <TableCell className="text-muted-foreground">

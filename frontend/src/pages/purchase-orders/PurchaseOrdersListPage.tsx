@@ -26,10 +26,12 @@ import { usePagination } from '@/lib/use-pagination';
 import { exportToCsv } from '@/lib/csv';
 import { Button } from '@/components/ui/button';
 
+// Filtros de status visíveis pro fluxo de consumíveis. "SENT_TO_SUPPLIER"
+// existe no schema mas só será usado no módulo PA futuro — pra consumíveis
+// o PC vai direto pra INTEGRATED após o convert (sem etapa de envio).
 const STATUS_OPTIONS = [
   { value: 'ALL', label: 'Todos os status' },
   { value: 'APPROVED', label: 'Aprovado' },
-  { value: 'SENT_TO_SUPPLIER', label: 'Enviado ao fornecedor' },
   { value: 'PARTIALLY_RECEIVED', label: 'Recebido parcial' },
   { value: 'FULLY_RECEIVED', label: 'Recebido total' },
   { value: 'PENDING_ERP', label: 'Pendente ERP' },
