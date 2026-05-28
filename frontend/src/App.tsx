@@ -9,6 +9,8 @@ import { RequisitionsListPage } from '@/pages/requisitions/RequisitionsListPage'
 import { RequisitionFormPage } from '@/pages/requisitions/RequisitionFormPage';
 import { RequisitionDetailPage } from '@/pages/requisitions/RequisitionDetailPage';
 import { FiscalQueuePage } from '@/pages/fiscal/FiscalQueuePage';
+import { FiscalDocumentsListPage } from '@/pages/fiscal-documents/FiscalDocumentsListPage';
+import { FiscalDocumentDetailPage } from '@/pages/fiscal-documents/FiscalDocumentDetailPage';
 import { ContasPagarPage } from '@/pages/financeiro/ContasPagarPage';
 import { IadsPage } from '@/pages/financeiro/IadsPage';
 import { ProvisoesPage } from '@/pages/financeiro/ProvisoesPage';
@@ -138,6 +140,14 @@ function App() {
                     <Route
                       path="fiscal/pendencias-fiscais"
                       element={<FiscalQueuePage />}
+                    />
+                    <Route
+                      path="fiscal/notas-fiscais"
+                      element={<FiscalDocumentsListPage />}
+                    />
+                    <Route
+                      path="fiscal/notas-fiscais/:id"
+                      element={<FiscalDocumentDetailPage />}
                     />
                   </Route>
                   <Route

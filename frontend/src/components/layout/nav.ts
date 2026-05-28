@@ -145,6 +145,13 @@ export const NAV_ITEMS: NavEntry[] = [
         module: 'FISCAL_QUEUE',
         badgeKey: 'fiscal-pending',
       },
+      {
+        to: '/fiscal/notas-fiscais',
+        label: 'Notas Fiscais',
+        icon: ClipboardCheck,
+        roles: FISCAL,
+        module: 'FISCAL_QUEUE',
+      },
     ],
   },
   // ─── Grupo Financeiro ───
