@@ -4,6 +4,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
+import { ApiExceptionFilter } from './common/filters/api-exception.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -31,6 +32,11 @@ async function bootstrap() {
       transform: true,
     }),
   );
+
+  // Filtro global de exceções — traduz erros do Linx/Prisma/etc. pra
+  // mensagens legíveis em PT-BR e protege o usuário de stacktraces ou
+  // mensagens técnicas vazadas (queixa explícita na auditoria de UX).
+  app.useGlobalFilters(new ApiExceptionFilter());
 
   // CORS: aceita uma lista de origens separadas por vírgula (FRONTEND_URLS).
   // Compatível com a config antiga (FRONTEND_URL singular) por fallback.
