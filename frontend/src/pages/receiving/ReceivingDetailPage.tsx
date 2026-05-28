@@ -1,8 +1,9 @@
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Check, ShoppingCart } from 'lucide-react';
 import { useReceiving, useConfirmReceiving } from '@/lib/receiving';
-import { usePurchaseOrder } from '@/lib/purchase-orders';
-import { formatDate, formatNumber } from '@/lib/format';
+import { usePurchaseOrder, usePurchaseOrderErpStatus } from '@/lib/purchase-orders';
+import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
+import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { StatusBadge } from '@/components/StatusBadge';
 import { AttachmentsSection } from '@/components/AttachmentsSection';
 import { useAuth } from '@/lib/auth';
@@ -195,6 +196,20 @@ export function ReceivingDetailPage() {
         </CardContent>
       </Card>
 
+      {/*
+        Estado no Linx + comparativo com o que o P2P registrou.
+        Operador usa pra responder: "o que o ERP está vendo? bate com o
+        que eu recebi?". Divergência aparece com badge amarelo.
+        Card MOVIDO do PC detail — faz mais sentido aqui (ato físico).
+      */}
+      {po?.erpPedido && (
+        <ErpStatusCard
+          pcId={receiving.purchaseOrderId}
+          erpPedido={po.erpPedido}
+          poItemById={poItemById}
+        />
+      )}
+
       <Card>
         <CardContent className="pt-6">
           <AttachmentsSection
@@ -212,5 +227,181 @@ export function ReceivingDetailPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/**
+ * Card "Estado no Linx + comparativo P2P" — consulta read-through.
+ *
+ * Operador usa pra responder: "o que o ERP está vendo? bate com o que
+ * já registramos no P2P?". Mostra cada item com 2 colunas:
+ *   - Recebido no P2P (somatório dos receivings confirmados)
+ *   - Entregue no Linx (QTDE_ENTREGUE da view COMPRAS_CONSUMIVEL)
+ * Se houver diferença → badge amarelo "Divergente".
+ *
+ * Cron BACK_SYNC mantém P2P.receivedQty sincronizado, mas o operador
+ * pode forçar uma releitura clicando em "Atualizar".
+ */
+function ErpStatusCard({
+  pcId,
+  erpPedido,
+  poItemById,
+}: {
+  pcId: string;
+  erpPedido: string;
+  poItemById: Map<
+    string,
+    {
+      id: string;
+      itemErpCode: string | null;
+      itemDescription: string;
+      quantity: string;
+      receivedQty: string;
+      cancelledQty: string;
+    }
+  >;
+}) {
+  const erpStatus = usePurchaseOrderErpStatus(pcId, false);
+
+  return (
+    <Card>
+      <CardHeader className="flex-row items-start justify-between">
+        <div>
+          <CardTitle className="text-base">
+            Estado no Linx · Pedido {erpPedido}
+          </CardTitle>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Consulta direta do ERP. Compare com o que você já registrou
+            no P2P. O cron sincroniza a cada 30 min — clique em
+            "Atualizar" pra ver o estado agora.
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => erpStatus.refetch()}
+          disabled={erpStatus.isFetching}
+        >
+          {erpStatus.isFetching ? 'Consultando…' : 'Atualizar'}
+        </Button>
+      </CardHeader>
+      {erpStatus.data && (
+        <CardContent>
+          {erpStatus.data.cabecalho && (
+            <div className="mb-3 grid grid-cols-2 gap-2 rounded-md border bg-muted/40 p-2 text-xs sm:grid-cols-4">
+              <div>
+                <p className="text-muted-foreground">Status compra</p>
+                <p className="font-medium">
+                  {erpStatus.data.cabecalho.status_compra ?? '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Status aprovação</p>
+                <p className="font-medium">
+                  {erpStatus.data.cabecalho.status_aprovacao ?? '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Aprovado por</p>
+                <p className="font-medium">
+                  {erpStatus.data.cabecalho.aprovado_por || '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Data aprovação</p>
+                <p className="font-medium">
+                  {erpStatus.data.cabecalho.data_aprovacao
+                    ? new Date(
+                        erpStatus.data.cabecalho.data_aprovacao,
+                      ).toLocaleDateString('pt-BR')
+                    : '—'}
+                </p>
+              </div>
+            </div>
+          )}
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Item</TableHead>
+                  <TableHead className="text-right">Qtde pedido</TableHead>
+                  <TableHead className="text-right">Recebido P2P</TableHead>
+                  <TableHead className="text-right">Entregue Linx</TableHead>
+                  <TableHead className="text-right">A entregar (Linx)</TableHead>
+                  <TableHead className="text-center">Conciliação</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {erpStatus.data.items.map((it, i) => {
+                  const code = it.codigo ?? it.consumivel ?? null;
+                  const poItem = [...poItemById.values()].find(
+                    (p) => p.itemErpCode === code,
+                  );
+                  const recebidoP2P = poItem ? Number(poItem.receivedQty) : 0;
+                  const entregueLinx = Number(it.qtde_entregue ?? 0);
+                  const diff = Math.abs(recebidoP2P - entregueLinx);
+                  const divergente = diff > 0.0001;
+                  return (
+                    <TableRow key={i}>
+                      <TableCell>
+                        <div className="font-mono text-xs">{code ?? '—'}</div>
+                        {poItem && (
+                          <div className="text-[11px] text-muted-foreground">
+                            {poItem.itemDescription}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatNumber(it.qtde_original)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatNumber(recebidoP2P)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatNumber(entregueLinx)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums font-medium">
+                        {formatNumber(it.qtde_entregar)}{' '}
+                        <span className="text-xs text-muted-foreground">
+                          ({formatCurrency(it.valor_entregar)})
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {divergente ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-semibold text-warning">
+                            <AlertTriangle className="size-3" />
+                            Divergente
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[11px] font-semibold text-success">
+                            <CheckCircle2 className="size-3" />
+                            OK
+                          </span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            <strong>Divergente</strong> não é necessariamente erro: o
+            fiscal pode não ter lançado a NF ainda (Linx fica atrás), ou
+            o recebimento físico foi maior que o registrado no Linx
+            (ajuste por NF complementar). Use isto como input pra
+            conferência manual.
+          </p>
+        </CardContent>
+      )}
+      {!erpStatus.data && !erpStatus.isFetching && (
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Clique em "Atualizar" pra consultar o Linx agora.
+          </p>
+        </CardContent>
+      )}
+    </Card>
   );
 }
