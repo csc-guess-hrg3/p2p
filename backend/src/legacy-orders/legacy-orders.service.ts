@@ -9,6 +9,49 @@ import { QiveClientService } from '../integration/qive-client.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
 
 /**
+ * Tradução dos códigos Linx para descrição humana.
+ * Valores observados em PROD/HML (ver scripts/explore-entradas-*.js).
+ * STATUS_COMPRA é case-insensitive — 'A'/'a' = mesma coisa, padding com espaços.
+ */
+function labelStatusCompra(s: string | null): string | null {
+  if (!s) return null;
+  const k = s.trim().toUpperCase();
+  switch (k) {
+    case 'A':
+      return 'Ativo';
+    case 'E':
+      return 'Encerrado';
+    case 'C':
+      return 'Cancelado';
+    case 'R':
+      return 'Reprovado';
+    case '':
+      return null;
+    default:
+      return k;
+  }
+}
+
+function labelStatusAprovacao(s: string | null): string | null {
+  if (!s) return null;
+  const k = s.trim().toUpperCase();
+  switch (k) {
+    case 'A':
+      return 'Aprovado';
+    case 'P':
+      return 'Pendente';
+    case 'R':
+      return 'Reprovado';
+    case 'E':
+      return 'Em análise';
+    case '':
+      return null;
+    default:
+      return k;
+  }
+}
+
+/**
  * Pedidos Legados — read-through ao Linx.
  *
  * Por que existe: a operação tinha (e ainda tem) pedidos de compra
@@ -73,7 +116,23 @@ export class LegacyOrdersService {
       from?: string;
       to?: string;
       status?: 'OPEN' | 'CLOSED' | 'CANCELLED' | 'ALL';
+      statusAprovacao?: 'A' | 'P' | 'R' | 'E';
+      /**
+       * Filtro de NFs:
+       *  - 'any' (default): sem filtro
+       *  - 'with-nf':       pedido tem ao menos 1 NF lançada no Linx
+       *  - 'with-chave':    pedido tem ao menos 1 NF com CHAVE_NFE
+       *                     (única consultável/baixável da Qive)
+       */
+      nfeFilter?: 'any' | 'with-nf' | 'with-chave';
+      /** Mantido pra compat; quando true equivale a nfeFilter='with-nf'. */
       onlyWithNfe?: boolean;
+      valorMin?: number;
+      valorMax?: number;
+      filial?: string;
+      tipoCompra?: string;
+      requeridoPor?: string;
+      aprovadoPor?: string;
       page?: number;
       pageSize?: number;
     },
@@ -105,17 +164,75 @@ export class LegacyOrdersService {
     } else if (opts.status === 'CANCELLED') {
       conds.push("c.STATUS_COMPRA = 'C'");
     }
+    if (opts.statusAprovacao) {
+      // STATUS_APROVACAO no Linx tem 1 char ('A'/'P'/'R'/'E')
+      const sa = opts.statusAprovacao.replace(/[^APREapre]/g, '').slice(0, 1);
+      if (sa) conds.push(`UPPER(c.STATUS_APROVACAO) = '${sa.toUpperCase()}'`);
+    }
+    if (opts.valorMin != null && !isNaN(opts.valorMin)) {
+      conds.push(`c.TOT_VALOR_ORIGINAL >= ${Number(opts.valorMin)}`);
+    }
+    if (opts.valorMax != null && !isNaN(opts.valorMax)) {
+      conds.push(`c.TOT_VALOR_ORIGINAL <= ${Number(opts.valorMax)}`);
+    }
+    if (opts.filial) {
+      const f = opts.filial.replace(/[^A-Za-z0-9]/g, '').slice(0, 20);
+      if (f) conds.push(`RTRIM(c.FILIAL_A_ENTREGAR) = '${f}'`);
+    }
+    if (opts.tipoCompra) {
+      const t = opts.tipoCompra.replace(/[^A-Za-z0-9 ]/g, '').slice(0, 50);
+      if (t) conds.push(`c.TIPO_COMPRA = '${t}'`);
+    }
+    if (opts.requeridoPor) {
+      const r = opts.requeridoPor.replace(/[^A-Za-z0-9._ -]/g, '').slice(0, 50);
+      if (r) conds.push(`c.REQUERIDO_POR LIKE '%${r}%'`);
+    }
+    if (opts.aprovadoPor) {
+      const a = opts.aprovadoPor.replace(/[^A-Za-z0-9._ -]/g, '').slice(0, 50);
+      if (a)
+        conds.push(
+          `(c.APROVADO_POR LIKE '%${a}%' OR c.APROVADOR_POR LIKE '%${a}%')`,
+        );
+    }
 
-    const where = conds.join(' AND ');
     const db = company.erpDbName;
 
-    // Conta total
+    // EXISTS extra pra filtros de NF — aplicado tanto no count quanto no list.
+    const nfeFilter: 'any' | 'with-nf' | 'with-chave' =
+      opts.nfeFilter ?? (opts.onlyWithNfe ? 'with-nf' : 'any');
+    const nfeExistsClause =
+      nfeFilter === 'with-nf'
+        ? `AND EXISTS (
+             SELECT 1 FROM [${db}].dbo.ENTRADAS_ITEM ei WITH (NOLOCK)
+              WHERE RTRIM(ei.REFERENCIA_PEDIDO) = RTRIM(c.PEDIDO)
+           )`
+        : nfeFilter === 'with-chave'
+          ? `AND EXISTS (
+               SELECT 1
+                 FROM [${db}].dbo.ENTRADAS_ITEM ei WITH (NOLOCK)
+                 JOIN [${db}].dbo.ENTRADAS e WITH (NOLOCK)
+                   ON RTRIM(e.NF_ENTRADA) = RTRIM(ei.NF_ENTRADA)
+                  AND RTRIM(e.NOME_CLIFOR) = RTRIM(ei.NOME_CLIFOR)
+                  AND RTRIM(ISNULL(e.SERIE_NF_ENTRADA,'')) = RTRIM(ISNULL(ei.SERIE_NF_ENTRADA,''))
+                WHERE RTRIM(ei.REFERENCIA_PEDIDO) = RTRIM(c.PEDIDO)
+                  AND LEN(RTRIM(ISNULL(e.CHAVE_NFE,''))) = 44
+             )`
+          : '';
+
+    const where = conds.join(' AND ');
+
+    // Conta total — aplica o mesmo nfeExistsClause pra paginação coerente.
     const countRows = await this.prisma.$queryRawUnsafe<
       Array<{ total: number }>
-    >(`SELECT COUNT(*) AS total FROM [${db}].dbo.COMPRAS c WITH (NOLOCK) WHERE ${where}`);
+    >(`SELECT COUNT(*) AS total FROM [${db}].dbo.COMPRAS c WITH (NOLOCK) WHERE ${where} ${nfeExistsClause}`);
     const total = Number(countRows[0]?.total ?? 0);
 
     // Paginação por OFFSET/FETCH (SQL Server 2012+)
+    // ESTRATÉGIA: 2 queries pequenas em vez de 1 grande com subqueries
+    // correlatas. As subqueries correlatas (nfeCount + nfeWithChaveCount)
+    // estouravam o timeout do Prisma (15s) quando o universo era grande
+    // (24k pedidos). Agora a query 1 pega os ~pageSize pedidos da página
+    // e a query 2 agrega as contagens só pros pedidos retornados.
     const offset = (page - 1) * pageSize;
     const rowsRaw = await this.prisma.$queryRawUnsafe<
       Array<{
@@ -131,7 +248,6 @@ export class LegacyOrdersService {
         totQtdeEntregar: number | null;
         totValorOriginal: number | null;
         totValorEntregar: number | null;
-        nfeCount: number;
       }>
     >(`
       SELECT
@@ -146,20 +262,48 @@ export class LegacyOrdersService {
         c.TOT_QTDE_ORIGINAL AS totQtdeOriginal,
         c.TOT_QTDE_ENTREGAR AS totQtdeEntregar,
         c.TOT_VALOR_ORIGINAL AS totValorOriginal,
-        c.TOT_VALOR_ENTREGAR AS totValorEntregar,
-        (
-          SELECT COUNT(DISTINCT RTRIM(ei.NF_ENTRADA) + '|' +
-                                RTRIM(ei.SERIE_NF_ENTRADA) + '|' +
-                                RTRIM(ei.NOME_CLIFOR))
-            FROM [${db}].dbo.ENTRADAS_ITEM ei WITH (NOLOCK)
-           WHERE RTRIM(ei.REFERENCIA_PEDIDO) = RTRIM(c.PEDIDO)
-        ) AS nfeCount
+        c.TOT_VALOR_ENTREGAR AS totValorEntregar
       FROM [${db}].dbo.COMPRAS c WITH (NOLOCK)
-      WHERE ${where}
-      ${opts.onlyWithNfe ? "AND EXISTS (SELECT 1 FROM [" + db + "].dbo.ENTRADAS_ITEM ei WITH (NOLOCK) WHERE RTRIM(ei.REFERENCIA_PEDIDO) = RTRIM(c.PEDIDO))" : ''}
+      WHERE ${where} ${nfeExistsClause}
       ORDER BY c.EMISSAO DESC, c.PEDIDO DESC
       OFFSET ${offset} ROWS FETCH NEXT ${pageSize} ROWS ONLY
     `);
+
+    // Conta NFs só pros pedidos da página (no máx ~pageSize valores em IN).
+    const pedidosOnPage = rowsRaw.map((r) => `'${r.pedido}'`);
+    let nfCounts = new Map<string, { total: number; comChave: number }>();
+    if (pedidosOnPage.length > 0) {
+      const inList = pedidosOnPage.join(',');
+      const counts = await this.prisma.$queryRawUnsafe<
+        Array<{
+          pedido: string;
+          nfeCount: number;
+          nfeWithChaveCount: number;
+        }>
+      >(`
+        SELECT
+          RTRIM(ei.REFERENCIA_PEDIDO) AS pedido,
+          COUNT(DISTINCT RTRIM(ei.NF_ENTRADA) + '|' +
+                         RTRIM(ei.SERIE_NF_ENTRADA) + '|' +
+                         RTRIM(ei.NOME_CLIFOR)) AS nfeCount,
+          COUNT(DISTINCT CASE
+            WHEN LEN(RTRIM(ISNULL(e.CHAVE_NFE,''))) = 44
+            THEN RTRIM(e.CHAVE_NFE) END) AS nfeWithChaveCount
+        FROM [${db}].dbo.ENTRADAS_ITEM ei WITH (NOLOCK)
+        LEFT JOIN [${db}].dbo.ENTRADAS e WITH (NOLOCK)
+          ON RTRIM(e.NF_ENTRADA) = RTRIM(ei.NF_ENTRADA)
+         AND RTRIM(e.NOME_CLIFOR) = RTRIM(ei.NOME_CLIFOR)
+         AND RTRIM(ISNULL(e.SERIE_NF_ENTRADA,'')) = RTRIM(ISNULL(ei.SERIE_NF_ENTRADA,''))
+        WHERE RTRIM(ei.REFERENCIA_PEDIDO) IN (${inList})
+        GROUP BY ei.REFERENCIA_PEDIDO
+      `);
+      counts.forEach((c) =>
+        nfCounts.set(c.pedido.trim(), {
+          total: Number(c.nfeCount ?? 0),
+          comChave: Number(c.nfeWithChaveCount ?? 0),
+        }),
+      );
+    }
 
     return {
       total,
@@ -171,16 +315,60 @@ export class LegacyOrdersService {
         fornecedor: r.fornecedor,
         emissao: r.emissao,
         tipoCompra: r.tipoCompra,
-        statusCompra: r.statusCompra,
-        statusAprovacao: r.statusAprovacao,
+        statusCompra: labelStatusCompra(r.statusCompra),
+        statusAprovacao: labelStatusAprovacao(r.statusAprovacao),
         lxStatusCompra: r.lxStatusCompra,
         filialAEntregar: r.filialAEntregar,
         totQtdeOriginal: Number(r.totQtdeOriginal ?? 0),
         totQtdeEntregar: Number(r.totQtdeEntregar ?? 0),
         totValorOriginal: Number(r.totValorOriginal ?? 0),
         totValorEntregar: Number(r.totValorEntregar ?? 0),
-        nfeCount: Number(r.nfeCount ?? 0),
+        nfeCount: nfCounts.get(r.pedido)?.total ?? 0,
+        nfeWithChaveCount: nfCounts.get(r.pedido)?.comChave ?? 0,
       })),
+    };
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  // FACETS — valores únicos pra preencher os selects do front
+  // ──────────────────────────────────────────────────────────────────
+
+  async listFacets(user: AuthenticatedUser, companyId: string) {
+    this.requireAdmin(user);
+    const company = await this.resolveCompany(companyId);
+    const db = company.erpDbName;
+
+    const [filiais, tiposCompra, aprovadores] = await Promise.all([
+      this.prisma.$queryRawUnsafe<Array<{ code: string }>>(`
+        SELECT DISTINCT RTRIM(FILIAL_A_ENTREGAR) AS code
+          FROM [${db}].dbo.COMPRAS WITH (NOLOCK)
+         WHERE TABELA_FILHA = 'COMPRAS_CONSUMIVEL'
+           AND LEN(RTRIM(ISNULL(FILIAL_A_ENTREGAR,''))) > 0
+         ORDER BY code`),
+      this.prisma.$queryRawUnsafe<Array<{ code: string }>>(`
+        SELECT DISTINCT RTRIM(TIPO_COMPRA) AS code
+          FROM [${db}].dbo.COMPRAS WITH (NOLOCK)
+         WHERE TABELA_FILHA = 'COMPRAS_CONSUMIVEL'
+           AND LEN(RTRIM(ISNULL(TIPO_COMPRA,''))) > 0
+         ORDER BY code`),
+      this.prisma.$queryRawUnsafe<Array<{ code: string }>>(`
+        SELECT DISTINCT code FROM (
+          SELECT RTRIM(APROVADO_POR) AS code
+            FROM [${db}].dbo.COMPRAS WITH (NOLOCK)
+           WHERE TABELA_FILHA = 'COMPRAS_CONSUMIVEL'
+             AND LEN(RTRIM(ISNULL(APROVADO_POR,''))) > 0
+          UNION
+          SELECT RTRIM(APROVADOR_POR) AS code
+            FROM [${db}].dbo.COMPRAS WITH (NOLOCK)
+           WHERE TABELA_FILHA = 'COMPRAS_CONSUMIVEL'
+             AND LEN(RTRIM(ISNULL(APROVADOR_POR,''))) > 0
+        ) t
+        ORDER BY code`),
+    ]);
+    return {
+      filiais: filiais.map((r) => r.code),
+      tiposCompra: tiposCompra.map((r) => r.code),
+      aprovadores: aprovadores.map((r) => r.code),
     };
   }
 
@@ -293,6 +481,8 @@ export class LegacyOrdersService {
       company: { id: company.id, code: company.code, name: company.name },
       header: {
         ...header,
+        statusCompra: labelStatusCompra(header.statusCompra),
+        statusAprovacao: labelStatusAprovacao(header.statusAprovacao),
         totQtdeOriginal: Number(header.totQtdeOriginal ?? 0),
         totQtdeEntregar: Number(header.totQtdeEntregar ?? 0),
         totValorOriginal: Number(header.totValorOriginal ?? 0),
@@ -331,7 +521,7 @@ export class LegacyOrdersService {
     >(`
       SELECT
         RTRIM(e.NF_ENTRADA) AS nfEntrada,
-        RTRIM(e.SERIE_NF) AS serieNf,
+        RTRIM(e.SERIE_NF_ENTRADA) AS serieNf,
         RTRIM(e.NOME_CLIFOR) AS nomeClifor,
         e.EMISSAO AS emissao,
         e.VALOR_TOTAL AS valorTotal,
@@ -342,8 +532,12 @@ export class LegacyOrdersService {
           FROM [${erpDb}].dbo.ENTRADAS_ITEM ei WITH (NOLOCK)
          WHERE RTRIM(ei.REFERENCIA_PEDIDO) = '${ped}'
            AND RTRIM(ei.NF_ENTRADA) = RTRIM(e.NF_ENTRADA)
-           AND RTRIM(ei.SERIE_NF_ENTRADA) = RTRIM(e.SERIE_NF)
            AND RTRIM(ei.NOME_CLIFOR) = RTRIM(e.NOME_CLIFOR)
+           -- ENTRADAS tem 2 colunas de série: SERIE_NF e SERIE_NF_ENTRADA.
+           -- A que bate com ENTRADAS_ITEM.SERIE_NF_ENTRADA é a homônima
+           -- (a SERIE_NF na ENTRADAS é frequentemente diferente — vimos
+           -- '0' vs '2' no mesmo registro).
+           AND RTRIM(ISNULL(ei.SERIE_NF_ENTRADA,'')) = RTRIM(ISNULL(e.SERIE_NF_ENTRADA,''))
       )
       ORDER BY e.EMISSAO DESC
     `);

@@ -32,7 +32,15 @@ export class LegacyOrdersController {
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('status') status?: 'OPEN' | 'CLOSED' | 'CANCELLED' | 'ALL',
+    @Query('statusAprovacao') statusAprovacao?: 'A' | 'P' | 'R' | 'E',
+    @Query('nfeFilter') nfeFilter?: 'any' | 'with-nf' | 'with-chave',
     @Query('onlyWithNfe') onlyWithNfe?: string,
+    @Query('valorMin') valorMin?: string,
+    @Query('valorMax') valorMax?: string,
+    @Query('filial') filial?: string,
+    @Query('tipoCompra') tipoCompra?: string,
+    @Query('requeridoPor') requeridoPor?: string,
+    @Query('aprovadoPor') aprovadoPor?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
@@ -42,10 +50,29 @@ export class LegacyOrdersController {
       from,
       to,
       status,
+      statusAprovacao,
+      nfeFilter,
       onlyWithNfe: onlyWithNfe === 'true',
+      valorMin: valorMin ? Number(valorMin) : undefined,
+      valorMax: valorMax ? Number(valorMax) : undefined,
+      filial,
+      tipoCompra,
+      requeridoPor,
+      aprovadoPor,
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     });
+  }
+
+  @Get('facets')
+  @ApiOperation({
+    summary: 'Valores únicos (filial, tipo, aprovador) pros selects',
+  })
+  facets(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('companyId') companyId: string,
+  ) {
+    return this.legacyOrders.listFacets(user, companyId);
   }
 
   @Get(':companyId/:pedido')
