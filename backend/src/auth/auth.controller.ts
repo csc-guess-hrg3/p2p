@@ -97,16 +97,6 @@ class StoreSetupPasswordDto {
   turnstileToken?: string;
 }
 
-class DemoLoginDto {
-  @ApiProperty({
-    example: 'demo.admin',
-    description: 'Username demo — ver /auth/demo-users.',
-  })
-  @IsString()
-  @IsNotEmpty()
-  username!: string;
-}
-
 // Atributos dos cookies de sessão. Cross-site em hosts diferentes exige
 // SameSite=None+Secure; preservamos via env para HML/local sem HTTPS.
 function cookieOptions(extra: { maxAgeMs: number }): {
@@ -353,53 +343,4 @@ export class AuthController {
     return this.authService.meWithExtras(user);
   }
 
-  // ───────────────────────────────────────────────────────────────
-  // Modo Demonstração — só responde quando DEMO_MODE_ENABLED=true
-  // ───────────────────────────────────────────────────────────────
-
-  /**
-   * Lista os perfis disponíveis no modo demo (4 — admin, gestor,
-   * operador, revisor). Sempre retorna `{ enabled, users }` — frontend
-   * usa `enabled` para decidir se mostra o painel demo no login.
-   */
-  @Get('demo-users')
-  @ApiOperation({ summary: 'Lista usuários do modo demonstração' })
-  demoUsers() {
-    return this.authService.listDemoUsers();
-  }
-
-  /**
-   * Login demo — bypassa LDAP. Usa o `username` (sem senha) para localizar
-   * o usuário demo correspondente. Throttle: 20/min para evitar abuso.
-   */
-  @Post('demo-login')
-  @Throttle({ default: { limit: 20, ttl: 60_000 } })
-  @ApiOperation({ summary: 'Login modo demonstração (sem LDAP)' })
-  @ApiBody({ type: DemoLoginDto })
-  async demoLogin(
-    @Body() dto: DemoLoginDto,
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    const userId = await this.authService.loginDemo(dto.username);
-    const tokens = await this.authService.issueTokens(userId);
-    const secure = process.env.NODE_ENV === 'production';
-    const sameSite =
-      (process.env.COOKIE_SAMESITE as 'strict' | 'lax' | 'none' | undefined) ??
-      'lax';
-    res.cookie('p2p_token', tokens.accessToken, {
-      httpOnly: true,
-      secure,
-      sameSite,
-      path: '/',
-      maxAge: 8 * 60 * 60 * 1000,
-    });
-    res.cookie('p2p_refresh', tokens.refreshToken, {
-      httpOnly: true,
-      secure,
-      sameSite,
-      path: '/',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
-    return tokens;
-  }
 }

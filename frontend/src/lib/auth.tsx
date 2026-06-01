@@ -9,24 +9,14 @@ import {
 import {
   api,
   clearToken,
-  getEnvironment,
   getToken,
-  setEnvironment,
   setToken,
   SESSION_EXPIRED_EVENT,
 } from './api';
-import { setDemoMode, isDemoMode } from './demo/state';
 import { queryClient } from './queryClient';
 import type { AuthUser } from './types';
 
 const REFRESH_KEY = 'p2p_refresh';
-
-export interface DemoUser {
-  username: string;
-  name: string;
-  profile: string;
-  description: string;
-}
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -45,7 +35,6 @@ interface AuthContextValue {
     password: string,
     options?: { isSetup?: boolean; turnstileToken?: string },
   ) => Promise<void>;
-  loginDemo: (username: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -155,7 +144,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       options: { isSetup?: boolean; turnstileToken?: string } = {},
     ) => {
       queryClient.clear();
-      setEnvironment('PROD');
+      // NÃO força env=PROD: o usuário escolheu HML/PROD no toggle do login;
+      // respeitamos a escolha. (Antes força "PROD" silenciosamente —
+      // vendedor que testava em HML caía em PROD sem aviso.)
       localStorage.removeItem('p2p_company');
       const endpoint = options.isSetup
         ? '/auth/store-setup-password'
@@ -179,29 +170,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  /**
-   * Login do Modo Demonstração — 100% local. Ativa o flag de demo (que
-   * faz o axios adapter interceptar todas as chamadas e devolver dados
-   * mockados de localStorage). Não envia request real ao backend.
-   */
-  const loginDemo = useCallback(async (username: string) => {
-    // Limpa a cache pra não herdar dados de outro perfil demo.
-    queryClient.clear();
-    setEnvironment('PROD');
-    localStorage.removeItem('p2p_company');
-    setDemoMode(true);
-    // /auth/demo-login agora é interceptado pelo demo adapter (handlers.ts).
-    const { data } = await api.post<{
-      accessToken: string;
-      refreshToken: string;
-    }>('/auth/demo-login', { username });
-    setToken(data.accessToken);
-    localStorage.setItem(REFRESH_KEY, data.refreshToken);
-    const me = await api.get<AuthUser>('/auth/me');
-    setUser(me.data);
-    setSessionExpired(false);
-  }, []);
-
   const logout = useCallback(async () => {
     // Best-effort: avisa o backend para apagar os cookies httpOnly. Se o
     // endpoint não estiver pronto (HML), seguimos com a limpeza local.
@@ -212,9 +180,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     clearToken();
     localStorage.removeItem(REFRESH_KEY);
-    // Em modo demo, desliga também o flag — próximas chamadas voltariam ao
-    // backend real (que não está acessível aqui — mas é o comportamento certo).
-    if (isDemoMode()) setDemoMode(false);
     setUser(null);
     // Limpa toda a cache para o próximo login não herdar nada.
     queryClient.clear();
@@ -234,7 +199,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         loginLocal,
         loginStore,
-        loginDemo,
         logout,
       }}
     >

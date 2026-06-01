@@ -1,6 +1,4 @@
 import axios from 'axios';
-import { demoAxiosAdapter } from './demo/adapter';
-import { isDemoMode } from './demo/state';
 
 const TOKEN_KEY = 'p2p_token';
 const ENV_KEY = 'p2p_env';
@@ -82,11 +80,6 @@ export const api = axios.create({
   withCredentials: true,
 });
 
-// Adapter "demo-aware": se o modo demonstração estiver ligado, intercepta
-// e devolve dados mockados (localStorage). Caso contrário, delega para o
-// adapter HTTP padrão (XHR/fetch). Setado uma única vez, no boot.
-api.defaults.adapter = demoAxiosAdapter;
-
 // Define o ambiente e (em modo bearer) anexa o JWT no header.
 // Em modo cookie, o navegador envia `p2p_token` automaticamente
 // porque `withCredentials=true` foi configurado acima.
@@ -107,10 +100,7 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       if (getToken()) clearToken();
-      // No modo demo, 401 só acontece se o usuário "saiu" — não recarregamos.
-      if (!isDemoMode()) {
-        emitSessionExpired();
-      }
+      emitSessionExpired();
     }
     return Promise.reject(error);
   },

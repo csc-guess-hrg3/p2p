@@ -11,7 +11,6 @@ import type { SignOptions } from 'jsonwebtoken';
 import { PrismaService } from '../prisma/prisma.service';
 import { UserProfile, UserStatus } from '../common/enums';
 import { AuthenticatedUser, JwtPayload, TokenPair } from './auth.types';
-import { DEMO_USERS, findDemoUser, isDemoModeEnabled } from './demo-users';
 
 /** Extrai um atributo LDAP que pode vir como string ou array. */
 function ldapAttr(
@@ -128,50 +127,6 @@ export class AuthService {
   }
 
   /**
-   * Login do Modo Demonstração — bypassa o LDAP.
-   *
-   * Pré-requisitos:
-   *  - `DEMO_MODE_ENABLED=true` no env (jamais ligar em produção real);
-   *  - usuário existente no banco (seed-demo.js cria os 4 perfis).
-   *
-   * Não verificamos senha server-side: o `password` declarado em `demo-users.ts`
-   * é só uma referência para o frontend exibir/preencher. A trava real é a flag
-   * de ambiente.
-   */
-  async loginDemo(username: string): Promise<string> {
-    if (!isDemoModeEnabled()) {
-      throw new ForbiddenException(
-        'Modo demonstração desativado. Configure DEMO_MODE_ENABLED=true para usar.',
-      );
-    }
-    const demo = findDemoUser(username);
-    if (!demo) {
-      throw new UnauthorizedException(
-        `Usuário demo "${username}" não cadastrado. Use um dos perfis disponíveis ` +
-          `em /api/auth/demo-users.`,
-      );
-    }
-    const user = await this.prisma.user.findUnique({
-      where: { adUsername: demo.username },
-    });
-    if (!user) {
-      throw new NotFoundException(
-        `Usuário demo "${demo.username}" não existe no banco. Rode o seed: ` +
-          `node seed-demo.js (cria empresa DEMO, equipe e os 4 perfis).`,
-      );
-    }
-    if (user.deletedAt || user.status === UserStatus.INACTIVE) {
-      throw new UnauthorizedException('Usuário demo inativo.');
-    }
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
-    });
-    this.logger.log(`Login demo: ${demo.username} (${demo.profile})`);
-    return user.id;
-  }
-
-  /**
    * Devolve o usuário autenticado enriquecido com campos que NÃO vivem
    * no JWT (ex.: `canSwitchEnv` — Admin pode revogar a qualquer momento,
    * então tem que ser fresco a cada /auth/me).
@@ -195,22 +150,6 @@ export class AuthService {
       ...user,
       canSwitchEnv: row?.canSwitchEnv ?? false,
       extraModules,
-    };
-  }
-
-  /** Lista os usuários demo disponíveis (para o seletor do frontend). */
-  listDemoUsers() {
-    if (!isDemoModeEnabled()) {
-      return { enabled: false, users: [] as typeof DEMO_USERS };
-    }
-    return {
-      enabled: true,
-      users: DEMO_USERS.map((u) => ({
-        username: u.username,
-        name: u.name,
-        profile: u.profile,
-        description: u.description,
-      })),
     };
   }
 
