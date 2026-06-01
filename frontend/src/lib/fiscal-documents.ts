@@ -6,7 +6,12 @@ import { api } from './api';
  * MVP: só vincula manualmente ao PC; download de XML/DANFe.
  */
 
-export type FiscalDocStatus = 'PENDING' | 'LINKED' | 'IGNORED' | 'INTERNAL';
+export type FiscalDocStatus =
+  | 'PENDING'
+  | 'LINKED'
+  | 'LEGACY_LINKED'
+  | 'IGNORED'
+  | 'INTERNAL';
 
 export interface FiscalDocSummary {
   id: string;
@@ -23,6 +28,8 @@ export interface FiscalDocSummary {
   emissao: string;
   status: FiscalDocStatus;
   purchaseOrderId: string | null;
+  legacyPedido: string | null;
+  legacyCompanyId: string | null;
   linkedAt: string | null;
   company: { id: string; code: string; name: string };
   purchaseOrder: { id: string; number: string; status: string } | null;
@@ -47,6 +54,8 @@ export interface FiscalDocDetail extends FiscalDocSummary {
   notes: string | null;
   linkedBy: { id: string; name: string; email: string } | null;
   qiveCursor: number | null;
+  legacyPedido: string | null;
+  legacyCompanyId: string | null;
 }
 
 export interface FiscalDocCandidate {
@@ -69,11 +78,14 @@ export interface FiscalDocList {
 }
 
 export interface FiscalDocQuery {
+  companyId?: string;
   status?: FiscalDocStatus | '';
   supplierCnpj?: string;
   search?: string;
   from?: string;
   to?: string;
+  sortBy?: string;
+  sortDir?: 'asc' | 'desc';
   page?: number;
   pageSize?: number;
 }
@@ -92,6 +104,50 @@ export function useFiscalDocument(id: string | null | undefined) {
     enabled: !!id,
     queryFn: async () =>
       (await api.get<FiscalDocDetail>(`/fiscal-documents/${id}`)).data,
+  });
+}
+
+export interface FiscalDocLegacyCandidate {
+  pedido: string;
+  fornecedor: string;
+  emissao: string | null;
+  totValorOriginal: number;
+  totValorEntregar: number;
+  tipoCompra: string | null;
+  filialAEntregar: string | null;
+  statusCompra: string | null;
+  companyId: string;
+  companyCode: string;
+}
+
+export function useFiscalDocLegacyCandidates(id: string | null | undefined) {
+  return useQuery({
+    queryKey: ['fiscal-document-legacy-candidates', id],
+    enabled: !!id,
+    queryFn: async () =>
+      (
+        await api.get<FiscalDocLegacyCandidate[]>(
+          `/fiscal-documents/${id}/legacy-candidates`,
+        )
+      ).data,
+  });
+}
+
+export function useLinkFiscalToLegacy() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: {
+      id: string;
+      legacyPedido: string;
+      legacyCompanyId: string;
+    }) =>
+      (
+        await api.post(`/fiscal-documents/${vars.id}/link-legacy`, {
+          legacyPedido: vars.legacyPedido,
+          legacyCompanyId: vars.legacyCompanyId,
+        })
+      ).data,
+    onSuccess: () => invalidateFiscalQueries(qc),
   });
 }
 
@@ -171,12 +227,79 @@ export function useRestoreFiscalDocument() {
   });
 }
 
+/**
+ * Busca uma NFe na Qive pela chave (44 chars) e persiste no P2P.
+ * Idempotente — se já existe, devolve o existente. Após sucesso, o
+ * FiscalDocument aparece em "Notas Fiscais" e libera XML/DANFe.
+ */
+export function useFetchFiscalByChave() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: {
+      chave: string;
+      legacyPedido?: string;
+      legacyCompanyId?: string;
+    }) =>
+      (
+        await api.post<{ created: boolean; document: FiscalDocSummary }>(
+          `/fiscal-documents/fetch-by-chave/${vars.chave.replace(/\D/g, '')}`,
+          {
+            legacyPedido: vars.legacyPedido,
+            legacyCompanyId: vars.legacyCompanyId,
+          },
+        )
+      ).data,
+    onSuccess: () => invalidateFiscalQueries(qc),
+  });
+}
+
+export interface FiscalSyncStatus {
+  running: boolean;
+  startedAt: string | null;
+  totalOnQive: number | null;
+  pagesProcessed: number;
+  nfesInserted: number;
+  nfesAlreadyExisted: number;
+  nfesIgnored: number;
+  lastError: string | null;
+  totalLocal: number;
+  lastRun: {
+    status: string;
+    executedAt: string;
+    durationMs: number | null;
+  } | null;
+}
+
+/** Status do sync (por empresa). Polling rápido quando rodando. */
+export function useFiscalSyncStatus(companyId?: string | null) {
+  return useQuery({
+    queryKey: ['fiscal-sync-status', companyId],
+    enabled: !!companyId,
+    queryFn: async () =>
+      (
+        await api.get<FiscalSyncStatus>(
+          '/fiscal-documents/admin/sync/status',
+          { params: { companyId } },
+        )
+      ).data,
+    refetchInterval: (q) => (q.state.data?.running ? 3000 : 15000),
+    refetchIntervalInBackground: false,
+  });
+}
+
 export function useTriggerFiscalSync() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async () =>
-      (await api.post('/fiscal-documents/admin/sync')).data,
-    onSuccess: () => invalidateFiscalQueries(qc),
+    mutationFn: async (companyId: string) =>
+      (
+        await api.post('/fiscal-documents/admin/sync', null, {
+          params: { companyId },
+        })
+      ).data,
+    onSuccess: () => {
+      invalidateFiscalQueries(qc);
+      qc.invalidateQueries({ queryKey: ['fiscal-sync-status'] });
+    },
   });
 }
 
@@ -227,7 +350,9 @@ export function statusLabel(s: FiscalDocStatus): string {
     case 'PENDING':
       return 'Pendente';
     case 'LINKED':
-      return 'Vinculada';
+      return 'Vinculada (PC P2P)';
+    case 'LEGACY_LINKED':
+      return 'Vinculada (Linx)';
     case 'IGNORED':
       return 'Ignorada';
     case 'INTERNAL':

@@ -1,5 +1,6 @@
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Download, ExternalLink } from 'lucide-react';
+import { ArrowLeft, CloudDownload, Download, ExternalLink } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   useLegacyOrder,
   downloadLegacyDanfe,
@@ -8,6 +9,7 @@ import {
 import {
   downloadFiscalXml,
   downloadFiscalDanfe,
+  useFetchFiscalByChave,
 } from '@/lib/fiscal-documents';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { useToast } from '@/components/ui/use-toast';
@@ -29,7 +31,31 @@ export function LegacyOrderDetailPage() {
   }>();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const qc = useQueryClient();
   const { data, isLoading, error } = useLegacyOrder(companyId, pedido);
+  const fetchByChave = useFetchFiscalByChave();
+
+  async function handleFetchFromQive(chave: string) {
+    try {
+      const res = await fetchByChave.mutateAsync({
+        chave,
+        legacyPedido: pedido,
+        legacyCompanyId: companyId,
+      });
+      toast({
+        title: res.created ? 'NF baixada da Qive' : 'NF já estava no P2P',
+        description: 'XML e DANFe disponíveis para download.',
+      });
+      // Recarrega o detalhe do pedido legado pra atualizar o link com a NF.
+      qc.invalidateQueries({ queryKey: ['legacy-order', companyId, pedido] });
+    } catch (err) {
+      toast({
+        title: 'Não foi possível buscar a NF na Qive',
+        description: extractApiMessage(err),
+        variant: 'destructive',
+      });
+    }
+  }
 
   if (isLoading) {
     return <div className="p-6 text-muted-foreground">Carregando…</div>;
@@ -258,9 +284,23 @@ export function LegacyOrderDetailPage() {
                         <span className="ml-1 text-xs">PDF</span>
                       </Button>
                     )}
-                    {!nfe.canDownloadDanfe && !nfe.canDownloadXml && (
+                    {/* Sem FiscalDocument mas com chave -> oferecer fetch
+                        sob demanda na Qive (baixa XML+persiste). */}
+                    {!nfe.fiscalDocumentId && nfe.chaveNfe && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        title="Buscar essa NF na Qive (libera download de XML e PDF)"
+                        onClick={() => handleFetchFromQive(nfe.chaveNfe!)}
+                        disabled={fetchByChave.isPending}
+                      >
+                        <CloudDownload className="mr-1 h-4 w-4" />
+                        <span className="text-xs">Buscar na Qive</span>
+                      </Button>
+                    )}
+                    {!nfe.chaveNfe && (
                       <span className="text-xs text-muted-foreground">
-                        sem download
+                        sem chave NFe
                       </span>
                     )}
                   </TableCell>

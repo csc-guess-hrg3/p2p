@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Download, RefreshCw, Search } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 import {
   useFiscalDocuments,
+  useFiscalSyncStatus,
   useTriggerFiscalSync,
   downloadFiscalXml,
   downloadFiscalDanfe,
@@ -10,6 +12,7 @@ import {
   type FiscalDocStatus,
 } from '@/lib/fiscal-documents';
 import { useAuth } from '@/lib/auth';
+import { useCompany } from '@/lib/company';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { useToast } from '@/components/ui/use-toast';
 import { extractApiMessage } from '@/lib/api-errors';
@@ -37,7 +40,8 @@ import { Pagination } from '@/components/ui/pagination';
 const ALL = 'ALL';
 const STATUS_OPTIONS: Array<{ value: typeof ALL | FiscalDocStatus; label: string }> = [
   { value: 'PENDING', label: 'Pendentes' },
-  { value: 'LINKED', label: 'Vinculadas' },
+  { value: 'LINKED', label: 'Vinculadas (PC P2P)' },
+  { value: 'LEGACY_LINKED', label: 'Vinculadas (Linx)' },
   { value: 'IGNORED', label: 'Ignoradas' },
   { value: 'INTERNAL', label: 'Transferências internas' },
   { value: ALL, label: 'Todas' },
@@ -46,16 +50,34 @@ const STATUS_OPTIONS: Array<{ value: typeof ALL | FiscalDocStatus; label: string
 export function FiscalDocumentsListPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { activeCompany } = useCompany();
   const { toast } = useToast();
   const [status, setStatus] = useState<typeof ALL | FiscalDocStatus>('PENDING');
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [sortBy, setSortBy] = useState<string>('emissao');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  function toggleSort(col: string) {
+    if (sortBy === col) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(col);
+      setSortDir('desc');
+    }
+    setPage(1);
+  }
+
+  const { data: syncStatus } = useFiscalSyncStatus(activeCompany?.id);
 
   const { data, isLoading, refetch, isFetching } = useFiscalDocuments({
+    companyId: activeCompany?.id,
     status: status === ALL ? undefined : status,
     search: search || undefined,
+    sortBy,
+    sortDir,
     page,
     pageSize,
   });
@@ -63,13 +85,21 @@ export function FiscalDocumentsListPage() {
   const triggerSync = useTriggerFiscalSync();
 
   async function handleSync() {
+    if (!activeCompany?.id) return;
     try {
-      const res = await triggerSync.mutateAsync();
+      const res = await triggerSync.mutateAsync(activeCompany.id);
+      const started = (res as any).started;
+      const running = (res as any).running;
       toast({
-        title: 'Sync disparada',
-        description: `${(res as any).nfesInserted ?? 0} NF(s) nova(s).`,
+        title: started
+          ? 'Sincronização iniciada'
+          : running
+            ? 'Sincronização já em andamento'
+            : 'Pronto',
+        description: started
+          ? 'Acompanhe o progresso no banner abaixo.'
+          : 'Aguarde o sync atual terminar.',
       });
-      refetch();
     } catch (err) {
       toast({
         title: 'Falha no sync',
@@ -102,7 +132,10 @@ export function FiscalDocumentsListPage() {
         <div>
           <h1 className="text-2xl font-semibold">Notas Fiscais (Qive)</h1>
           <p className="text-sm text-muted-foreground">
-            NFes baixadas da Qive — vincule manualmente ao Pedido de Compra.
+            NFes baixadas da Qive — vincule manualmente ao pedido.
+            Sincronização e listagem filtradas pela empresa{' '}
+            <span className="font-medium">{activeCompany?.code}</span>{' '}
+            (CNPJs da empresa apenas).
           </p>
         </div>
         <div className="flex gap-2">
@@ -111,18 +144,74 @@ export function FiscalDocumentsListPage() {
               variant="outline"
               size="sm"
               onClick={handleSync}
-              disabled={triggerSync.isPending}
+              disabled={triggerSync.isPending || syncStatus?.running}
+              title="Sincroniza com a Qive — traz NFs de todas as empresas da conta"
             >
               <RefreshCw
                 className={`mr-2 h-4 w-4 ${
-                  triggerSync.isPending ? 'animate-spin' : ''
+                  syncStatus?.running ? 'animate-spin' : ''
                 }`}
               />
-              Sincronizar Qive
+              {syncStatus?.running
+                ? 'Sincronizando…'
+                : `Sincronizar Qive (${activeCompany?.code ?? ''})`}
             </Button>
           )}
         </div>
       </div>
+
+      {/* Banner de progresso do sync — só aparece quando rodando. */}
+      {syncStatus?.running && (
+        <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm">
+          <div className="flex items-center justify-between">
+            <div className="font-medium text-blue-900">
+              Sincronizando {activeCompany?.code} com a Qive…
+            </div>
+            <div className="text-xs text-blue-800">
+              {syncStatus.totalOnQive
+                ? `${syncStatus.totalOnQive.toLocaleString('pt-BR')} NFs da empresa na Qive`
+                : 'verificando total…'}
+            </div>
+          </div>
+          {syncStatus.totalOnQive ? (
+            <div className="mt-2 h-2 w-full overflow-hidden rounded bg-blue-100">
+              <div
+                className="h-full bg-blue-500 transition-all"
+                style={{
+                  width: `${Math.min(
+                    100,
+                    Math.round(
+                      ((syncStatus.nfesInserted +
+                        syncStatus.nfesAlreadyExisted +
+                        syncStatus.nfesIgnored) /
+                        syncStatus.totalOnQive) *
+                        100,
+                    ),
+                  )}%`,
+                }}
+              />
+            </div>
+          ) : null}
+          <div className="mt-1 grid grid-cols-1 gap-1 text-xs text-blue-800 md:grid-cols-3">
+            <div>
+              <span className="font-medium">{syncStatus.nfesInserted.toLocaleString('pt-BR')}</span>{' '}
+              novas neste sync
+            </div>
+            <div>
+              <span className="font-medium">{syncStatus.nfesAlreadyExisted.toLocaleString('pt-BR')}</span>{' '}
+              já estavam no P2P
+            </div>
+            <div>
+              <span className="font-medium">{syncStatus.nfesIgnored.toLocaleString('pt-BR')}</span>{' '}
+              ignoradas (CNPJ fora da empresa)
+            </div>
+          </div>
+          <div className="mt-1 text-xs text-blue-700">
+            Página {syncStatus.pagesProcessed} • {syncStatus.totalLocal.toLocaleString('pt-BR')}{' '}
+            NFs de {activeCompany?.code} no banco
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-end gap-3 rounded-md border bg-card p-3">
         <div className="w-48">
@@ -188,12 +277,24 @@ export function FiscalDocumentsListPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Emissão</TableHead>
-              <TableHead>Nº NF</TableHead>
-              <TableHead>Fornecedor</TableHead>
-              <TableHead>Filial destino</TableHead>
-              <TableHead className="text-right">Valor</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead>
+                <SortHead col="emissao" current={sortBy} dir={sortDir} onToggle={toggleSort}>Emissão</SortHead>
+              </TableHead>
+              <TableHead>
+                <SortHead col="numero" current={sortBy} dir={sortDir} onToggle={toggleSort}>Nº NF</SortHead>
+              </TableHead>
+              <TableHead>
+                <SortHead col="supplierName" current={sortBy} dir={sortDir} onToggle={toggleSort}>Fornecedor</SortHead>
+              </TableHead>
+              <TableHead>
+                <SortHead col="destName" current={sortBy} dir={sortDir} onToggle={toggleSort}>Filial destino</SortHead>
+              </TableHead>
+              <TableHead className="text-right">
+                <SortHead col="valorTotal" current={sortBy} dir={sortDir} onToggle={toggleSort} align="right">Valor</SortHead>
+              </TableHead>
+              <TableHead>
+                <SortHead col="status" current={sortBy} dir={sortDir} onToggle={toggleSort}>Status</SortHead>
+              </TableHead>
               <TableHead>PC vinculado</TableHead>
               <TableHead className="text-right">Ações</TableHead>
             </TableRow>
@@ -306,6 +407,37 @@ export function FiscalDocumentsListPage() {
         />
       )}
     </div>
+  );
+}
+
+function SortHead({
+  col,
+  current,
+  dir,
+  onToggle,
+  align,
+  children,
+}: {
+  col: string;
+  current: string;
+  dir: 'asc' | 'desc';
+  onToggle: (c: string) => void;
+  align?: 'left' | 'right';
+  children: ReactNode;
+}) {
+  const active = current === col;
+  const Icon = !active ? ArrowUpDown : dir === 'asc' ? ArrowUp : ArrowDown;
+  return (
+    <button
+      type="button"
+      onClick={() => onToggle(col)}
+      className={`inline-flex w-full items-center gap-1 hover:text-foreground ${
+        align === 'right' ? 'justify-end' : ''
+      } ${active ? 'text-foreground' : 'text-muted-foreground'}`}
+    >
+      {children}
+      <Icon className="h-3 w-3" />
+    </button>
   );
 }
 

@@ -209,7 +209,7 @@ export const NAV_ITEMS: NavEntry[] = [
   },
   {
     to: '/legacy-orders',
-    label: 'Pedidos Legados',
+    label: 'Pedidos do Linx',
     icon: ShoppingCart,
     roles: ['ADMIN'],
   },

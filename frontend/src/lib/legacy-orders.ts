@@ -20,6 +20,7 @@ export interface LegacyOrderRow {
   totValorOriginal: number;
   totValorEntregar: number;
   nfeCount: number;
+  nfeWithChaveCount: number;
 }
 
 export interface LegacyOrderList {
@@ -36,9 +37,37 @@ export interface LegacyOrderQuery {
   from?: string;
   to?: string;
   status?: 'OPEN' | 'CLOSED' | 'CANCELLED' | 'ALL';
+  statusAprovacao?: 'A' | 'P' | 'R' | 'E';
+  nfeFilter?: 'any' | 'with-nf' | 'with-chave';
   onlyWithNfe?: boolean;
+  valorMin?: number;
+  valorMax?: number;
+  filial?: string;
+  tipoCompra?: string;
+  requeridoPor?: string;
+  aprovadoPor?: string;
   page?: number;
   pageSize?: number;
+}
+
+export interface LegacyOrderFacets {
+  filiais: string[];
+  tiposCompra: string[];
+  aprovadores: string[];
+}
+
+export function useLegacyOrderFacets(companyId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['legacy-order-facets', companyId],
+    enabled: !!companyId,
+    staleTime: 60_000 * 10, // facets mudam pouco
+    queryFn: async () =>
+      (
+        await api.get<LegacyOrderFacets>('/legacy-orders/facets', {
+          params: { companyId },
+        })
+      ).data,
+  });
 }
 
 export interface LegacyOrderItem {

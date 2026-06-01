@@ -4,7 +4,9 @@ import { ArrowLeft, Download, Link as LinkIcon, X, Ban, Undo2 } from 'lucide-rea
 import {
   useFiscalDocument,
   useFiscalDocCandidates,
+  useFiscalDocLegacyCandidates,
   useLinkFiscalDocument,
+  useLinkFiscalToLegacy,
   useUnlinkFiscalDocument,
   useIgnoreFiscalDocument,
   useRestoreFiscalDocument,
@@ -175,7 +177,40 @@ export function FiscalDocumentDetailPage() {
 
       <div className="rounded-md border bg-card p-4">
         <h2 className="mb-2 text-sm font-semibold">Vínculo com PC</h2>
-        {doc.status === 'LINKED' && doc.purchaseOrder ? (
+        {doc.status === 'LEGACY_LINKED' && doc.legacyPedido ? (
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm">
+                Vinculada ao pedido{' '}
+                <button
+                  className="font-medium text-primary hover:underline"
+                  onClick={() =>
+                    navigate(
+                      `/legacy-orders/${doc.legacyCompanyId}/${doc.legacyPedido}`,
+                    )
+                  }
+                >
+                  {doc.legacyPedido}
+                </button>{' '}
+                (origem Linx).
+              </div>
+              {doc.linkedBy && (
+                <div className="text-xs text-muted-foreground">
+                  Por {doc.linkedBy.name} em {formatDateTime(doc.linkedAt)}
+                </div>
+              )}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleUnlink}
+              disabled={unlinkMut.isPending}
+            >
+              <X className="mr-2 h-4 w-4" />
+              Desvincular
+            </Button>
+          </div>
+        ) : doc.status === 'LINKED' && doc.purchaseOrder ? (
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm">
@@ -350,17 +385,40 @@ function LinkDialog({
   onClose: () => void;
   onLinked: () => void;
 }) {
+  const { data: legacyCandidates, isLoading: loadingLegacy } =
+    useFiscalDocLegacyCandidates(open ? docId : null);
   const { data: candidates, isLoading } = useFiscalDocCandidates(
     open ? docId : null,
   );
   const linkMut = useLinkFiscalDocument();
+  const linkLegacyMut = useLinkFiscalToLegacy();
   const { toast } = useToast();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  /**
+   * Selecionado pode ser:
+   *  - { type: 'p2p', poId }            → vincular a PC do P2P
+   *  - { type: 'legacy', pedido, companyId } → vincular a pedido Linx
+   */
+  const [selected, setSelected] = useState<
+    | { type: 'p2p'; poId: string }
+    | { type: 'legacy'; pedido: string; companyId: string }
+    | null
+  >(null);
 
   async function handleConfirm() {
-    if (!selectedId) return;
+    if (!selected) return;
     try {
-      await linkMut.mutateAsync({ id: docId, purchaseOrderId: selectedId });
+      if (selected.type === 'p2p') {
+        await linkMut.mutateAsync({
+          id: docId,
+          purchaseOrderId: selected.poId,
+        });
+      } else {
+        await linkLegacyMut.mutateAsync({
+          id: docId,
+          legacyPedido: selected.pedido,
+          legacyCompanyId: selected.companyId,
+        });
+      }
       onLinked();
     } catch (err) {
       toast({
@@ -375,85 +433,157 @@ function LinkDialog({
     <Dialog open={open} onOpenChange={(v) => (!v ? onClose() : null)}>
       <DialogContent className="max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Vincular NF ao PC</DialogTitle>
+          <DialogTitle>Vincular NF a um pedido</DialogTitle>
           <DialogDescription>
-            Sugerimos PCs do mesmo fornecedor em status aberto. Escolha um.
+            Pedidos do Linx onde essa NF já está lançada e PCs do P2P do
+            mesmo fornecedor. Escolha um.
           </DialogDescription>
         </DialogHeader>
-        <div className="max-h-96 overflow-auto rounded-md border">
+
+        <div className="max-h-[28rem] overflow-auto rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead></TableHead>
-                <TableHead>PC</TableHead>
+                <TableHead>Origem</TableHead>
+                <TableHead>Pedido</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Fornecedor</TableHead>
+                <TableHead>Filial</TableHead>
                 <TableHead className="text-right">Total</TableHead>
-                <TableHead>Entrega</TableHead>
-                <TableHead>Pedido ERP</TableHead>
+                <TableHead>Data</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading ? (
+              {(loadingLegacy || isLoading) &&
+              !legacyCandidates?.length &&
+              !candidates?.length ? (
                 <TableRow>
                   <TableCell
-                    colSpan={7}
+                    colSpan={8}
                     className="text-center text-muted-foreground"
                   >
-                    Buscando candidatos…
+                    Buscando candidatos no Linx e no P2P…
                   </TableCell>
                 </TableRow>
-              ) : !candidates?.length ? (
+              ) : !legacyCandidates?.length && !candidates?.length ? (
                 <TableRow>
                   <TableCell
-                    colSpan={7}
-                    className="text-center text-muted-foreground"
+                    colSpan={8}
+                    className="text-center text-xs text-muted-foreground"
                   >
-                    Nenhum PC compatível encontrado. Confirme o fornecedor ou
-                    crie o PC primeiro.
+                    Nenhum pedido encontrado. A NF pode ainda não estar
+                    lançada no Linx ou pertence a um fornecedor sem PC no P2P.
                   </TableCell>
                 </TableRow>
               ) : (
-                candidates.map((c) => (
-                  <TableRow
-                    key={c.id}
-                    className={`cursor-pointer ${
-                      selectedId === c.id ? 'bg-accent/60' : ''
-                    }`}
-                    onClick={() => setSelectedId(c.id)}
-                  >
-                    <TableCell>
-                      <input
-                        type="radio"
-                        checked={selectedId === c.id}
-                        onChange={() => setSelectedId(c.id)}
-                      />
-                    </TableCell>
-                    <TableCell className="font-mono">{c.number}</TableCell>
-                    <TableCell>
-                      <StatusBadge status={c.status} />
-                    </TableCell>
-                    <TableCell>{c.supplierName}</TableCell>
-                    <TableCell className="text-right font-mono">
-                      {formatCurrency(c.totalAmount)}
-                    </TableCell>
-                    <TableCell>{formatDate(c.expectedDelivery)}</TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {c.erpPedido ?? '—'}
-                    </TableCell>
-                  </TableRow>
-                ))
+                <>
+                  {(legacyCandidates ?? []).map((lc) => {
+                    const isSel =
+                      selected?.type === 'legacy' &&
+                      selected.pedido === lc.pedido;
+                    return (
+                      <TableRow
+                        key={`legacy-${lc.pedido}`}
+                        className={`cursor-pointer ${
+                          isSel ? 'bg-accent/60' : ''
+                        }`}
+                        onClick={() =>
+                          setSelected({
+                            type: 'legacy',
+                            pedido: lc.pedido,
+                            companyId: lc.companyId,
+                          })
+                        }
+                      >
+                        <TableCell>
+                          <input
+                            type="radio"
+                            checked={isSel}
+                            onChange={() =>
+                              setSelected({
+                                type: 'legacy',
+                                pedido: lc.pedido,
+                                companyId: lc.companyId,
+                              })
+                            }
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <span className="inline-flex items-center rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
+                            Linx
+                          </span>
+                        </TableCell>
+                        <TableCell className="font-mono">{lc.pedido}</TableCell>
+                        <TableCell className="text-xs">
+                          {lc.statusCompra ?? '—'}
+                        </TableCell>
+                        <TableCell>{lc.fornecedor}</TableCell>
+                        <TableCell className="font-mono text-xs">
+                          {lc.filialAEntregar ?? '—'}
+                        </TableCell>
+                        <TableCell className="text-right font-mono">
+                          {formatCurrency(lc.totValorOriginal)}
+                        </TableCell>
+                        <TableCell>{formatDate(lc.emissao)}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {(candidates ?? []).map((c) => {
+                    const isSel =
+                      selected?.type === 'p2p' && selected.poId === c.id;
+                    return (
+                      <TableRow
+                        key={`p2p-${c.id}`}
+                        className={`cursor-pointer ${
+                          isSel ? 'bg-accent/60' : ''
+                        }`}
+                        onClick={() =>
+                          setSelected({ type: 'p2p', poId: c.id })
+                        }
+                      >
+                        <TableCell>
+                          <input
+                            type="radio"
+                            checked={isSel}
+                            onChange={() =>
+                              setSelected({ type: 'p2p', poId: c.id })
+                            }
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <span className="inline-flex items-center rounded bg-blue-100 px-2 py-0.5 text-xs text-blue-800">
+                            P2P
+                          </span>
+                        </TableCell>
+                        <TableCell className="font-mono">{c.number}</TableCell>
+                        <TableCell>
+                          <StatusBadge status={c.status} />
+                        </TableCell>
+                        <TableCell>{c.supplierName}</TableCell>
+                        <TableCell className="font-mono text-xs">—</TableCell>
+                        <TableCell className="text-right font-mono">
+                          {formatCurrency(c.totalAmount)}
+                        </TableCell>
+                        <TableCell>{formatDate(c.expectedDelivery)}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </>
               )}
             </TableBody>
           </Table>
         </div>
+
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
             Cancelar
           </Button>
           <Button
             onClick={handleConfirm}
-            disabled={!selectedId || linkMut.isPending}
+            disabled={
+              !selected || linkMut.isPending || linkLegacyMut.isPending
+            }
           >
             Vincular
           </Button>
