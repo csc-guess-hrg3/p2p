@@ -115,8 +115,13 @@ export class ProductOrdersPaService {
     }
 
     const aprovador = (user.name ?? user.adUsername ?? '').slice(0, 25);
-    await this.prisma.$transaction(async () => {
-      await this.prisma.$executeRawUnsafe(
+    // Transacional REAL via tx recebido no callback. Antes usava this.prisma
+    // dentro do $transaction — Prisma abria a transação mas as queries
+    // rodavam fora dela (bug silencioso). Se a 2ª query falhar agora,
+    // o UPDATE em COMPRAS reverte. A trigger LXI_COMPRAS aceita
+    // BEGIN TRAN externo nas operações de UPDATE testadas.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
         `UPDATE [${erpDb}].dbo.COMPRAS
             SET STATUS_COMPRA = 'A ',
                 STATUS_APROVACAO = 'A',
@@ -129,7 +134,7 @@ export class ProductOrdersPaService {
         numero,
         aprovador,
       );
-      await this.prisma.$executeRawUnsafe(
+      await tx.$executeRawUnsafe(
         `INSERT INTO [${erpDb}].dbo.COMPRAS_STATUS_LOG
            (PEDIDO, DATA_ALTERACAO_STATUS, STATUS_COMPRA, USUARIO)
          VALUES (@P1, GETDATE(), N'A ', @P2)`,
@@ -195,8 +200,9 @@ export class ProductOrdersPaService {
     const note = `REPROVADO POR ${aprovador} EM ${stamp}: ${reason.trim()}`;
     const newObs = prevObs ? `${prevObs}\n\n${note}` : note;
 
-    await this.prisma.$transaction(async () => {
-      await this.prisma.$executeRawUnsafe(
+    // Transacional REAL via tx (antes usava this.prisma — bug silencioso).
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
         `UPDATE [${erpDb}].dbo.COMPRAS
             SET STATUS_COMPRA = 'R ',
                 STATUS_APROVACAO = 'R',
@@ -207,7 +213,7 @@ export class ProductOrdersPaService {
         aprovador,
         newObs,
       );
-      await this.prisma.$executeRawUnsafe(
+      await tx.$executeRawUnsafe(
         `INSERT INTO [${erpDb}].dbo.COMPRAS_STATUS_LOG
            (PEDIDO, DATA_ALTERACAO_STATUS, STATUS_COMPRA, USUARIO)
          VALUES (@P1, GETDATE(), N'R ', @P2)`,
@@ -328,12 +334,15 @@ export class ProductOrdersPaService {
     // Atualiza a data no Linx pra refletir nos demais sistemas (logística,
     // PCP, relatórios). A data original fica preservada no `fromDate` do
     // primeiro change do pedido, então não perdemos rastreabilidade.
-    await this.prisma.$transaction(async () => {
+    // Transacional REAL via tx — antes usava this.prisma (bug silencioso).
+    // Se a gravação no Linx der OK mas paDeliveryChange.create falhar
+    // (ou vice-versa), tudo reverte.
+    await this.prisma.$transaction(async (tx) => {
       // Só LIMITE_ENTREGA muda. ENTREGA (data original do pedido) fica
       // preservada — o WHERE do scope='item' usa ENTREGA pra identificar
       // a linha, e ela continua estável após N reagendamentos.
       if (payload.scope === 'order') {
-        await this.prisma.$executeRawUnsafe(
+        await tx.$executeRawUnsafe(
           `UPDATE [${erpDb}].dbo.COMPRAS_PRODUTO
               SET LIMITE_ENTREGA = @P2
             WHERE PEDIDO = @P1
@@ -342,7 +351,7 @@ export class ProductOrdersPaService {
           toDate,
         );
       } else {
-        await this.prisma.$executeRawUnsafe(
+        await tx.$executeRawUnsafe(
           `UPDATE [${erpDb}].dbo.COMPRAS_PRODUTO
               SET LIMITE_ENTREGA = @P4
             WHERE PEDIDO = @P1
@@ -356,7 +365,7 @@ export class ProductOrdersPaService {
           new Date(payload.entregaOriginal!),
         );
       }
-      await this.prisma.paDeliveryChange.create({
+      await tx.paDeliveryChange.create({
         data: {
           companyId: comp.id,
           pedido: numero,
