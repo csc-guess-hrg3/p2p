@@ -54,20 +54,31 @@ async function bootstrap() {
     credentials: true, // necessário para cookies httpOnly
   });
 
-  const config = new DocumentBuilder()
-    .setTitle('P2P API')
-    .setDescription('Sistema Procure-to-Pay — HRG3')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .addCookieAuth('p2p_token')
-    .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+  // Swagger só fora de produção — em PROD expõe inventário de endpoints
+  // e schema interno. Habilitar via SWAGGER_ENABLED=true só pra debug
+  // pontual se necessário.
+  const swaggerEnabled =
+    process.env.NODE_ENV !== 'production' ||
+    process.env.SWAGGER_ENABLED === 'true';
+  if (swaggerEnabled) {
+    const config = new DocumentBuilder()
+      .setTitle('P2P API')
+      .setDescription('Sistema Procure-to-Pay — HRG3')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .addCookieAuth('p2p_token')
+      .build();
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document);
+  }
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
-  console.log(`P2P API rodando em http://localhost:${port}/api`);
-  console.log(`Swagger em http://localhost:${port}/api/docs`);
+  const logger = new (await import('@nestjs/common')).Logger('Bootstrap');
+  logger.log(`P2P API rodando em http://localhost:${port}/api`);
+  if (swaggerEnabled) {
+    logger.log(`Swagger em http://localhost:${port}/api/docs`);
+  }
 }
 
 void bootstrap();

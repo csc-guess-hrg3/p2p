@@ -17,6 +17,7 @@ backend/generated/
 .env.hml
 backend/.env
 backend/.env.hml
+backend/pm2.config.js
 frontend/.env
 
 # Logs
