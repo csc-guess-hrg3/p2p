@@ -46,16 +46,27 @@ export interface ParsedNfeItem {
   vProd: number;
 }
 
-/** Extrai o conteúdo de UMA tag (primeira ocorrência). */
+/**
+ * Extrai o conteúdo de UMA tag (primeira ocorrência).
+ * Aceita atributos: `<tag>` e `<tag attr="x">` casam igual.
+ * Sem isso, tags com atributos (ex.: `<det nItem="1">`) não casariam
+ * e a extração de items das NFes 4.00 retornava sempre vazia.
+ */
 function tag(xml: string, name: string): string | null {
-  const re = new RegExp(`<${name}>([\\s\\S]*?)</${name}>`, 'i');
+  const re = new RegExp(
+    `<${name}(?:\\s[^>]*)?>([\\s\\S]*?)</${name}>`,
+    'i',
+  );
   const m = xml.match(re);
   return m ? m[1].trim() : null;
 }
 
-/** Extrai TODOS os blocos de uma tag (retorna array). */
+/** Extrai TODOS os blocos de uma tag (retorna array). Aceita atributos. */
 function tags(xml: string, name: string): string[] {
-  const re = new RegExp(`<${name}>([\\s\\S]*?)</${name}>`, 'gi');
+  const re = new RegExp(
+    `<${name}(?:\\s[^>]*)?>([\\s\\S]*?)</${name}>`,
+    'gi',
+  );
   const out: string[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(xml)) !== null) {

@@ -30,23 +30,35 @@ export class FiscalDocumentsController {
   @ApiOperation({ summary: 'Lista NFes baixadas da Qive (paginado)' })
   findAll(
     @CurrentUser() user: AuthenticatedUser,
+    @Query('companyId') companyId?: string,
     @Query('status') status?: string,
     @Query('supplierCnpj') supplierCnpj?: string,
     @Query('search') search?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortDir') sortDir?: 'asc' | 'desc',
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
     return this.fiscalDocuments.findAll(user, {
+      companyId,
       status,
       supplierCnpj,
       search,
       from,
       to,
+      sortBy,
+      sortDir,
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     });
+  }
+
+  @Get('admin/sync/status')
+  @ApiOperation({ summary: 'Status atual do sync com a Qive (UI polling)' })
+  syncStatus(@Query('companyId') companyId?: string) {
+    return this.fiscalDocuments.getSyncStatus(companyId);
   }
 
   @Get(':id')
@@ -75,6 +87,32 @@ export class FiscalDocumentsController {
     @Param('purchaseOrderId') purchaseOrderId: string,
   ) {
     return this.fiscalDocuments.linkToPo(user, id, purchaseOrderId);
+  }
+
+  @Get(':id/legacy-candidates')
+  @ApiOperation({
+    summary: 'Pedidos legados (Linx) onde essa NF já está lançada',
+  })
+  legacyCandidates(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.fiscalDocuments.findLegacyCandidates(user, id);
+  }
+
+  @Post(':id/link-legacy')
+  @ApiOperation({ summary: 'Vincula a NFe a um pedido legado (Linx)' })
+  linkLegacy(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() body: { legacyPedido: string; legacyCompanyId: string },
+  ) {
+    return this.fiscalDocuments.linkToLegacy(
+      user,
+      id,
+      body.legacyPedido,
+      body.legacyCompanyId,
+    );
   }
 
   @Delete(':id/link')
@@ -144,14 +182,47 @@ export class FiscalDocumentsController {
     return this.fiscalDocuments.findByPurchaseOrder(user, purchaseOrderId);
   }
 
+  @Post('fetch-by-chave/:chave')
+  @ApiOperation({
+    summary: 'Busca a NFe na Qive pela chave e persiste no P2P (idempotente)',
+  })
+  fetchByChave(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('chave') chave: string,
+    @Body() body: { legacyPedido?: string; legacyCompanyId?: string } = {},
+  ) {
+    return this.fiscalDocuments.fetchByChave(user, chave, {
+      legacyPedido: body.legacyPedido,
+      legacyCompanyId: body.legacyCompanyId,
+    });
+  }
+
+  @Post('admin/reparse')
+  @ApiOperation({
+    summary: 'Re-parseia rawXmlBase64 das NFs (ADMIN, idempotente)',
+  })
+  triggerReparse(@CurrentUser() user: AuthenticatedUser) {
+    return this.fiscalDocuments.reparseAll(user);
+  }
+
   @Post('admin/sync')
-  @ApiOperation({ summary: 'Dispara sync da Qive manualmente (admin)' })
-  triggerSync(@CurrentUser() user: AuthenticatedUser) {
-    // Guarda simples: só ADMIN. Sem RolesGuard separado pra não importar
-    // mais um pedaço — o cron faz o mesmo trabalho a cada hora.
+  @ApiOperation({
+    summary:
+      'Dispara sync da Qive (background) pra uma empresa específica — retorna imediato',
+  })
+  triggerSync(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('companyId') companyId?: string,
+  ) {
     if (user.profile !== 'ADMIN') {
       return { ok: false, error: 'Apenas ADMIN pode disparar sync manual' };
     }
-    return this.fiscalDocuments.syncAll('received');
+    if (!companyId) {
+      return {
+        ok: false,
+        error: 'companyId é obrigatório (passe pela query string)',
+      };
+    }
+    return this.fiscalDocuments.startBackgroundSync(companyId);
   }
 }
