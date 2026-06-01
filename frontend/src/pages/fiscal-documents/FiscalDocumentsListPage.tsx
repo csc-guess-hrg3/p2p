@@ -349,7 +349,7 @@ export function FiscalDocumentsListPage() {
                         onClick={(e) => {
                           e.stopPropagation();
                           navigate(
-                            `/pedidos-compra/${row.purchaseOrder!.id}`,
+                            `/pedidos/${row.purchaseOrder!.id}`,
                           );
                         }}
                       >

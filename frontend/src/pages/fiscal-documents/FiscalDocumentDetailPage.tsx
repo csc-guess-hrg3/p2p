@@ -218,7 +218,7 @@ export function FiscalDocumentDetailPage() {
                 <button
                   className="font-medium text-primary hover:underline"
                   onClick={() =>
-                    navigate(`/pedidos-compra/${doc.purchaseOrder!.id}`)
+                    navigate(`/pedidos/${doc.purchaseOrder!.id}`)
                   }
                 >
                   {doc.purchaseOrder.number}

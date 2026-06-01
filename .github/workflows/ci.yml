@@ -42,10 +42,9 @@ jobs:
         run: npx prisma generate
 
       - name: Lint
+        # Bloqueante: lint falha = PR não merge. Se um warning específico for
+        # cabível de manter, configurar em .eslintrc; não silenciar tudo no CI.
         run: npm run lint -- --max-warnings=0
-        # eslint configurado com --fix por padrão; aqui rodamos como check.
-        # Se o lint estiver muito ruidoso no início, comentar esta linha.
-        continue-on-error: true
 
       - name: Test
         run: npm test -- --ci --colors=false
