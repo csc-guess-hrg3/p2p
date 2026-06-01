@@ -714,4 +714,81 @@ export class ProductOrdersPaService {
       ORDER BY g.posicao`;
     return { grade, rows };
   }
+
+  /**
+   * NFes vinculadas a este pedido PA (Linx ENTRADAS_PRODUTO → ENTRADAS),
+   * cruzadas com fiscal_documents pra liberar XML/DANFe download quando
+   * disponível.
+   */
+  async listNfes(
+    user: AuthenticatedUser,
+    company: string,
+    pedido: string,
+  ) {
+    const c = this.assertCompany(company);
+    this.assertUserHasCompany(user, c);
+    const erpDb = await this.resolveErpDb(c);
+    const ped = pedido.replace(/[^0-9A-Za-z]/g, '').slice(0, 20);
+
+    const rows = await this.prisma.$queryRawUnsafe<
+      Array<{
+        nfEntrada: string;
+        serieNf: string | null;
+        nomeClifor: string;
+        emissao: Date | null;
+        valorTotal: number | null;
+        chaveNfe: string | null;
+      }>
+    >(`
+      SELECT
+        RTRIM(e.NF_ENTRADA) AS nfEntrada,
+        RTRIM(e.SERIE_NF_ENTRADA) AS serieNf,
+        RTRIM(e.NOME_CLIFOR) AS nomeClifor,
+        e.EMISSAO AS emissao,
+        e.VALOR_TOTAL AS valorTotal,
+        RTRIM(e.CHAVE_NFE) AS chaveNfe
+      FROM [${erpDb}].dbo.ENTRADAS e WITH (NOLOCK)
+      WHERE EXISTS (
+        SELECT 1
+          FROM [${erpDb}].dbo.ENTRADAS_PRODUTO ep WITH (NOLOCK)
+         WHERE RTRIM(ep.PEDIDO) = '${ped}'
+           AND RTRIM(ep.NF_ENTRADA) = RTRIM(e.NF_ENTRADA)
+           AND RTRIM(ep.NOME_CLIFOR) = RTRIM(e.NOME_CLIFOR)
+           AND RTRIM(ISNULL(ep.SERIE_NF_ENTRADA,'')) = RTRIM(ISNULL(e.SERIE_NF_ENTRADA,''))
+      )
+      ORDER BY e.EMISSAO DESC
+    `);
+
+    // Cross-ref com fiscal_documents (Qive) pela chave
+    const keys = rows
+      .map((r) => (r.chaveNfe ?? '').replace(/\D/g, ''))
+      .filter((k) => k.length === 44);
+    const fdMap = new Map<
+      string,
+      { id: string; status: string }
+    >();
+    if (keys.length > 0) {
+      const fds = await this.prisma.fiscalDocument.findMany({
+        where: { accessKey: { in: keys }, deletedAt: null },
+        select: { id: true, accessKey: true, status: true },
+      });
+      fds.forEach((fd) => fdMap.set(fd.accessKey, fd));
+    }
+    return rows.map((r) => {
+      const chave = (r.chaveNfe ?? '').replace(/\D/g, '');
+      const fd = chave.length === 44 ? fdMap.get(chave) : undefined;
+      return {
+        nfEntrada: r.nfEntrada,
+        serieNf: r.serieNf,
+        nomeClifor: r.nomeClifor,
+        emissao: r.emissao,
+        valorTotal: Number(r.valorTotal ?? 0),
+        chaveNfe: chave || null,
+        canDownloadDanfe: chave.length === 44,
+        canDownloadXml: !!fd,
+        fiscalDocumentId: fd?.id ?? null,
+        fiscalDocumentStatus: fd?.status ?? null,
+      };
+    });
+  }
 }

@@ -23,6 +23,7 @@ import {
   type PaTimelineEvent,
 } from '@/lib/product-orders-pa';
 import { RescheduleDialog } from './RescheduleDialog';
+import { PaFiscalDocumentsCard } from './PaFiscalDocumentsCard';
 import { useToast } from '@/components/ui/use-toast';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -506,50 +507,12 @@ export function PaOrderDetailPage() {
         </CardContent>
       </Card>
 
-      {data.nfs && data.nfs.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Notas fiscais recebidas ({data.nfs.length})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>NF</TableHead>
-                  <TableHead>Série</TableHead>
-                  <TableHead>Fornecedor</TableHead>
-                  <TableHead>Emissão</TableHead>
-                  <TableHead>Recebimento</TableHead>
-                  <TableHead className="text-right">Qtde</TableHead>
-                  <TableHead className="text-right">Valor</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.nfs.map((nf) => (
-                  <TableRow key={`${nf.nf}-${nf.serie ?? ''}`}>
-                    <TableCell className="font-medium">{nf.nf}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {nf.serie || '—'}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {nf.fornecedor}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {formatDate(nf.emissao)}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {formatDate(nf.recebimento)}
-                    </TableCell>
-                    <TableCell className="text-right">{nf.qtde_total}</TableCell>
-                    <TableCell className="text-right font-medium">
-                      {formatCurrency(nf.valor_total)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+      {/* Card de NFs do pedido com chave NFe + download XML/DANFe (Qive).
+          Substituiu a listagem simples antiga; agora puxa direto via
+          ENTRADAS_PRODUTO + cross-ref com fiscal_documents pra liberar
+          XML / "Buscar na Qive" / DANFe read-through. */}
+      {activeCompany && pedido && (
+        <PaFiscalDocumentsCard company={activeCompany.code} pedido={pedido} />
       )}
 
       {data.timeline && data.timeline.length > 0 && (

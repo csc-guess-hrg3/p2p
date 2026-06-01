@@ -163,6 +163,36 @@ export function usePaOrders(
   });
 }
 
+/**
+ * NFes (ENTRADAS) lançadas no Linx pra um pedido PA + cross-ref com
+ * fiscal_documents (Qive) pra mostrar botões de download.
+ */
+export interface PaOrderNfeRow {
+  nfEntrada: string;
+  serieNf: string | null;
+  nomeClifor: string;
+  emissao: string | null;
+  valorTotal: number;
+  chaveNfe: string | null;
+  canDownloadDanfe: boolean;
+  canDownloadXml: boolean;
+  fiscalDocumentId: string | null;
+  fiscalDocumentStatus: string | null;
+}
+
+export function usePaOrderNfes(company?: string, pedido?: string) {
+  return useQuery({
+    queryKey: ['pa-order-nfes', company, pedido],
+    enabled: !!company && !!pedido,
+    queryFn: async () =>
+      (
+        await api.get<PaOrderNfeRow[]>(
+          `/product-orders-pa/${company}/${pedido}/nfes`,
+        )
+      ).data,
+  });
+}
+
 export function usePaOrder(company?: string, pedido?: string) {
   return useQuery({
     queryKey: ['pa-order', company, pedido],

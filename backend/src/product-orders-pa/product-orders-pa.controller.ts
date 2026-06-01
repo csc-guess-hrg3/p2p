@@ -47,6 +47,19 @@ export class ProductOrdersPaController {
     return this.service.findOne(user, company, pedido);
   }
 
+  @Get(':pedido/nfes')
+  @ApiOperation({
+    summary:
+      'NFes (ENTRADAS) vinculadas ao pedido PA + cross-ref com fiscal_documents',
+  })
+  listNfes(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('company') company: string,
+    @Param('pedido') pedido: string,
+  ) {
+    return this.service.listNfes(user, company, pedido);
+  }
+
   @Get(':pedido/grade')
   @ApiOperation({
     summary: 'Grade vertical (posição → quantidade) de um item PA',
