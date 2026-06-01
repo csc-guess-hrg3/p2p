@@ -48,6 +48,14 @@ model Company {
   code      String    @unique @db.NVarChar(20)  // GUESS | HRG3 (casa com coluna empresa das views)
   name      String    @db.NVarChar(255)
   cnpj      String?   @db.NVarChar(18)
+  /**
+   * Raízes de CNPJ adicionais que pertencem a esta empresa.
+   * JSON array de strings de 8 dígitos. Necessário porque uma mesma
+   * empresa do grupo pode ter múltiplas raízes (ex.: Guess tem
+   * 09391614, 17809524, 11850562). Usado pra rotear NFes da Qive
+   * pra company certa pelo CNPJ do destinatário.
+   */
+  cnpjRaizes String?  @db.NVarChar(500)
   erpDbName String    @db.NVarChar(100)         // GUESS_PRODUCAO | DB_HRG3
   active    Boolean   @default(true)
   createdAt DateTime  @default(now())
@@ -215,6 +223,13 @@ model FiscalDocument {
    */
   status          String    @default("PENDING") @db.NVarChar(15)
   purchaseOrderId String?   @db.UniqueIdentifier
+  /**
+   * Vínculo com pedido legado (Linx, pré-P2P). Quando setado, a NF
+   * está associada a um PEDIDO da tabela COMPRAS no Linx mesmo —
+   * não tem PurchaseOrder no P2P. Usado pela tela de Pedidos Legados.
+   */
+  legacyPedido    String?   @db.NVarChar(20)
+  legacyCompanyId String?   @db.UniqueIdentifier
   linkedById      String?   @db.UniqueIdentifier
   linkedAt        DateTime?
   notes           String?   @db.NVarChar(Max)
@@ -252,7 +267,10 @@ model FiscalDocumentSyncState {
   companyId   String    @db.UniqueIdentifier
   /** role da Qive: received | emitted | transporter | authorized */
   role        String    @db.NVarChar(20)
+  /** Cursor da v1 (legado) — não usamos mais, mantemos pra compat. */
   lastCursor  Int       @default(0)
+  /** Paginator da v2 — string opaca devolvida pela API a cada página. */
+  lastPaginator String? @db.NVarChar(1000)
   lastSyncAt  DateTime?
   lastError   String?   @db.NVarChar(Max)
   createdAt   DateTime  @default(now())
