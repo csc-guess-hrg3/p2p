@@ -146,6 +146,13 @@ export function RequisitionFormPage() {
   // pronto e abrimos um diálogo dedicado pra coletar o motivo.
   const [pendingDto, setPendingDto] = useState<RequisitionInput | null>(null);
   const [reasonOpen, setReasonOpen] = useState(false);
+  // Bumpado ao final do reset de edição. Usado como `key` nas selects
+  // ligadas a listas do ERP (Filial, Condição de pagamento, Tipo de compra)
+  // pra forçar um remount LIMPO depois que o valor já está no form e as
+  // options já chegaram. Sem isso, o Radix Select às vezes não pinta o
+  // valor no trigger quando value + SelectItem aparecem no mesmo commit
+  // — era o bug "some a filial / condição ao editar uma req em revisão".
+  const [resetNonce, setResetNonce] = useState(0);
   const { toast } = useToast();
 
   const {
@@ -247,10 +254,21 @@ export function RequisitionFormPage() {
         costCenterRateioCode: it.costCenterRateioCode,
       })),
     );
+    // Remonta as selects de ERP já com o value setado e as options presentes
+    // (ver comentário em `resetNonce`). Roda DEPOIS do reset acima.
+    setResetNonce((n) => n + 1);
   }, [existing.data, reset, branches.data, paymentConditions.data]);
 
-  const editableButNotDraft =
-    isEdit && existing.data && existing.data.status !== 'DRAFT';
+  // Edição liberada em DRAFT (rascunho) e REVISION (devolvida pra ajuste).
+  // A tela de detalhe usa o mesmo critério (canEdit = isDraft || isRevision)
+  // — manter alinhado evita o cenário em que o detalhe oferece "Editar" mas
+  // o form responde "Edição indisponível". Os demais status (submetida,
+  // aprovada, convertida, rejeitada) seguem bloqueados.
+  const notEditableStatus =
+    isEdit &&
+    existing.data &&
+    existing.data.status !== 'DRAFT' &&
+    existing.data.status !== 'REVISION';
 
   function openAdd() {
     setEditingIndex(null);
@@ -521,14 +539,17 @@ export function RequisitionFormPage() {
     }
   }
 
-  if (editableButNotDraft) {
+  if (notEditableStatus) {
     return (
       <Card className="mx-auto max-w-2xl">
         <CardHeader>
           <CardTitle>Edição indisponível</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 text-sm text-muted-foreground">
-          <p>Apenas requisições em rascunho podem ser editadas.</p>
+          <p>
+            Apenas requisições em rascunho ou devolvidas para revisão podem
+            ser editadas.
+          </p>
           <Button onClick={() => navigate(`/requisicoes/${id}`)}>
             Ver requisição
           </Button>
@@ -601,7 +622,11 @@ export function RequisitionFormPage() {
               control={control}
               name="branchErpCode"
               render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
+                <Select
+                  key={`branch-${resetNonce}`}
+                  value={field.value}
+                  onValueChange={field.onChange}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione a filial" />
                   </SelectTrigger>
@@ -621,6 +646,7 @@ export function RequisitionFormPage() {
           <div className="space-y-1.5">
             <Label>Fornecedor</Label>
             <SupplierPicker
+              key={`supplier-${resetNonce}`}
               company={code}
               value={supplier}
               onChange={(next) => {
@@ -708,7 +734,11 @@ export function RequisitionFormPage() {
               control={control}
               name="paymentConditionCode"
               render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
+                <Select
+                  key={`payment-${resetNonce}`}
+                  value={field.value}
+                  onValueChange={field.onChange}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione a condição" />
                   </SelectTrigger>
@@ -739,6 +769,7 @@ export function RequisitionFormPage() {
               name="tipoCompra"
               render={({ field }) => (
                 <Select
+                  key={`tipo-${resetNonce}`}
                   value={field.value || ''}
                   onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
                 >

@@ -137,6 +137,11 @@ function PhaseNode({ phase, isLast }: { phase: Phase; isLast: boolean }) {
 function buildPhases(req: Props['req']): Phase[] {
   const status = req.status;
   const isFailed = status === 'REJECTED' || status === 'CANCELLED';
+  // Devolvida pra revisão: a cadeia de aprovação foi descartada e a bola
+  // voltou pro solicitante editar/ressubmeter. Sem tratar esse caso, as
+  // fases caíam todas em 'done' (verde) — passando a falsa impressão de
+  // que a req tinha sido aprovada.
+  const isRevision = status === 'REVISION';
   const hasFiscalPending = (req.pendingFiscalItems ?? []).some(
     (f) => f.status === 'PENDING',
   );
@@ -159,7 +164,7 @@ function buildPhases(req: Props['req']): Phase[] {
     key: 'draft',
     label: 'Rascunho',
     Icon: FileText,
-    state: status === 'DRAFT' ? 'current' : 'done',
+    state: status === 'DRAFT' || isRevision ? 'current' : 'done',
   });
 
   // 2) Em aprovação
@@ -172,11 +177,17 @@ function buildPhases(req: Props['req']): Phase[] {
         ? 'current'
         : status === 'REJECTED'
           ? 'failed'
-          : past('DRAFT')
-            ? 'todo'
-            : 'done',
+          : isRevision
+            ? 'warning'
+            : past('DRAFT')
+              ? 'todo'
+              : 'done',
     detail:
-      status === 'REJECTED' ? 'Aprovação rejeitada' : undefined,
+      status === 'REJECTED'
+        ? 'Aprovação rejeitada'
+        : isRevision
+          ? 'Devolvida para revisão — edite e ressubmeta.'
+          : undefined,
   });
 
   // 3) Aprovada
@@ -189,7 +200,7 @@ function buildPhases(req: Props['req']): Phase[] {
         ? 'current'
         : status === 'CONVERTED'
           ? 'done'
-          : isFailed
+          : isFailed || isRevision
             ? 'todo'
             : past('DRAFT', 'IN_APPROVAL', 'SUBMITTED')
               ? 'todo'

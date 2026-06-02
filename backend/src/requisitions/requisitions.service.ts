@@ -1168,21 +1168,12 @@ export class RequisitionsService {
         detail: req.rejectionReason,
       });
     }
-    if (req.revisionRequestedAt) {
-      const reviewer = req.revisionRequestedById
-        ? await this.prisma.user.findUnique({
-            where: { id: req.revisionRequestedById },
-            select: { name: true },
-          })
-        : null;
-      events.push({
-        at: req.revisionRequestedAt.toISOString(),
-        kind: 'revision',
-        label: 'Devolvida para revisão',
-        who: reviewer?.name ?? null,
-        detail: req.revisionReason,
-      });
-    }
+    // NB: a devolução para revisão NÃO é emitida aqui a partir dos campos
+    // req.revisionRequestedAt/Reason — isso duplicava o evento, porque a
+    // mesma devolução também aparece no loop de steps abaixo
+    // ("<nível>: devolveu para revisão") com texto e timestamp idênticos.
+    // Mantemos só a versão por step (mais informativa: diz qual nível
+    // devolveu e preserva o histórico de múltiplos ciclos de revisão).
     if (req.lastEditedAt) {
       const editor = req.lastEditedById
         ? await this.prisma.user.findUnique({
@@ -1218,10 +1209,20 @@ export class RequisitionsService {
       orderBy: { decidedAt: 'desc' },
       include: { decidedBy: { select: { name: true } } },
     });
+    // Uma única devolução marca TODOS os steps pendentes do doc como
+    // REVISION com o mesmo decidedAt (updateMany em requestRevision). Sem
+    // dedupe, um nível com vários aprovadores em paralelo geraria N linhas
+    // idênticas. Colapsamos por timestamp.
+    const seenRevisionAt = new Set<string>();
     for (const s of steps) {
       if (!s.decidedAt) continue;
+      const atIso = s.decidedAt.toISOString();
+      if (s.status === 'REVISION') {
+        if (seenRevisionAt.has(atIso)) continue;
+        seenRevisionAt.add(atIso);
+      }
       events.push({
-        at: s.decidedAt.toISOString(),
+        at: atIso,
         kind:
           s.status === 'REVISION'
             ? 'step-revision'

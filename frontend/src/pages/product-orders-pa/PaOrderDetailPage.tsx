@@ -563,7 +563,7 @@ export function PaOrderDetailPage() {
         open={approveOpen}
         onOpenChange={setApproveOpen}
         title="Aprovar pedido PA"
-        description={`Aprovar o pedido ${data.pedido}? O status serÃ¡ atualizado no Linx.`}
+        description={`Aprovar o pedido ${data.pedido}? O status será atualizado no Linx.`}
         confirmLabel="Aprovar"
         onConfirm={handleApprove}
       />

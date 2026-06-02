@@ -367,48 +367,25 @@ export function RequisitionDetailPage() {
       </div>
 
       {/*
-        Aviso de política de cotações — só faz sentido enquanto a requisição
-        ainda pode ser editada (DRAFT). Depois de submetida, o banner do
-        backend já bloqueou caso estivesse fora da regra; e a contagem de
-        cotações não muda mais.
+        Banner de devolução em destaque NO TOPO — antes ficava enterrado no
+        rodapé do card de capa (depois da justificativa) e o solicitante nem
+        via que a req tinha voltado. Agora é a primeira coisa na tela.
       */}
-      {canEdit && (
-        <QuotationsWarning
-          companyId={req.companyId}
-          totalAmount={Number(req.totalAmount)}
-          quotationsCount={quotationsCount}
-          waiverReason={req.quotationWaiverReason}
-          waiverNote={req.quotationWaiverNote}
-          showWhenOk
-          onRequestWaiver={() => setWaiverOpen(true)}
-          onClearWaiver={async () => {
-            try {
-              await clearWaiverMut.mutateAsync();
-              toast({
-                title: 'Dispensa removida',
-                description: 'A regra padrão de cotações volta a valer.',
-                variant: 'success',
-              });
-            } catch (err) {
-              toast({
-                title: 'Falha ao remover dispensa',
-                description: extractApiMessage(err),
-                variant: 'destructive',
-              });
-            }
-          }}
-        />
-      )}
-      {/* Para requisições já submetidas/aprovadas, mostramos a dispensa
-          como info read-only — o aprovador precisa ver o motivo. */}
-      {!canEdit && req.quotationWaiverReason && (
-        <QuotationsWarning
-          companyId={req.companyId}
-          totalAmount={Number(req.totalAmount)}
-          quotationsCount={quotationsCount}
-          waiverReason={req.quotationWaiverReason}
-          waiverNote={req.quotationWaiverNote}
-        />
+      {req.status === 'REVISION' && req.revisionReason && (
+        <div className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/10 p-4">
+          <Undo2 className="mt-0.5 size-5 shrink-0 text-warning" />
+          <div className="flex-1 space-y-1">
+            <p className="text-sm font-semibold text-warning">
+              Devolvida para revisão
+            </p>
+            <p className="whitespace-pre-line text-sm font-medium">
+              {req.revisionReason}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Edite a requisição e ressubmeta — o fluxo de aprovação reinicia.
+            </p>
+          </div>
+        </div>
       )}
 
       {canEdit && (
@@ -613,17 +590,6 @@ export function RequisitionDetailPage() {
               />
             </div>
           )}
-          {req.status === 'REVISION' && req.revisionReason && (
-            <div className="col-span-3 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
-              <p className="mb-1 text-xs uppercase tracking-wide text-warning">
-                Devolvida para revisão
-              </p>
-              <p className="font-medium">{req.revisionReason}</p>
-              <p className="text-xs text-muted-foreground">
-                Edite a requisição e ressubmeta — o fluxo de aprovação reinicia.
-              </p>
-            </div>
-          )}
         </CardContent>
       </Card>
 
@@ -671,6 +637,51 @@ export function RequisitionDetailPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {/*
+        Aviso de política de cotações posicionado LOGO ACIMA dos anexos —
+        é onde o solicitante anexa as cotações, então o aviso fica colado
+        na ação que ele precisa tomar (queixa direta da usuária de que o
+        aviso aparecia longe do campo de anexos).
+      */}
+      {canEdit && (
+        <QuotationsWarning
+          companyId={req.companyId}
+          totalAmount={Number(req.totalAmount)}
+          quotationsCount={quotationsCount}
+          waiverReason={req.quotationWaiverReason}
+          waiverNote={req.quotationWaiverNote}
+          showWhenOk
+          onRequestWaiver={() => setWaiverOpen(true)}
+          onClearWaiver={async () => {
+            try {
+              await clearWaiverMut.mutateAsync();
+              toast({
+                title: 'Dispensa removida',
+                description: 'A regra padrão de cotações volta a valer.',
+                variant: 'success',
+              });
+            } catch (err) {
+              toast({
+                title: 'Falha ao remover dispensa',
+                description: extractApiMessage(err),
+                variant: 'destructive',
+              });
+            }
+          }}
+        />
+      )}
+      {/* Para requisições já submetidas/aprovadas, mostramos a dispensa
+          como info read-only — o aprovador precisa ver o motivo. */}
+      {!canEdit && req.quotationWaiverReason && (
+        <QuotationsWarning
+          companyId={req.companyId}
+          totalAmount={Number(req.totalAmount)}
+          quotationsCount={quotationsCount}
+          waiverReason={req.quotationWaiverReason}
+          waiverNote={req.quotationWaiverNote}
+        />
+      )}
 
       <Card>
         <CardContent className="pt-6">

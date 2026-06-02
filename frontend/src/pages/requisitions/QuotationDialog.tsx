@@ -1,12 +1,8 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, Plus, Trash2, AlertCircle } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import {
-  lookupSupplierByCnpj,
-  lookupCnpjPublic,
-  maskCnpj,
   useCreateQuotation,
   useUpdateQuotation,
-  type PublicCnpjData,
   type Quotation,
   type QuotationInput,
 } from '@/lib/quotations';
@@ -15,7 +11,7 @@ import { extractApiMessage } from '@/lib/api-errors';
 import { useCompany } from '@/lib/company';
 import { useDeleteAttachment } from '@/lib/attachments';
 import type { Requisition } from '@/lib/requisitions';
-import type { ErpSupplier } from '@/lib/integration';
+import { SupplierPicker, type SupplierPickerValue } from './SupplierPicker';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -87,11 +83,19 @@ export function QuotationDialog({
   const [savedOk, setSavedOk] = useState(false);
   const paymentConditions = usePaymentConditions(activeCompany?.code);
 
-  const [cnpj, setCnpj] = useState('');
-  const [supplierName, setSupplierName] = useState('');
-  const [erpMatch, setErpMatch] = useState<ErpSupplier | null>(null);
-  const [publicMatch, setPublicMatch] = useState<PublicCnpjData | null>(null);
-  const [lookingUp, setLookingUp] = useState(false);
+  const EMPTY_SUPPLIER: SupplierPickerValue = {
+    supplierErpCode: '',
+    supplierCnpj: '',
+    supplierName: '',
+    isExternal: false,
+    suggestedPaymentCondition: null,
+  };
+  const [supplier, setSupplier] = useState<SupplierPickerValue>(EMPTY_SUPPLIER);
+  // Bumpado ao final da inicialização do form. Usado como `key` no
+  // SupplierPicker pra remontá-lo já com o `value` correto — o picker deriva
+  // o modo (ERP × externo) no mount, e sem o remount uma cotação de
+  // fornecedor externo abriria no modo ERP errado ao editar.
+  const [supplierNonce, setSupplierNonce] = useState(0);
   const [paymentCode, setPaymentCode] = useState<string>('');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<FormItem[]>([]);
@@ -105,17 +109,13 @@ export function QuotationDialog({
     // a limpeza do anexo.
     setSavedOk(false);
     if (existing) {
-      setCnpj(maskCnpj(existing.supplierCnpj));
-      setSupplierName(existing.supplierName);
-      setErpMatch(
-        existing.supplierErpCode
-          ? ({
-              codigo: existing.supplierErpCode,
-              nome: existing.supplierName,
-              cnpjCpf: existing.supplierCnpj,
-            } as ErpSupplier)
-          : null,
-      );
+      setSupplier({
+        supplierErpCode: existing.supplierErpCode ?? '',
+        supplierCnpj: existing.supplierCnpj ?? '',
+        supplierName: existing.supplierName,
+        isExternal: !existing.supplierErpCode,
+        suggestedPaymentCondition: existing.paymentConditionCode ?? null,
+      });
       setPaymentCode(existing.paymentConditionCode ?? '');
       setNotes(existing.notes ?? '');
       setItems(
@@ -127,9 +127,7 @@ export function QuotationDialog({
         })),
       );
     } else {
-      setCnpj('');
-      setSupplierName('');
-      setErpMatch(null);
+      setSupplier(EMPTY_SUPPLIER);
       setPaymentCode('');
       setNotes('');
       // Pré-popula com os itens da requisição — descrição/unidade copiadas,
@@ -143,50 +141,11 @@ export function QuotationDialog({
         })),
       );
     }
-  }, [open, existing, requisition]);
-
-  // Debounced lookup do CNPJ — cascata: ERP → BrasilAPI → manual.
-  useEffect(() => {
-    if (!open || !activeCompany) return;
-    const digits = cnpj.replace(/\D/g, '');
-    if (digits.length < 11) {
-      setErpMatch(null);
-      setPublicMatch(null);
-      setLookingUp(false);
-      return;
-    }
-    let cancelled = false;
-    setLookingUp(true);
-    const timer = setTimeout(async () => {
-      const erp = await lookupSupplierByCnpj(activeCompany.code, digits);
-      if (cancelled) return;
-      setErpMatch(erp);
-      if (erp) {
-        setSupplierName(erp.nome);
-        if (erp.condicaoPgto && !paymentCode) setPaymentCode(erp.condicaoPgto);
-        setPublicMatch(null);
-        setLookingUp(false);
-        return;
-      }
-      // Fallback BrasilAPI (só se for CNPJ completo).
-      if (digits.length === 14) {
-        const pub = await lookupCnpjPublic(activeCompany.code, digits);
-        if (cancelled) return;
-        setPublicMatch(pub);
-        if (pub) {
-          setSupplierName(pub.razaoSocial);
-        }
-      } else {
-        setPublicMatch(null);
-      }
-      setLookingUp(false);
-    }, 500);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
+    // Remonta o SupplierPicker já com o `supplier` setado acima (ver nota
+    // em `supplierNonce`).
+    setSupplierNonce((n) => n + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cnpj, open, activeCompany?.code]);
+  }, [open, existing, requisition]);
 
   function updateItem(idx: number, patch: Partial<FormItem>) {
     setItems((prev) =>
@@ -209,13 +168,12 @@ export function QuotationDialog({
     return sum + q * u;
   }, 0);
 
-  const cnpjDigits = cnpj.replace(/\D/g, '');
+  const cnpjDigits = supplier.supplierCnpj.replace(/\D/g, '');
   const cnpjValid = cnpjDigits.length === 14 || cnpjDigits.length === 11;
-  // Só pede o nome manual se nem o ERP nem a BrasilAPI conseguiram
-  // identificar o fornecedor (e o CNPJ está válido).
-  const autoIdentified = !!erpMatch || !!publicMatch;
+  // Fornecedor externo (não está no ERP) precisa de razão social — o
+  // SupplierPicker já sinaliza isso na UI, mas validamos aqui no save.
   const needsSupplierName =
-    cnpjValid && !lookingUp && !autoIdentified && !supplierName.trim();
+    supplier.isExternal && cnpjValid && !supplier.supplierName.trim();
 
   async function handleSave() {
     if (!cnpjValid) {
@@ -259,7 +217,11 @@ export function QuotationDialog({
     const dto: QuotationInput = {
       attachmentId: existing ? undefined : attachmentId,
       supplierCnpj: cnpjDigits,
-      supplierNameOverride: erpMatch ? undefined : supplierName.trim(),
+      // Quando veio do ERP (não-externo) o backend resolve o nome pelo
+      // cadastro; só mandamos override quando é fornecedor externo.
+      supplierNameOverride: supplier.isExternal
+        ? supplier.supplierName.trim()
+        : undefined,
       paymentConditionCode: paymentCode || undefined,
       notes: notes.trim() || undefined,
       items: items.map((it) => ({
@@ -279,7 +241,7 @@ export function QuotationDialog({
       }
       toast({
         title: existing ? 'Cotação atualizada' : 'Cotação cadastrada',
-        description: `${supplierName} — ${formatCurrency(total)}`,
+        description: `${supplier.supplierName} — ${formatCurrency(total)}`,
         variant: 'success',
       });
       setSavedOk(true);
@@ -337,120 +299,30 @@ export function QuotationDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Fornecedor */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[200px_1fr]">
-            <div className="space-y-1.5">
-              <Label htmlFor="cnpj">CNPJ do fornecedor</Label>
-              <Input
-                id="cnpj"
-                value={cnpj}
-                onChange={(e) => setCnpj(maskCnpj(e.target.value))}
-                placeholder="00.000.000/0000-00"
-                inputMode="numeric"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="supplierName">
-                Nome do fornecedor
-                {needsSupplierName && (
-                  <span className="ml-1 text-destructive">*</span>
-                )}
-              </Label>
-              <Input
-                id="supplierName"
-                value={supplierName}
-                onChange={(e) => setSupplierName(e.target.value)}
-                disabled={autoIdentified}
-                placeholder={
-                  autoIdentified
-                    ? ''
-                    : lookingUp
-                      ? 'Consultando…'
-                      : 'Razão social do fornecedor'
+          {/* Fornecedor — mesmo seletor da requisição: busca no banco
+              (ERP) por nome/CNPJ e, quando não há cadastro, identifica
+              por CNPJ caindo na Receita Federal. */}
+          <div className="space-y-1.5">
+            <Label>
+              Fornecedor
+              {needsSupplierName && (
+                <span className="ml-1 text-destructive">*</span>
+              )}
+            </Label>
+            <SupplierPicker
+              key={`supplier-${supplierNonce}`}
+              company={activeCompany?.code}
+              value={supplier}
+              onChange={(next) => {
+                setSupplier(next);
+                // Auto-sugere a condição de pagamento do fornecedor quando
+                // ainda não foi escolhida manualmente.
+                if (next.suggestedPaymentCondition && !paymentCode) {
+                  setPaymentCode(next.suggestedPaymentCondition);
                 }
-              />
-            </div>
+              }}
+            />
           </div>
-
-          {/* Banner: ERP encontrado (cadastrado) */}
-          {cnpjValid && erpMatch && (
-            <div className="flex items-start gap-2 rounded-md border border-success/40 bg-success/5 p-3 text-sm">
-              <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
-              <div className="text-foreground">
-                <p className="font-medium text-success">
-                  Fornecedor cadastrado no ERP
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  <span className="font-mono">{erpMatch.codigo}</span> —{' '}
-                  {erpMatch.nome}
-                  {erpMatch.condicaoPgto
-                    ? ` · Condição padrão: ${erpMatch.condicaoPgto}`
-                    : ''}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Banner: ERP não tem mas BrasilAPI achou */}
-          {cnpjValid && !erpMatch && publicMatch && (
-            <div className="flex items-start gap-2 rounded-md border border-info/40 bg-info/5 p-3 text-sm">
-              <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-info" />
-              <div className="flex-1 text-foreground">
-                <p className="font-medium text-info">
-                  Fornecedor externo — dados da Receita Federal
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {publicMatch.razaoSocial}
-                  {publicMatch.nomeFantasia
-                    ? ` (${publicMatch.nomeFantasia})`
-                    : ''}
-                  {publicMatch.situacao
-                    ? ` · Situação: ${publicMatch.situacao}`
-                    : ''}
-                </p>
-                {(publicMatch.logradouro || publicMatch.cidade) && (
-                  <p className="text-xs text-muted-foreground">
-                    {[
-                      publicMatch.logradouro,
-                      publicMatch.numero,
-                      publicMatch.bairro,
-                      publicMatch.cidade && publicMatch.uf
-                        ? `${publicMatch.cidade}/${publicMatch.uf}`
-                        : publicMatch.cidade,
-                      publicMatch.cep,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </p>
-                )}
-                {publicMatch.cnaePrincipal && (
-                  <p className="text-xs text-muted-foreground">
-                    CNAE: {publicMatch.cnaePrincipal}
-                  </p>
-                )}
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  Se esta cotação for selecionada, o fornecedor será
-                  cadastrado no ERP automaticamente com esses dados.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Banner: nem ERP nem BrasilAPI — usuário digita manual */}
-          {cnpjValid && !lookingUp && !erpMatch && !publicMatch && (
-            <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
-              <AlertCircle className="mt-0.5 size-4 shrink-0 text-warning" />
-              <div className="text-foreground">
-                <p className="font-medium text-warning">
-                  Não foi possível identificar o fornecedor pelo CNPJ
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Não está no ERP nem foi encontrado na Receita Federal.
-                  Informe o nome do fornecedor manualmente para continuar.
-                </p>
-              </div>
-            </div>
-          )}
 
           {/* Condição de pagamento */}
           <div className="space-y-1.5">

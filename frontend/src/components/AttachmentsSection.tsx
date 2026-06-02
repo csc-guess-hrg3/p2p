@@ -402,7 +402,7 @@ export function AttachmentsSection({
         title="Excluir anexo"
         description={
           deleteTarget
-            ? `Excluir o anexo "${deleteTarget.filename}"? Esta aÃ§Ã£o nÃ£o pode ser desfeita.`
+            ? `Excluir o anexo "${deleteTarget.filename}"? Esta ação não pode ser desfeita.`
             : undefined
         }
         confirmLabel="Excluir"

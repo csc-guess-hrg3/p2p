@@ -118,8 +118,6 @@ export function QuotationsWarning({
     );
   }
 
-  // alternativas necessárias = minRequired - 1 (porque sua proposta = 1).
-  const alternativesNeeded = Math.max(0, minRequired - 1);
   return (
     <div
       className={`flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm ${className}`}
@@ -127,27 +125,18 @@ export function QuotationsWarning({
       <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
       <div className="flex-1 text-foreground">
         <p className="font-medium text-warning">
-          Cotações alternativas necessárias acima de{' '}
-          {formatCurrency(thresholdAmount)}
+          Cotações necessárias acima de {formatCurrency(thresholdAmount)}
         </p>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Esta requisição soma{' '}
+          Esta requisição totaliza{' '}
           <span className="font-semibold text-foreground">
             {formatCurrency(totalAmount)}
           </span>
-          . Sua proposta (fornecedor + itens + valores) conta como{' '}
-          <span className="font-semibold text-foreground">Cotação 1</span>
-          . Precisamos de mais{' '}
+          . Conforme a política vigente, é necessário anexar mais{' '}
           <span className="font-semibold text-foreground">
-            {alternativesNeeded} cotação(ões) alternativa(s)
+            {missing} {missing === 1 ? 'cotação' : 'cotações'}
           </span>
-          {' '}de outros fornecedores. Anexadas:{' '}
-          <span className="font-semibold text-foreground">
-            {quotationsCount}
-          </span>
-          {alternativesNeeded - quotationsCount > 0
-            ? ` — faltam ${alternativesNeeded - quotationsCount}.`
-            : ''}
+          . Por favor, adicione-as no campo de anexos.
         </p>
         {hint && (
           <p className="mt-1 text-xs italic text-muted-foreground">{hint}</p>
