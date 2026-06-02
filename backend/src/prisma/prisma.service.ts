@@ -29,6 +29,15 @@ export class PrismaService
       user: config.getOrThrow<string>('DB_USER'),
       password: config.getOrThrow<string>('DB_PASSWORD'),
       options: { trustServerCertificate: true, encrypt: true },
+      // Pool explícito para PROD: evita esgotamento em pico de requisições.
+      // Os defaults do mssql (min=0, max=10) causam latência de cold-start
+      // nos primeiros requests após idle e saturação em cargas médias.
+      pool: {
+        min: Number(config.get<string>('DB_POOL_MIN') ?? 5),
+        max: Number(config.get<string>('DB_POOL_MAX') ?? 30),
+        idleTimeoutMillis: 30_000,
+        acquireTimeoutMillis: 15_000,
+      },
     });
     super({ adapter });
   }

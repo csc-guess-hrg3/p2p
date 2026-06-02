@@ -36,6 +36,7 @@ import {
 } from '@/components/ui/popover';
 import { MODULE_LABEL, type Module } from '@/components/layout/nav';
 import { useToast } from '@/components/ui/use-toast';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
   Dialog,
   DialogContent,
@@ -444,6 +445,7 @@ export function TeamsPage() {
   const deactivateMut = useDeactivateTeam();
   const [levelsOpenFor, setLevelsOpenFor] = useState<string | null>(null);
   const [rateiosOpenFor, setRateiosOpenFor] = useState<string | null>(null);
+  const [deactivateTarget, setDeactivateTarget] = useState<{ id: string; name: string } | null>(null);
 
   const approvers = (usersPage?.data ?? []).filter(
     (u) => u.profile === 'MANAGER' || u.profile === 'ADMIN',
@@ -456,8 +458,7 @@ export function TeamsPage() {
       toast({ title: 'Falha ao renomear', variant: 'destructive' });
     }
   }
-  async function deactivate(id: string, name: string) {
-    if (!confirm(`Desativar a equipe "${name}"?`)) return;
+  async function deactivate(id: string) {
     try {
       await deactivateMut.mutateAsync(id);
       toast({ title: 'Equipe desativada', variant: 'success' });
@@ -561,7 +562,7 @@ export function TeamsPage() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => deactivate(t.id, t.name)}
+                        onClick={() => setDeactivateTarget({ id: t.id, name: t.name })}
                       >
                         <Trash2 className="size-4 text-destructive" />
                       </Button>
@@ -590,6 +591,23 @@ export function TeamsPage() {
           onOpenChange={(v) => !v && setRateiosOpenFor(null)}
         />
       )}
+      <ConfirmDialog
+        open={!!deactivateTarget}
+        onOpenChange={(open) => !open && setDeactivateTarget(null)}
+        title="Desativar equipe"
+        description={
+          deactivateTarget
+            ? `Desativar a equipe "${deactivateTarget.name}"?`
+            : undefined
+        }
+        confirmLabel="Desativar"
+        variant="destructive"
+        onConfirm={async () => {
+          if (!deactivateTarget) return;
+          await deactivate(deactivateTarget.id);
+          setDeactivateTarget(null);
+        }}
+      />
     </div>
   );
 }

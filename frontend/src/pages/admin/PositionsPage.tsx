@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/components/ui/use-toast';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
   Table,
   TableBody,
@@ -36,6 +37,7 @@ export function PositionsPage() {
 
   const [newCode, setNewCode] = useState('');
   const [newName, setNewName] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
   async function create() {
     const code = newCode.trim().toUpperCase();
@@ -81,9 +83,7 @@ export function PositionsPage() {
     }
   }
 
-  async function remove(id: string, name: string) {
-    if (!confirm(`Excluir o cargo "${name}"? Cadeias que o usam ficam órfãs.`))
-      return;
+  async function remove(id: string) {
     try {
       await deleteMut.mutateAsync(id);
       toast({ title: 'Cargo excluído', variant: 'success' });
@@ -189,7 +189,7 @@ export function PositionsPage() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => remove(p.id, p.name)}
+                        onClick={() => setDeleteTarget({ id: p.id, name: p.name })}
                       >
                         <Trash2 className="size-4 text-destructive" />
                       </Button>
@@ -201,6 +201,23 @@ export function PositionsPage() {
           </div>
         </CardContent>
       </Card>
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title="Excluir cargo"
+        description={
+          deleteTarget
+            ? `Excluir o cargo "${deleteTarget.name}"? Cadeias que o usam podem ficar sem referencia.`
+            : undefined
+        }
+        confirmLabel="Excluir"
+        variant="destructive"
+        onConfirm={async () => {
+          if (!deleteTarget) return;
+          await remove(deleteTarget.id);
+          setDeleteTarget(null);
+        }}
+      />
     </div>
   );
 }

@@ -28,6 +28,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/components/ui/use-toast';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
   Select,
   SelectContent,
@@ -69,6 +70,7 @@ export function UsersPage() {
   const [companiesFor, setCompaniesFor] = useState<AdminUser | null>(null);
   const [branchesFor, setBranchesFor] = useState<AdminUser | null>(null);
   const [addLocalOpen, setAddLocalOpen] = useState(false);
+  const [deactivateTarget, setDeactivateTarget] = useState<AdminUser | null>(null);
 
   const { data, isLoading } = useUsers({
     status: status === 'ALL' ? undefined : status,
@@ -98,7 +100,6 @@ export function UsersPage() {
   }
 
   async function deactivate(u: AdminUser) {
-    if (!confirm(`Desativar ${u.name}? O acesso será revogado.`)) return;
     try {
       await deactivateMut.mutateAsync(u.id);
       toast({
@@ -346,7 +347,7 @@ export function UsersPage() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => deactivate(u)}
+                        onClick={() => setDeactivateTarget(u)}
                         title="Desativar"
                       >
                         <UserX className="size-4 text-destructive" />
@@ -382,6 +383,23 @@ export function UsersPage() {
       <AddLocalUserDialog
         open={addLocalOpen}
         onOpenChange={setAddLocalOpen}
+      />
+      <ConfirmDialog
+        open={!!deactivateTarget}
+        onOpenChange={(open) => !open && setDeactivateTarget(null)}
+        title="Desativar usuario"
+        description={
+          deactivateTarget
+            ? `Desativar ${deactivateTarget.name}? O acesso sera revogado.`
+            : undefined
+        }
+        confirmLabel="Desativar"
+        variant="destructive"
+        onConfirm={async () => {
+          if (!deactivateTarget) return;
+          await deactivate(deactivateTarget);
+          setDeactivateTarget(null);
+        }}
       />
     </div>
   );

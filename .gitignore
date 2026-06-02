@@ -15,10 +15,12 @@ backend/generated/
 .env.local
 .env.production
 .env.hml
-backend/.env
-backend/.env.hml
+backend/.env*
+!backend/.env.example
 backend/pm2.config.js
 frontend/.env
+frontend/.env*
+!frontend/.env.example
 
 # Logs
 *.log

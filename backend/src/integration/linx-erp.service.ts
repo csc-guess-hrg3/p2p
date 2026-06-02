@@ -14,6 +14,11 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { IntegrationLogStatus } from '../common/enums';
+import { safeDbName } from '../common/erp/safe-db-name';
+import {
+  publicErpErrorMessage,
+  sanitizeErpErrorDetail,
+} from '../common/erp/erp-error-sanitizer';
 
 /**
  * Grava o Pedido de Compra do P2P no ERP Linx.
@@ -67,17 +72,18 @@ export class LinxErpService {
    * 100% das empresas brasileiras Linx usam Real como padrão.
    */
   private async getDefaultMoeda(erpDb: string): Promise<string> {
-    const cached = this.moedaPadraoCache.get(erpDb);
+    const safeDb = safeDbName(erpDb);
+    const cached = this.moedaPadraoCache.get(safeDb);
     if (cached && Date.now() - cached.at < this.MOEDA_CACHE_TTL_MS) {
       return cached.code;
     }
     try {
       const rows = await this.prisma.$queryRawUnsafe<{ MOEDA: string }[]>(
-        `SELECT TOP 1 MOEDA FROM [${erpDb}].dbo.MOEDAS WITH (NOLOCK)
+        `SELECT TOP 1 MOEDA FROM [${safeDb}].dbo.MOEDAS WITH (NOLOCK)
          WHERE INDICA_PADRAO = 1`,
       );
       const code = (rows[0]?.MOEDA ?? 'R$').trim() || 'R$';
-      this.moedaPadraoCache.set(erpDb, { code, at: Date.now() });
+      this.moedaPadraoCache.set(safeDb, { code, at: Date.now() });
       return code;
     } catch (e) {
       this.logger.warn(
@@ -157,11 +163,12 @@ export class LinxErpService {
     erpDb: string,
     obs: string,
   ): Promise<string | null> {
+    const safeDb = safeDbName(erpDb);
     try {
       const rows = await this.prisma.$queryRawUnsafe<
         { PEDIDO: string }[]
       >(
-        `SELECT TOP 1 PEDIDO FROM [${erpDb}].dbo.COMPRAS WHERE OBS = @P1 ORDER BY EMISSAO DESC`,
+        `SELECT TOP 1 PEDIDO FROM [${safeDb}].dbo.COMPRAS WHERE OBS = @P1 ORDER BY EMISSAO DESC`,
         obs,
       );
       const existing = rows[0]?.PEDIDO?.trim();
@@ -188,7 +195,7 @@ export class LinxErpService {
     const company = await this.prisma.company.findUniqueOrThrow({
       where: { id: po.companyId },
     });
-    const erpDb = company.erpDbName;
+    const erpDb = safeDbName(company.erpDbName);
     const usuario = (user.adUsername ?? user.name ?? '').slice(0, 25);
     await this.prisma.$executeRawUnsafe(
       `UPDATE [${erpDb}].dbo.COMPRAS
@@ -223,7 +230,7 @@ export class LinxErpService {
     const company = await this.prisma.company.findUniqueOrThrow({
       where: { id: po.companyId },
     });
-    const erpDb = company.erpDbName;
+    const erpDb = safeDbName(company.erpDbName);
     const usuario = (user.adUsername ?? user.name ?? '').slice(0, 25);
     await this.prisma.$executeRawUnsafe(
       `UPDATE [${erpDb}].dbo.COMPRAS
@@ -281,7 +288,7 @@ export class LinxErpService {
     if (!req) throw new NotFoundException('Requisição de origem não encontrada.');
 
     const cfg = company.erpConfig;
-    const erpDb = company.erpDbName; // HML_GUESS | GUESS_PRODUCAO | DB_HRG3
+    const erpDb = safeDbName(company.erpDbName); // HML_GUESS | GUESS_PRODUCAO | DB_HRG3
     const tipoCompra = req.tipoCompra ?? cfg.tipoCompraDefault;
     const ctb = req.ctbTipoOperacao ?? cfg.ctbTipoOperacaoDefault;
     const natureza = req.naturezaEntrada ?? cfg.naturezaEntradaDefault;
@@ -306,6 +313,12 @@ export class LinxErpService {
     const requeridoPor = user.adUsername ?? user.name ?? '';
     const total = Number(po.totalAmount);
     const start = Date.now();
+
+    // C7 — compensação por falha parcial: rastreamos `pedidoCriado`
+    // após o INSERT do cabeçalho. Se qualquer INSERT de item falhar,
+    // o bloco catch apaga os itens parciais e o cabeçalho do Linx antes
+    // de relançar — próximo retry começa do zero sem pedido manco.
+    let pedidoCriado: string | null = null;
 
     try {
       // Sem prisma.$transaction: as triggers padrão do Linx em COMPRAS
@@ -342,6 +355,7 @@ export class LinxErpService {
         await tx.$executeRawUnsafe(
           // PEDIDO_UX é IDENTITY no Linx (auto-incremento) — não pode
           // ir explicitamente no INSERT (erro IDENTITY_INSERT off).
+          // Após este ponto: pedidoCriado é marcado, compensação ativa.
           `INSERT INTO [${erpDb}].dbo.COMPRAS
              (PEDIDO, FORNECEDOR, FILIAL_A_ENTREGAR, FILIAL_COBRANCA,
               FILIAL_A_FATURAR, CONDICAO_PGTO, TRANSPORTADORA, MOEDA,
@@ -391,6 +405,7 @@ export class LinxErpService {
           // @P17 — MOEDA padrão da empresa (lida de dbo.MOEDAS).
           moeda,
         );
+        pedidoCriado = pedido; // cabeçalho confirmado — compensação ativa
 
         // 3) Itens.
         for (const it of po.items) {
@@ -433,6 +448,7 @@ export class LinxErpService {
           this.trunc(aprovador, 25, 'USUARIO') ?? '',
         );
 
+        pedidoCriado = null; // tudo confirmado — compensação desativada
         return pedido;
       })();
 
@@ -449,6 +465,32 @@ export class LinxErpService {
       return { pedido };
     } catch (err) {
       const errorMsg = (err as Error).message;
+      const safeErrorMsg = sanitizeErpErrorDetail(err);
+
+      // C7 — compensação: se o cabeçalho entrou mas algo depois falhou
+      // (item parcial), desfazemos no Linx para que o próximo retry parta
+      // do zero sem pedido manco. Itens primeiro (FK), cabeçalho depois.
+      if (pedidoCriado) {
+        try {
+          await this.prisma.$executeRawUnsafe(
+            `DELETE FROM [${erpDb}].dbo.COMPRAS_CONSUMIVEL WHERE PEDIDO = @P1`,
+            pedidoCriado,
+          );
+          await this.prisma.$executeRawUnsafe(
+            `DELETE FROM [${erpDb}].dbo.COMPRAS WHERE PEDIDO = @P1`,
+            pedidoCriado,
+          );
+          this.logger.warn(
+            `C7: compensação aplicada — PEDIDO ${pedidoCriado} removido do Linx após falha parcial em ${po.number}`,
+          );
+        } catch (compErr) {
+          // Falha na compensação: loga com urgência — requer intervenção manual.
+          this.logger.error(
+            `C7: falha na compensação do PEDIDO ${pedidoCriado} (${erpDb}) — pedido parcial pendente de limpeza manual: ${(compErr as Error).message}`,
+          );
+        }
+      }
+
       await this.writeIntegrationLog({
         companyId: po.companyId,
         erpDbName: erpDb,
@@ -456,14 +498,12 @@ export class LinxErpService {
         status: IntegrationLogStatus.FAILED,
         recordsProcessed: 0,
         durationMs: Date.now() - start,
-        errorDetails: errorMsg,
+        errorDetails: safeErrorMsg,
       });
       this.logger.error(
         `Falha ao gravar PC ${po.number} no Linx (${erpDb}): ${errorMsg}`,
       );
-      throw new InternalServerErrorException(
-        `Falha na gravação no ERP: ${errorMsg}`,
-      );
+      throw new InternalServerErrorException(publicErpErrorMessage(err));
     }
   }
 
@@ -487,6 +527,7 @@ export class LinxErpService {
     usuario: string,
     obs?: string,
   ): Promise<void> {
+    const safeDb = safeDbName(erpDbName);
     try {
       let idLog: number | null = null;
       try {
@@ -494,7 +535,7 @@ export class LinxErpService {
           { sequencia: string }[]
         >(
           `DECLARE @seq VARCHAR(20);
-           EXEC [${erpDbName}].dbo.LX_SEQUENCIAL @TABELA_COLUNA = N'COMPRAS_EMAIL_LOG.ID_LOG',
+           EXEC [${safeDb}].dbo.LX_SEQUENCIAL @TABELA_COLUNA = N'COMPRAS_EMAIL_LOG.ID_LOG',
                                                  @SEQUENCIA = @seq OUTPUT;
            SELECT @seq AS sequencia;`,
         );
@@ -510,7 +551,7 @@ export class LinxErpService {
 
       if (idLog != null && !Number.isNaN(idLog)) {
         await this.prisma.$executeRawUnsafe(
-          `INSERT INTO [${erpDbName}].dbo.COMPRAS_EMAIL_LOG
+          `INSERT INTO [${safeDb}].dbo.COMPRAS_EMAIL_LOG
              (ID_LOG, PEDIDO, DESTINATARIO, DATA_HORA, OBS_STATUS, USUARIO)
            VALUES (@P5, @P1, @P2, GETDATE(), @P3, @P4)`,
           this.trunc(pedido, 8, 'PEDIDO') ?? '',
@@ -524,10 +565,10 @@ export class LinxErpService {
         // intervalo entre SELECT e INSERT. Não elimina race, só atenua.
         await this.prisma.$transaction(async (tx) => {
           await tx.$executeRawUnsafe(
-            `INSERT INTO [${erpDbName}].dbo.COMPRAS_EMAIL_LOG
+            `INSERT INTO [${safeDb}].dbo.COMPRAS_EMAIL_LOG
                (ID_LOG, PEDIDO, DESTINATARIO, DATA_HORA, OBS_STATUS, USUARIO)
              VALUES (
-               (SELECT ISNULL(MAX(ID_LOG), 0) + 1 FROM [${erpDbName}].dbo.COMPRAS_EMAIL_LOG WITH (TABLOCKX, HOLDLOCK)),
+               (SELECT ISNULL(MAX(ID_LOG), 0) + 1 FROM [${safeDb}].dbo.COMPRAS_EMAIL_LOG WITH (TABLOCKX, HOLDLOCK)),
                @P1, @P2, GETDATE(), @P3, @P4
              )`,
             this.trunc(pedido, 8, 'PEDIDO') ?? '',
@@ -691,10 +732,8 @@ export class LinxErpService {
     const company = await this.prisma.company.findUniqueOrThrow({
       where: { id: sv.companyId },
     });
-    const erpDb = company.erpDbName;
-    if (!['GUESS_PRODUCAO', 'HML_GUESS', 'DB_HRG3'].includes(erpDb)) {
-      throw new BadRequestException(`Banco ERP inválido: ${erpDb}`);
-    }
+    // erpDb já validado pela allow-list central (safeDbName).
+    const erpDb = safeDbName(company.erpDbName);
 
     if (!sv.erpStagingId) {
       await this.prisma.fundRequest.update({
@@ -835,7 +874,7 @@ export class LinxErpService {
       );
       return { solicitacao };
     } catch (err) {
-      const msg = (err as Error).message;
+      const safeMsg = sanitizeErpErrorDetail(err);
       // Persiste o erro na própria SV — assim a UI consegue mostrar
       // "Falha na integração" com tooltip explicativo em vez de só "—"
       // silencioso na coluna Nº Linx. Best-effort: se o update falhar
@@ -844,7 +883,7 @@ export class LinxErpService {
         await this.prisma.fundRequest.update({
           where: { id: sv.id },
           data: {
-            lastErpError: msg.slice(0, 4000),
+            lastErpError: safeMsg.slice(0, 4000),
             lastErpAttemptAt: new Date(),
           },
         });
@@ -860,7 +899,7 @@ export class LinxErpService {
           jobType: 'SEND_SV',
           status: IntegrationLogStatus.FAILED,
           durationMs: Date.now() - start,
-          errorDetails: `SV ${sv.number}: ${msg.slice(0, 1900)}`,
+          errorDetails: `SV ${sv.number}: ${safeMsg}`,
         },
       });
       throw err;
@@ -907,10 +946,8 @@ export class LinxErpService {
       where: { id: quotation.companyId },
       include: { erpConfig: true },
     });
-    const erpDb = company.erpDbName;
-    if (!['GUESS_PRODUCAO', 'HML_GUESS', 'DB_HRG3'].includes(erpDb)) {
-      throw new BadRequestException(`Banco ERP inválido: ${erpDb}`);
-    }
+    // erpDb já validado pela allow-list central (safeDbName).
+    const erpDb = safeDbName(company.erpDbName);
     const cnpj = (quotation.supplierCnpj ?? '').replace(/\D/g, '');
     if (cnpj.length !== 14 && cnpj.length !== 11) {
       throw new BadRequestException(
@@ -1065,7 +1102,7 @@ export class LinxErpService {
       });
       return { clifor, reused };
     } catch (err) {
-      const msg = (err as Error).message;
+      const safeMsg = sanitizeErpErrorDetail(err);
       await this.prisma.integrationLog.create({
         data: {
           companyId: quotation.companyId,
@@ -1073,7 +1110,7 @@ export class LinxErpService {
           jobType: 'CREATE_SUPPLIER',
           status: IntegrationLogStatus.FAILED,
           durationMs: Date.now() - start,
-          errorDetails: `quotation ${quotationId} cnpj ${cnpj}: ${msg.slice(0, 1900)}`,
+          errorDetails: `quotation ${quotationId}: ${safeMsg}`,
         },
       });
       throw err;
@@ -1087,11 +1124,19 @@ export class LinxErpService {
     erpDb: string,
     obsTag: string,
   ): Promise<string | null> {
+    const safeDb = safeDbName(erpDb);
+    // Escapa quote, %, _, [ (operadores LIKE) e fecha com ESCAPE '\\'
+    // para que o sufixo % continue sendo wildcard mas o obsTag não vire
+    // padrão. Sem isso, marcas com % ou _ no obsTag matchariam coisas
+    // erradas (audit A9 — defesa adicional).
+    const obsEscaped = obsTag
+      .replace(/[\\%_[]/g, (m) => '\\' + m)
+      .replace(/'/g, "''");
     const rows = await this.prisma.$queryRawUnsafe<
       Array<{ SOLICITACAO_VERBA: number }>
     >(
-      `SELECT TOP 1 SOLICITACAO_VERBA FROM [${erpDb}].dbo.CTB_SOLICITACAO_VERBA
-       WHERE VERBA_OBS LIKE N'${obsTag.replace(/'/g, "''")}%'
+      `SELECT TOP 1 SOLICITACAO_VERBA FROM [${safeDb}].dbo.CTB_SOLICITACAO_VERBA
+       WHERE VERBA_OBS LIKE N'${obsEscaped}%' ESCAPE '\\'
        ORDER BY SOLICITACAO_VERBA DESC`,
     );
     return rows[0]?.SOLICITACAO_VERBA

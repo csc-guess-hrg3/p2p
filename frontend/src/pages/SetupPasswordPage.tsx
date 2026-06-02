@@ -43,6 +43,12 @@ export function SetupPasswordPage() {
       .catch(() => null);
   }, []);
 
+  useEffect(() => {
+    if (!done) return undefined;
+    const timer = setTimeout(() => navigate('/login', { replace: true }), 2000);
+    return () => clearTimeout(timer);
+  }, [done, navigate]);
+
   const checks = policy
     ? [
         {
@@ -86,7 +92,6 @@ export function SetupPasswordPage() {
     try {
       await api.post('/auth/setup-password', { token, password });
       setDone(true);
-      setTimeout(() => navigate('/login', { replace: true }), 2000);
     } catch (err) {
       const msg = isAxiosError(err)
         ? (err.response?.data as { message?: string })?.message

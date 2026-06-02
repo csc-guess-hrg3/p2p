@@ -22,6 +22,7 @@ import { Injectable, Logger } from '@nestjs/common';
 @Injectable()
 export class QiveClientService {
   private readonly logger = new Logger(QiveClientService.name);
+  private readonly timeoutMs = 30_000;
 
   private get baseUrl(): string {
     // Sandbox quando QIVE_SANDBOX=true (CI/dev). Default = PROD.
@@ -45,10 +46,17 @@ export class QiveClientService {
     };
   }
 
+  private signal(): AbortSignal {
+    return AbortSignal.timeout(this.timeoutMs);
+  }
+
   /** Lista CNPJs cadastrados na conta Qive autenticada. */
   async listCompanies(): Promise<string[]> {
     const url = `${this.baseUrl}/v1/company`;
-    const res = await fetch(url, { headers: this.headers() });
+    const res = await fetch(url, {
+      headers: this.headers(),
+      signal: this.signal(),
+    });
     if (!res.ok) {
       const body = await res.text();
       throw new Error(
@@ -83,7 +91,10 @@ export class QiveClientService {
     if (opts.cursor != null) params.set('cursor', String(opts.cursor));
     if (opts.cnpj) opts.cnpj.forEach((c) => params.append('cnpj[]', c));
     const url = `${this.baseUrl}/v1/nfe/${role}?${params.toString()}`;
-    const res = await fetch(url, { headers: this.headers() });
+    const res = await fetch(url, {
+      headers: this.headers(),
+      signal: this.signal(),
+    });
     if (!res.ok) {
       const body = await res.text();
       throw new Error(
@@ -162,6 +173,7 @@ export class QiveClientService {
             'x-use-apigateway': 'always',
           },
           body: JSON.stringify(body),
+          signal: this.signal(),
         });
         if (!res.ok) {
           const txt = await res.text();
@@ -220,7 +232,10 @@ export class QiveClientService {
     params.append('access_key[]', k);
     params.set('limit', '1');
     const url = `${this.baseUrl}/v1/nfe/${role}?${params.toString()}`;
-    const res = await fetch(url, { headers: this.headers() });
+    const res = await fetch(url, {
+      headers: this.headers(),
+      signal: this.signal(),
+    });
     if (!res.ok) {
       const body = await res.text();
       throw new Error(
@@ -238,7 +253,10 @@ export class QiveClientService {
    */
   async getDanfeBase64(accessKey: string): Promise<string> {
     const url = `${this.baseUrl}/v1/nfe/danfe?access_key=${accessKey}`;
-    const res = await fetch(url, { headers: this.headers() });
+    const res = await fetch(url, {
+      headers: this.headers(),
+      signal: this.signal(),
+    });
     if (!res.ok) {
       const body = await res.text();
       throw new Error(

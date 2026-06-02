@@ -9,6 +9,7 @@ import {
 import {
   api,
   clearToken,
+  getAuthMode,
   getToken,
   setToken,
   SESSION_EXPIRED_EVENT,
@@ -17,6 +18,17 @@ import { queryClient } from './queryClient';
 import type { AuthUser } from './types';
 
 const REFRESH_KEY = 'p2p_refresh';
+
+/**
+ * Persiste o refresh token só quando estamos no modo `bearer` (legado).
+ * No modo `cookie` (default em PROD/HML) o refresh é httpOnly, então
+ * gravar no localStorage só expõe o token a XSS sem benefício nenhum —
+ * o /auth/refresh do backend lê do cookie sozinho.
+ */
+function persistRefreshToken(refreshToken: string | undefined) {
+  if (getAuthMode() === 'cookie') return;
+  if (refreshToken) localStorage.setItem(REFRESH_KEY, refreshToken);
+}
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -97,7 +109,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           : undefined,
       );
       setToken(data.accessToken);
-      localStorage.setItem(REFRESH_KEY, data.refreshToken);
+      persistRefreshToken(data.refreshToken);
       const me = await api.get<AuthUser>('/auth/me');
       setUser(me.data);
       setSessionExpired(false);
@@ -125,7 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           : undefined,
       );
       setToken(data.accessToken);
-      localStorage.setItem(REFRESH_KEY, data.refreshToken);
+      persistRefreshToken(data.refreshToken);
       const me = await api.get<AuthUser>('/auth/me');
       setUser(me.data);
       setSessionExpired(false);
@@ -162,7 +174,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           : undefined,
       );
       setToken(data.accessToken);
-      localStorage.setItem(REFRESH_KEY, data.refreshToken);
+      persistRefreshToken(data.refreshToken);
       const me = await api.get<AuthUser>('/auth/me');
       setUser(me.data);
       setSessionExpired(false);

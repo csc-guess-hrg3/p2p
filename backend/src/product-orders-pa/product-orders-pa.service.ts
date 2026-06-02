@@ -8,6 +8,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../auth/auth.types';
+import { safeDbName } from '../common/erp/safe-db-name';
 
 /**
  * Pedidos de Compra de PRODUTO ACABADO (PA).
@@ -46,7 +47,9 @@ export class ProductOrdersPaService {
     void companyCode;
   }
 
-  /** Resolve o nome do banco do ERP a partir do code da empresa. */
+  /** Resolve o nome do banco do ERP a partir do code da empresa.
+   *  Passa por safeDbName — toda chamada que interpolar o retorno em
+   *  SQL fica protegida (audit C6). */
   private async resolveErpDb(companyCode: string): Promise<string> {
     const company = await this.prisma.company.findFirst({
       where: { code: companyCode, deletedAt: null },
@@ -55,7 +58,7 @@ export class ProductOrdersPaService {
     if (!company) {
       throw new BadRequestException(`Empresa "${companyCode}" não cadastrada.`);
     }
-    return company.erpDbName;
+    return safeDbName(company.erpDbName);
   }
 
   /** Resolve a CompanyErpConfig de uma empresa por code. */
@@ -92,7 +95,7 @@ export class ProductOrdersPaService {
         'Apenas o diretor da marca configurado pode aprovar pedidos PA.',
       );
     }
-    const erpDb = comp.erpDbName;
+    const erpDb = safeDbName(comp.erpDbName);
     const numero = pedido.trim();
 
     const headerRows = await this.prisma.$queryRawUnsafe<
@@ -169,7 +172,7 @@ export class ProductOrdersPaService {
         'Apenas o diretor da marca configurado pode reprovar pedidos PA.',
       );
     }
-    const erpDb = comp.erpDbName;
+    const erpDb = safeDbName(comp.erpDbName);
     const numero = pedido.trim();
 
     const headerRows = await this.prisma.$queryRawUnsafe<
@@ -271,7 +274,7 @@ export class ProductOrdersPaService {
     if (!comp) {
       throw new BadRequestException(`Empresa "${c}" não cadastrada.`);
     }
-    const erpDb = comp.erpDbName;
+    const erpDb = safeDbName(comp.erpDbName);
 
     // Header só pra garantir que o pedido existe — REQUERIDO_POR não é
     // mais usado pra permissão (campo vem vazio no Linx pra PA).

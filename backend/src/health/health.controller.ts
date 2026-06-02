@@ -6,6 +6,7 @@ import {
 } from '@nestjs/terminus';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PrismaHealthIndicator } from './prisma.health';
+import { Public } from '../auth/decorators/public.decorator';
 
 /**
  * Health checks da plataforma — exposto sem autenticação.
@@ -17,6 +18,7 @@ import { PrismaHealthIndicator } from './prisma.health';
  */
 @ApiTags('Health')
 @Controller('health')
+@Public()
 export class HealthController {
   constructor(
     private readonly health: HealthCheckService,

@@ -1,3 +1,4 @@
+import { lazy, Suspense, type ComponentType } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from '@/lib/auth';
 import { CompanyProvider } from '@/lib/company';
@@ -5,42 +6,138 @@ import { RequireAuth } from '@/components/auth/RequireAuth';
 import { RequireProfile } from '@/components/auth/RequireProfile';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { LoginPage } from '@/pages/LoginPage';
-import { RequisitionsListPage } from '@/pages/requisitions/RequisitionsListPage';
-import { RequisitionFormPage } from '@/pages/requisitions/RequisitionFormPage';
-import { RequisitionDetailPage } from '@/pages/requisitions/RequisitionDetailPage';
-import { FiscalQueuePage } from '@/pages/fiscal/FiscalQueuePage';
-import { FiscalDocumentsListPage } from '@/pages/fiscal-documents/FiscalDocumentsListPage';
-import { FiscalDocumentDetailPage } from '@/pages/fiscal-documents/FiscalDocumentDetailPage';
-import { LegacyOrdersListPage } from '@/pages/legacy-orders/LegacyOrdersListPage';
-import { LegacyOrderDetailPage } from '@/pages/legacy-orders/LegacyOrderDetailPage';
-import { ContasPagarPage } from '@/pages/financeiro/ContasPagarPage';
-import { IadsPage } from '@/pages/financeiro/IadsPage';
-import { ProvisoesPage } from '@/pages/financeiro/ProvisoesPage';
-import { DdasPage } from '@/pages/financeiro/DdasPage';
-import { ApprovalsPage } from '@/pages/approvals/ApprovalsPage';
-import { PurchaseOrdersListPage } from '@/pages/purchase-orders/PurchaseOrdersListPage';
-import { PurchaseOrderDetailPage } from '@/pages/purchase-orders/PurchaseOrderDetailPage';
-import { FundRequestsListPage } from '@/pages/fund-requests/FundRequestsListPage';
-import { FundRequestDetailPage } from '@/pages/fund-requests/FundRequestDetailPage';
-import { ReceivingsListPage } from '@/pages/receiving/ReceivingsListPage';
-import { ReceivingDetailPage } from '@/pages/receiving/ReceivingDetailPage';
-import { PaOrdersListPage } from '@/pages/product-orders-pa/PaOrdersListPage';
-import { PaOrderDetailPage } from '@/pages/product-orders-pa/PaOrderDetailPage';
-import { DashboardPage } from '@/pages/DashboardPage';
-import { ReportsPage } from '@/pages/ReportsPage';
-import { AdminPage } from '@/pages/admin/AdminPage';
-import { ErpConfigPage } from '@/pages/admin/ErpConfigPage';
-import { SettingsPage } from '@/pages/admin/SettingsPage';
-import { UsersPage } from '@/pages/admin/UsersPage';
-import { TeamsPage } from '@/pages/admin/TeamsPage';
-import { DelegationsPage } from '@/pages/admin/DelegationsPage';
-import { AdSyncPage } from '@/pages/admin/AdSyncPage';
-import { PositionsPage } from '@/pages/admin/PositionsPage';
-import { BranchesPage } from '@/pages/admin/BranchesPage';
-import { BranchDetailPage } from '@/pages/admin/BranchDetailPage';
-import { SetupPasswordPage } from '@/pages/SetupPasswordPage';
 import { Toaster } from '@/components/ui/toaster';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+
+function lazyPage<T extends ComponentType>(
+  loader: () => Promise<Record<string, T>>,
+  exportName: string,
+) {
+  return lazy(async () => ({
+    default: (await loader())[exportName] as T,
+  }));
+}
+
+const SetupPasswordPage = lazyPage(
+  () => import('@/pages/SetupPasswordPage'),
+  'SetupPasswordPage',
+);
+const DashboardPage = lazyPage(() => import('@/pages/DashboardPage'), 'DashboardPage');
+const RequisitionsListPage = lazyPage(
+  () => import('@/pages/requisitions/RequisitionsListPage'),
+  'RequisitionsListPage',
+);
+const RequisitionFormPage = lazyPage(
+  () => import('@/pages/requisitions/RequisitionFormPage'),
+  'RequisitionFormPage',
+);
+const RequisitionDetailPage = lazyPage(
+  () => import('@/pages/requisitions/RequisitionDetailPage'),
+  'RequisitionDetailPage',
+);
+const ApprovalsPage = lazyPage(
+  () => import('@/pages/approvals/ApprovalsPage'),
+  'ApprovalsPage',
+);
+const PaOrdersListPage = lazyPage(
+  () => import('@/pages/product-orders-pa/PaOrdersListPage'),
+  'PaOrdersListPage',
+);
+const PaOrderDetailPage = lazyPage(
+  () => import('@/pages/product-orders-pa/PaOrderDetailPage'),
+  'PaOrderDetailPage',
+);
+const PurchaseOrdersListPage = lazyPage(
+  () => import('@/pages/purchase-orders/PurchaseOrdersListPage'),
+  'PurchaseOrdersListPage',
+);
+const PurchaseOrderDetailPage = lazyPage(
+  () => import('@/pages/purchase-orders/PurchaseOrderDetailPage'),
+  'PurchaseOrderDetailPage',
+);
+const FundRequestsListPage = lazyPage(
+  () => import('@/pages/fund-requests/FundRequestsListPage'),
+  'FundRequestsListPage',
+);
+const FundRequestDetailPage = lazyPage(
+  () => import('@/pages/fund-requests/FundRequestDetailPage'),
+  'FundRequestDetailPage',
+);
+const ReceivingsListPage = lazyPage(
+  () => import('@/pages/receiving/ReceivingsListPage'),
+  'ReceivingsListPage',
+);
+const ReceivingDetailPage = lazyPage(
+  () => import('@/pages/receiving/ReceivingDetailPage'),
+  'ReceivingDetailPage',
+);
+const FiscalQueuePage = lazyPage(
+  () => import('@/pages/fiscal/FiscalQueuePage'),
+  'FiscalQueuePage',
+);
+const FiscalDocumentsListPage = lazyPage(
+  () => import('@/pages/fiscal-documents/FiscalDocumentsListPage'),
+  'FiscalDocumentsListPage',
+);
+const FiscalDocumentDetailPage = lazyPage(
+  () => import('@/pages/fiscal-documents/FiscalDocumentDetailPage'),
+  'FiscalDocumentDetailPage',
+);
+const ContasPagarPage = lazyPage(
+  () => import('@/pages/financeiro/ContasPagarPage'),
+  'ContasPagarPage',
+);
+const IadsPage = lazyPage(() => import('@/pages/financeiro/IadsPage'), 'IadsPage');
+const ProvisoesPage = lazyPage(
+  () => import('@/pages/financeiro/ProvisoesPage'),
+  'ProvisoesPage',
+);
+const DdasPage = lazyPage(() => import('@/pages/financeiro/DdasPage'), 'DdasPage');
+const ReportsPage = lazyPage(() => import('@/pages/ReportsPage'), 'ReportsPage');
+const LegacyOrdersListPage = lazyPage(
+  () => import('@/pages/legacy-orders/LegacyOrdersListPage'),
+  'LegacyOrdersListPage',
+);
+const LegacyOrderDetailPage = lazyPage(
+  () => import('@/pages/legacy-orders/LegacyOrderDetailPage'),
+  'LegacyOrderDetailPage',
+);
+const AdminPage = lazyPage(() => import('@/pages/admin/AdminPage'), 'AdminPage');
+const ErpConfigPage = lazyPage(
+  () => import('@/pages/admin/ErpConfigPage'),
+  'ErpConfigPage',
+);
+const SettingsPage = lazyPage(
+  () => import('@/pages/admin/SettingsPage'),
+  'SettingsPage',
+);
+const UsersPage = lazyPage(() => import('@/pages/admin/UsersPage'), 'UsersPage');
+const TeamsPage = lazyPage(() => import('@/pages/admin/TeamsPage'), 'TeamsPage');
+const DelegationsPage = lazyPage(
+  () => import('@/pages/admin/DelegationsPage'),
+  'DelegationsPage',
+);
+const AdSyncPage = lazyPage(() => import('@/pages/admin/AdSyncPage'), 'AdSyncPage');
+const PositionsPage = lazyPage(
+  () => import('@/pages/admin/PositionsPage'),
+  'PositionsPage',
+);
+const BranchesPage = lazyPage(
+  () => import('@/pages/admin/BranchesPage'),
+  'BranchesPage',
+);
+const BranchDetailPage = lazyPage(
+  () => import('@/pages/admin/BranchDetailPage'),
+  'BranchDetailPage',
+);
+
+function RouteFallback() {
+  return (
+    <div className="flex min-h-40 items-center justify-center text-sm text-muted-foreground">
+      Carregando...
+    </div>
+  );
+}
 
 function App() {
   return (
@@ -48,11 +145,12 @@ function App() {
       <BrowserRouter>
         <AuthProvider>
           <CompanyProvider>
-            <Routes>
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/definir-senha" element={<SetupPasswordPage />} />
-              <Route element={<RequireAuth />}>
-                <Route element={<AppLayout />}>
+            <Suspense fallback={<RouteFallback />}>
+              <Routes>
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/definir-senha" element={<SetupPasswordPage />} />
+                <Route element={<RequireAuth />}>
+                  <Route element={<AppLayout />}>
                   <Route index element={<DashboardPage />} />
                   <Route path="requisicoes" element={<RequisitionsListPage />} />
                   <Route
@@ -222,10 +320,11 @@ function App() {
                       element={<BranchDetailPage />}
                     />
                   </Route>
+                  </Route>
                 </Route>
-              </Route>
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </Suspense>
             <Toaster />
           </CompanyProvider>
         </AuthProvider>

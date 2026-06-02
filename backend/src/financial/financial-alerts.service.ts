@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../common/enums';
+import { isErpDbAllowed, safeDbName } from '../common/erp/safe-db-name';
 
 /**
  * Alertas automáticos do módulo Financeiro (RN-FIN-01..03 do PRD).
@@ -33,8 +34,9 @@ export class FinancialAlertsService {
     private readonly notifications: NotificationsService,
   ) {}
 
-  private safeDbName(erpDbName: string): boolean {
-    return ['GUESS_PRODUCAO', 'HML_GUESS', 'DB_HRG3'].includes(erpDbName);
+  // Renomeado pra evitar shadow do safeDbName centralizado.
+  private isAllowedDb(erpDbName: string): boolean {
+    return isErpDbAllowed(erpDbName);
   }
 
   /** Tick principal — todo dia às 07:00. */
@@ -62,7 +64,7 @@ export class FinancialAlertsService {
     let processed = 0;
 
     for (const company of companies) {
-      if (!this.safeDbName(company.erpDbName)) continue;
+      if (!this.isAllowedDb(company.erpDbName)) continue;
       processed++;
       try {
         const summary = await this.collectSummary(company.erpDbName);
@@ -97,7 +99,7 @@ export class FinancialAlertsService {
     ddaD1Count: number;
     ddaD1Total: number;
   }> {
-    const db = erpDbName;
+    const db = safeDbName(erpDbName);
     const today = new Date();
     const d90 = new Date(today);
     d90.setDate(d90.getDate() - 90);

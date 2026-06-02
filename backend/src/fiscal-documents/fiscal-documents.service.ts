@@ -11,6 +11,7 @@ import { QiveClientService } from '../integration/qive-client.service';
 import { parseNfeBase64, ParsedNfe, ParsedNfeItem } from '../integration/nfe-parser';
 import { IntegrationLogStatus } from '../common/enums';
 import type { AuthenticatedUser } from '../auth/auth.types';
+import { safeDbName } from '../common/erp/safe-db-name';
 
 /**
  * Match de CNPJ raiz contra uma company.
@@ -226,12 +227,21 @@ export class FiscalDocumentsService {
     });
     const map = new Map<string, string>();
     for (const c of companies) {
+      let db: string;
+      try {
+        db = safeDbName(c.erpDbName);
+      } catch {
+        this.logger.warn(
+          `getCnpjToCompanyMap: erpDbName de ${c.code} fora da allow-list, pulando`,
+        );
+        continue;
+      }
       try {
         const rows = await this.prisma.$queryRawUnsafe<
           Array<{ cnpj: string }>
         >(`
           SELECT REPLACE(REPLACE(REPLACE(ISNULL(CGC_CPF,''),'.',''),'/',''),'-','') AS cnpj
-            FROM [${c.erpDbName}].dbo.FILIAIS WITH (NOLOCK)
+            FROM [${db}].dbo.FILIAIS WITH (NOLOCK)
            WHERE LEN(REPLACE(REPLACE(REPLACE(ISNULL(CGC_CPF,''),'.',''),'/',''),'-','')) = 14
         `);
         rows.forEach((r) => {
@@ -384,10 +394,11 @@ export class FiscalDocumentsService {
     // Carrega CNPJs (14 chars) da empresa pra filtrar a chamada Qive.
     // Fallback se FILIAIS não acessível: usa raiz da Company.cnpjRaizes.
     let cnpjFilter: string[] = [];
+    const anchorDb = safeDbName(anchorCompany.erpDbName);
     try {
       const rows = await this.prisma.$queryRawUnsafe<Array<{ cnpj: string }>>(`
         SELECT REPLACE(REPLACE(REPLACE(ISNULL(CGC_CPF,''),'.',''),'/',''),'-','') AS cnpj
-          FROM [${anchorCompany.erpDbName}].dbo.FILIAIS WITH (NOLOCK)
+          FROM [${anchorDb}].dbo.FILIAIS WITH (NOLOCK)
          WHERE LEN(REPLACE(REPLACE(REPLACE(ISNULL(CGC_CPF,''),'.',''),'/',''),'-','')) = 14
       `);
       cnpjFilter = rows.map((r) => r.cnpj);
@@ -841,6 +852,7 @@ export class FiscalDocumentsService {
       select: { id: true, code: true, erpDbName: true, name: true },
     });
     if (!company) return [];
+    const db = safeDbName(company.erpDbName);
     const chave = doc.accessKey;
 
     const chaveClean = chave.replace(/\D/g, '').slice(0, 44);
@@ -868,12 +880,12 @@ export class FiscalDocumentsService {
         RTRIM(c.FILIAL_A_ENTREGAR) AS filialAEntregar,
         RTRIM(c.STATUS_COMPRA) AS statusCompra,
         RTRIM(c.TABELA_FILHA) AS tabelaFilha
-      FROM [${company.erpDbName}].dbo.ENTRADAS e WITH (NOLOCK)
-      JOIN [${company.erpDbName}].dbo.ENTRADAS_ITEM ei WITH (NOLOCK)
+      FROM [${db}].dbo.ENTRADAS e WITH (NOLOCK)
+      JOIN [${db}].dbo.ENTRADAS_ITEM ei WITH (NOLOCK)
         ON RTRIM(ei.NF_ENTRADA) = RTRIM(e.NF_ENTRADA)
        AND RTRIM(ei.NOME_CLIFOR) = RTRIM(e.NOME_CLIFOR)
        AND RTRIM(ISNULL(ei.SERIE_NF_ENTRADA,'')) = RTRIM(ISNULL(e.SERIE_NF_ENTRADA,''))
-      JOIN [${company.erpDbName}].dbo.COMPRAS c WITH (NOLOCK)
+      JOIN [${db}].dbo.COMPRAS c WITH (NOLOCK)
         ON RTRIM(c.PEDIDO) = RTRIM(ei.REFERENCIA_PEDIDO)
       WHERE RTRIM(e.CHAVE_NFE) = '${chaveClean}'
         AND RTRIM(c.TABELA_FILHA) = 'COMPRAS_CONSUMIVEL'
@@ -893,12 +905,12 @@ export class FiscalDocumentsService {
         RTRIM(c.FILIAL_A_ENTREGAR) AS filialAEntregar,
         RTRIM(c.STATUS_COMPRA) AS statusCompra,
         RTRIM(c.TABELA_FILHA) AS tabelaFilha
-      FROM [${company.erpDbName}].dbo.ENTRADAS e WITH (NOLOCK)
-      JOIN [${company.erpDbName}].dbo.ENTRADAS_PRODUTO ep WITH (NOLOCK)
+      FROM [${db}].dbo.ENTRADAS e WITH (NOLOCK)
+      JOIN [${db}].dbo.ENTRADAS_PRODUTO ep WITH (NOLOCK)
         ON RTRIM(ep.NF_ENTRADA) = RTRIM(e.NF_ENTRADA)
        AND RTRIM(ep.NOME_CLIFOR) = RTRIM(e.NOME_CLIFOR)
        AND RTRIM(ISNULL(ep.SERIE_NF_ENTRADA,'')) = RTRIM(ISNULL(e.SERIE_NF_ENTRADA,''))
-      JOIN [${company.erpDbName}].dbo.COMPRAS c WITH (NOLOCK)
+      JOIN [${db}].dbo.COMPRAS c WITH (NOLOCK)
         ON RTRIM(c.PEDIDO) = RTRIM(ep.PEDIDO)
       WHERE RTRIM(e.CHAVE_NFE) = '${chaveClean}'
         AND RTRIM(c.TABELA_FILHA) = 'COMPRAS_PRODUTO'

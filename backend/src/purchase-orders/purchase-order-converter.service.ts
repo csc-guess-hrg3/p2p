@@ -18,6 +18,10 @@ import {
 } from '../common/enums';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { ConvertToPurchaseOrderDto } from './dto/convert-to-po.dto';
+import {
+  publicErpErrorMessage,
+  sanitizeErpErrorDetail,
+} from '../common/erp/erp-error-sanitizer';
 
 /** Linha de rateio congelada na requisição que será reaproveitada no PC. */
 interface RateioSnapshotLine {
@@ -224,11 +228,11 @@ export class PurchaseOrderConverterService {
     if (raw.includes('transaction ended in the trigger')) {
       throw new BadRequestException(
         'O Linx rejeitou o pedido (trigger interna abortou). ' +
-          'Mensagem original: ' +
-          raw,
+          'Detalhe seguro: ' +
+          sanitizeErpErrorDetail(raw),
       );
     }
-    throw err instanceof Error ? err : new Error(raw);
+    throw new BadRequestException(publicErpErrorMessage(err));
   }
 
   /**

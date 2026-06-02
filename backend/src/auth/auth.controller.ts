@@ -20,6 +20,7 @@ import { LoginDto, RefreshDto } from './dto/login.dto';
 import { LdapAuthGuard } from './guards/ldap-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
+import { Public } from './decorators/public.decorator';
 import type { AuthenticatedUser } from './auth.types';
 
 class LocalLoginDto {
@@ -166,6 +167,7 @@ export class AuthController {
    * no LDAP corporativo.
    */
   @Post('login')
+  @Public()
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @UseGuards(LdapAuthGuard)
   @ApiOperation({ summary: 'Login via Active Directory (LDAP)' })
@@ -186,6 +188,7 @@ export class AuthController {
    * `identifier` aceita e-mail corporativo ou CPF (só dígitos).
    */
   @Post('login-local')
+  @Public()
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({
     summary: 'Login com username + senha (supervisores/usuários locais)',
@@ -217,6 +220,7 @@ export class AuthController {
 
   /** Endpoint público: define/redefine senha a partir do token do e-mail. */
   @Post('setup-password')
+  @Public()
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: 'Define a senha a partir do token de e-mail' })
   async setupPassword(@Body() dto: SetupPasswordDto) {
@@ -229,6 +233,7 @@ export class AuthController {
    * `needsSetup=true` quando ainda não há senha definida. Não loga.
    */
   @Post('store-lookup')
+  @Public()
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @ApiOperation({ summary: 'Pré-flight do login de loja (valida CPF)' })
   async storeLookup(@Body() dto: StoreLookupDto, @Req() req: Request) {
@@ -243,6 +248,7 @@ export class AuthController {
 
   /** Primeiro acesso do vendedor — cria/ativa o User com a senha. */
   @Post('store-setup-password')
+  @Public()
   @Throttle({ default: { limit: 3, ttl: 60_000 } })
   @ApiOperation({ summary: 'Define a senha no primeiro acesso do vendedor' })
   async storeSetupPassword(
@@ -271,6 +277,7 @@ export class AuthController {
 
   /** Login do vendedor com CPF + senha. */
   @Post('store-login')
+  @Public()
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: 'Login do vendedor de loja (CPF + senha)' })
   async storeLogin(
@@ -299,12 +306,14 @@ export class AuthController {
 
   /** Regras de complexidade (front mostra na tela de definição). */
   @Get('password-policy')
+  @Public()
   @ApiOperation({ summary: 'Regras de complexidade da senha' })
   passwordPolicy() {
     return PASSWORD_POLICY;
   }
 
   @Post('refresh')
+  @Public()
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @ApiOperation({ summary: 'Renova o token de acesso' })
   async refresh(
@@ -327,6 +336,7 @@ export class AuthController {
 
   /** Logout — apaga os cookies de sessão (revogação de refresh = roadmap). */
   @Post('logout')
+  @Public()
   @ApiOperation({ summary: 'Logout — limpa cookies de sessão' })
   logout(@Res({ passthrough: true }) res: Response) {
     res.clearCookie('p2p_token', { path: '/' });

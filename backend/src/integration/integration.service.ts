@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { safeDbName } from '../common/erp/safe-db-name';
 import {
   CompanyCode,
   ErpAccount,
@@ -473,11 +474,20 @@ export class IntegrationService {
   // O nome do banco vem de Company.erpDbName (valor controlado).
   // ----------------------------------------------------------------
 
+  /**
+   * Allow-list local — só PROD bancos (GUESS_PRODUCAO e DB_HRG3). Não
+   * inclui HML porque essas operações de escrita no Linx só fazem sentido
+   * em PROD. Defesa em dupla camada: safeDbName valida a allow-list ampla
+   * (incluindo HML) primeiro; depois o assert local restringe pra PROD.
+   */
   private assertDbName(erpDbName: string): string {
-    if (erpDbName !== 'GUESS_PRODUCAO' && erpDbName !== 'DB_HRG3') {
-      throw new BadRequestException(`Banco ERP inválido: ${erpDbName}`);
+    const safe = safeDbName(erpDbName);
+    if (safe !== 'GUESS_PRODUCAO' && safe !== 'DB_HRG3') {
+      throw new BadRequestException(
+        `Banco ERP inválido pra escrita: ${safe} (só PROD aceito)`,
+      );
     }
-    return erpDbName;
+    return safe;
   }
 
   /**

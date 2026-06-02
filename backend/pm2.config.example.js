@@ -50,10 +50,14 @@ module.exports = {
         // ─── Qive ───
         QIVE_API_ID: '<<>>',
         QIVE_API_KEY: '<<>>',
+        QIVE_SANDBOX: 'false',
         // ─── Frontend / CORS ───
         FRONTEND_URLS: 'https://p2p.hrg3.com.br',
         AUTH_MODE: 'cookie',
         COOKIE_SAMESITE: 'lax',
+        SWAGGER_ENABLED: 'false',
+        // ─── Sentry (error tracking) ─── deixe vazio pra desativar
+        SENTRY_DSN: '',
         // ─── Turnstile (Cloudflare) ───
         TURNSTILE_SECRET_KEY: '<<>>',
       },
@@ -89,9 +93,11 @@ module.exports = {
         LDAP_BIND_PASSWORD: '<<>>',
         QIVE_API_ID: '<<>>',
         QIVE_API_KEY: '<<>>',
+        QIVE_SANDBOX: 'true',
         FRONTEND_URLS: 'https://hml.p2p.hrg3.com.br',
         AUTH_MODE: 'cookie',
         COOKIE_SAMESITE: 'lax',
+        SWAGGER_ENABLED: 'false',
         TURNSTILE_SECRET_KEY: '<<>>',
       },
     },

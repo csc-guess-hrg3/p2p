@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
+import { safeDbName } from '../common/erp/safe-db-name';
+import { sanitizeErpErrorDetail } from '../common/erp/erp-error-sanitizer';
 import {
   IntegrationLogStatus,
   PurchaseOrderStatus,
@@ -91,7 +93,10 @@ export class ErpBackSyncService {
       aprovado_por: string | null;
     } | null;
   }> {
-    const pedido = erpPedido.trim();
+    const db = safeDbName(erpDbName);
+    // Sanitiza o pedido: só dígitos/letras (PEDIDO Linx é alfanumérico
+    // curto, ex.: '60246'). Defense-in-depth contra interpolação direta.
+    const pedido = erpPedido.replace(/[^0-9A-Za-z]/g, '').slice(0, 20);
     const items = await this.prisma.$queryRawUnsafe<
       Array<{
         codigo: string | null;
@@ -113,7 +118,7 @@ export class ErpBackSyncService {
               SUM(VALOR_ORIGINAL) AS valor_original,
               SUM(VALOR_ENTREGUE) AS valor_entregue,
               SUM(VALOR_ENTREGAR) AS valor_entregar
-         FROM [${erpDbName}].dbo.COMPRAS_CONSUMIVEL WITH (NOLOCK)
+         FROM [${db}].dbo.COMPRAS_CONSUMIVEL WITH (NOLOCK)
         WHERE PEDIDO = '${pedido}'
         GROUP BY CODIGO_ITEM, CONSUMIVEL`,
     );
@@ -132,7 +137,7 @@ export class ErpBackSyncService {
               LX_STATUS_COMPRA AS lx_status_compra,
               DATA_APROVACAO AS data_aprovacao,
               RTRIM(APROVADOR_POR) AS aprovado_por
-         FROM [${erpDbName}].dbo.COMPRAS WITH (NOLOCK)
+         FROM [${db}].dbo.COMPRAS WITH (NOLOCK)
         WHERE PEDIDO = '${pedido}'`,
     );
     return {
@@ -221,7 +226,7 @@ export class ErpBackSyncService {
             status: IntegrationLogStatus.FAILED,
             recordsProcessed: 0,
             durationMs: Date.now() - started,
-            errorDetails: (err as Error).message.slice(0, 1900),
+            errorDetails: sanitizeErpErrorDetail(err),
           },
         });
       }
@@ -253,8 +258,10 @@ export class ErpBackSyncService {
     erpDbName: string,
   ): Promise<boolean> {
     if (!po.erpPedido) return false;
+    const db = safeDbName(erpDbName);
     // Linx armazena PEDIDO como char(8) com padding. Compara como string.
-    const pedido = po.erpPedido.trim();
+    // Sanitiza pedido pra defense-in-depth (interpolação direta).
+    const pedido = po.erpPedido.replace(/[^0-9A-Za-z]/g, '').slice(0, 20);
 
     // Soma do Linx por itemErpCode (cobre caso de múltiplas linhas pro
     // mesmo item, raríssimo mas possível no Linx). NOLOCK pra não
@@ -272,7 +279,7 @@ export class ErpBackSyncService {
               SUM(QTDE_ORIGINAL) AS qtde_original,
               SUM(QTDE_ENTREGUE) AS qtde_entregue,
               SUM(QTDE_CANCEL_PEDIDO) AS qtde_cancel_pedido
-         FROM [${erpDbName}].dbo.COMPRAS_CONSUMIVEL WITH (NOLOCK)
+         FROM [${db}].dbo.COMPRAS_CONSUMIVEL WITH (NOLOCK)
         WHERE PEDIDO = '${pedido}'
         GROUP BY CODIGO_ITEM, CONSUMIVEL`,
     );

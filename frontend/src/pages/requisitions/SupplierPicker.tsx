@@ -7,7 +7,6 @@ import {
   type PublicCnpjData,
 } from '@/lib/quotations';
 import type { ErpSupplier } from '@/lib/integration';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { SupplierCombobox } from './SupplierCombobox';

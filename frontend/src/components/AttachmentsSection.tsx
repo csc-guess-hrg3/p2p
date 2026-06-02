@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { Download, Eye, Paperclip, Trash2, Upload } from 'lucide-react';
 import { AttachmentPreviewDialog } from './AttachmentPreviewDialog';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
   downloadAttachment,
   useAttachments,
@@ -110,6 +111,7 @@ export function AttachmentsSection({
     defaultDocKind ?? null,
   );
   const [previewing, setPreviewing] = useState<Attachment | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Attachment | null>(null);
 
   function handlePick() {
     inputRef.current?.click();
@@ -242,7 +244,6 @@ export function AttachmentsSection({
   }
 
   async function handleDelete(att: Attachment) {
-    if (!confirm(`Excluir o anexo "${att.filename}"?`)) return;
     try {
       await deleteMut.mutateAsync(att.id);
     } catch (err) {
@@ -378,7 +379,7 @@ export function AttachmentsSection({
                     type="button"
                     size="sm"
                     variant="ghost"
-                    onClick={() => handleDelete(a)}
+                    onClick={() => setDeleteTarget(a)}
                     title="Excluir"
                     disabled={deleteMut.isPending}
                   >
@@ -394,6 +395,23 @@ export function AttachmentsSection({
       <AttachmentPreviewDialog
         attachment={previewing}
         onClose={() => setPreviewing(null)}
+      />
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title="Excluir anexo"
+        description={
+          deleteTarget
+            ? `Excluir o anexo "${deleteTarget.filename}"? Esta aÃ§Ã£o nÃ£o pode ser desfeita.`
+            : undefined
+        }
+        confirmLabel="Excluir"
+        variant="destructive"
+        onConfirm={async () => {
+          if (!deleteTarget) return;
+          await handleDelete(deleteTarget);
+          setDeleteTarget(null);
+        }}
       />
     </div>
   );

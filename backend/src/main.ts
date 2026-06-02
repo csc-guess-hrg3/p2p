@@ -3,10 +3,33 @@ import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
+import * as Sentry from '@sentry/nestjs';
 import { AppModule } from './app.module';
 import { ApiExceptionFilter } from './common/filters/api-exception.filter';
 
+/**
+ * A3 — Error tracking via Sentry.
+ * Ativo apenas quando `SENTRY_DSN` estiver configurado (no-op em dev/HML sem DSN).
+ * Para ativar: crie um projeto em https://sentry.io, copie o DSN e adicione
+ * ao pm2.config.js (app PROD):  SENTRY_DSN=https://xxx@yyy.ingest.sentry.io/zzz
+ */
+function initSentry() {
+  const dsn = process.env.SENTRY_DSN;
+  if (!dsn) return;
+  Sentry.init({
+    dsn,
+    environment: process.env.NODE_ENV ?? 'development',
+    // Amostragem de traces: 10% em PROD para não explodir a cota.
+    // Sobe para 1.0 em HML/dev quando quiser inspecionar tudo.
+    tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
+    // Não loga dados de usuário além do ID (LGPD).
+    sendDefaultPii: false,
+  });
+}
+
 async function bootstrap() {
+  initSentry();
+
   const app = await NestFactory.create(AppModule);
 
   app.setGlobalPrefix('api');
@@ -48,6 +71,18 @@ async function bootstrap() {
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);
+
+  // A6 — validação de origens no boot: falha ruidosa se alguma origin
+  // não começa com http:// ou https://, o que geraria CORS silencioso em
+  // PROD (wildcard acidental, path esquecido, etc.).
+  const invalidOrigins = allowedOrigins.filter(
+    (o) => !o.startsWith('http://') && !o.startsWith('https://'),
+  );
+  if (invalidOrigins.length > 0) {
+    throw new Error(
+      `CORS: origens inválidas em FRONTEND_URLS (devem começar com http:// ou https://): ${invalidOrigins.join(', ')}`,
+    );
+  }
 
   app.enableCors({
     origin: allowedOrigins,

@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { QiveClientService } from '../integration/qive-client.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
+import { safeDbName } from '../common/erp/safe-db-name';
 
 /**
  * Tradução dos códigos Linx para descrição humana.
@@ -195,7 +196,7 @@ export class LegacyOrdersService {
         );
     }
 
-    const db = company.erpDbName;
+    const db = safeDbName(company.erpDbName);
 
     // EXISTS extra pra filtros de NF — aplicado tanto no count quanto no list.
     const nfeFilter: 'any' | 'with-nf' | 'with-chave' =
@@ -336,7 +337,7 @@ export class LegacyOrdersService {
   async listFacets(user: AuthenticatedUser, companyId: string) {
     this.requireAdmin(user);
     const company = await this.resolveCompany(companyId);
-    const db = company.erpDbName;
+    const db = safeDbName(company.erpDbName);
 
     const [filiais, tiposCompra, aprovadores] = await Promise.all([
       this.prisma.$queryRawUnsafe<Array<{ code: string }>>(`
@@ -383,7 +384,7 @@ export class LegacyOrdersService {
   ) {
     this.requireAdmin(user);
     const company = await this.resolveCompany(companyId);
-    const db = company.erpDbName;
+    const db = safeDbName(company.erpDbName);
     const ped = pedido.replace(/[^0-9A-Za-z]/g, '').slice(0, 20);
 
     const headerRows = await this.prisma.$queryRawUnsafe<
@@ -507,7 +508,8 @@ export class LegacyOrdersService {
   // NFes — listagem + cross-ref com fiscal_documents (Qive)
   // ──────────────────────────────────────────────────────────────────
 
-  private async listNfesForOrder(erpDb: string, pedido: string) {
+  private async listNfesForOrder(erpDbName: string, pedido: string) {
+    const db = safeDbName(erpDbName);
     const ped = pedido.replace(/[^0-9A-Za-z]/g, '').slice(0, 20);
     const rows = await this.prisma.$queryRawUnsafe<
       Array<{
@@ -526,10 +528,10 @@ export class LegacyOrdersService {
         e.EMISSAO AS emissao,
         e.VALOR_TOTAL AS valorTotal,
         RTRIM(e.CHAVE_NFE) AS chaveNfe
-      FROM [${erpDb}].dbo.ENTRADAS e WITH (NOLOCK)
+      FROM [${db}].dbo.ENTRADAS e WITH (NOLOCK)
       WHERE EXISTS (
         SELECT 1
-          FROM [${erpDb}].dbo.ENTRADAS_ITEM ei WITH (NOLOCK)
+          FROM [${db}].dbo.ENTRADAS_ITEM ei WITH (NOLOCK)
          WHERE RTRIM(ei.REFERENCIA_PEDIDO) = '${ped}'
            AND RTRIM(ei.NF_ENTRADA) = RTRIM(e.NF_ENTRADA)
            AND RTRIM(ei.NOME_CLIFOR) = RTRIM(e.NOME_CLIFOR)
@@ -596,7 +598,7 @@ export class LegacyOrdersService {
   ) {
     this.requireAdmin(user);
     const company = await this.resolveCompany(companyId);
-    return this.listNfesForOrder(company.erpDbName, pedido);
+    return this.listNfesForOrder(safeDbName(company.erpDbName), pedido);
   }
 
   /**

@@ -24,6 +24,7 @@ import {
 } from '@/lib/product-orders-pa';
 import { RescheduleDialog } from './RescheduleDialog';
 import { PaFiscalDocumentsCard } from './PaFiscalDocumentsCard';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useToast } from '@/components/ui/use-toast';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -274,6 +275,7 @@ export function PaOrderDetailPage() {
   const [gradeFor, setGradeFor] = useState<PaItem | null>(null);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [approveOpen, setApproveOpen] = useState(false);
   const approveMut = useApprovePaOrder();
   const { data, isLoading } = usePaOrder(activeCompany?.code, pedido);
 
@@ -301,7 +303,6 @@ export function PaOrderDetailPage() {
 
   async function handleApprove() {
     if (!data || !activeCompany) return;
-    if (!confirm(`Aprovar o pedido ${data.pedido}?`)) return;
     try {
       await approveMut.mutateAsync({
         company: activeCompany.code,
@@ -353,7 +354,7 @@ export function PaOrderDetailPage() {
               Reprovar
             </Button>
             <Button
-              onClick={handleApprove}
+              onClick={() => setApproveOpen(true)}
               disabled={approveMut.isPending}
             >
               <Check className="size-4" />
@@ -558,6 +559,14 @@ export function PaOrderDetailPage() {
           pedido={data.pedido}
         />
       )}
+      <ConfirmDialog
+        open={approveOpen}
+        onOpenChange={setApproveOpen}
+        title="Aprovar pedido PA"
+        description={`Aprovar o pedido ${data.pedido}? O status serÃ¡ atualizado no Linx.`}
+        confirmLabel="Aprovar"
+        onConfirm={handleApprove}
+      />
     </div>
   );
 }

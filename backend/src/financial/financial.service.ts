@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../auth/auth.types';
+import { safeDbName } from '../common/erp/safe-db-name';
 
 /**
  * Lê dados financeiros do Linx (W_HRG3_* / W_CTB_*) via cross-DB query
@@ -78,16 +79,12 @@ export class FinancialService {
   }
 
   /**
-   * Allow-list de erpDbName — barra qualquer string vinda do banco que
-   * não bata com os 3 valores conhecidos, antes de interpolar em SQL.
-   * É backup do controle por whitelist do model Company.
+   * Allow-list centralizada em `common/erp/safe-db-name.ts`.
+   * Mantido o wrapper como método pra manter call-sites curtos
+   * (`this.safeDbName(x)`) e evitar refactor amplo.
    */
   private safeDbName(erpDbName: string): string {
-    const allowed = new Set(['GUESS_PRODUCAO', 'HML_GUESS', 'DB_HRG3']);
-    if (!allowed.has(erpDbName)) {
-      throw new ForbiddenException(`erpDbName inválido: ${erpDbName}`);
-    }
-    return erpDbName;
+    return safeDbName(erpDbName);
   }
 
   /**

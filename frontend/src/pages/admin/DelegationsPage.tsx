@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
   Dialog,
   DialogContent,
@@ -173,8 +174,8 @@ function DelegationTable({
 }) {
   const { toast } = useToast();
   const cancelMut = useCancelDelegation();
+  const [cancelTarget, setCancelTarget] = useState<Delegation | null>(null);
   async function cancel(d: Delegation) {
-    if (!confirm('Cancelar esta delegação?')) return;
     try {
       await cancelMut.mutateAsync(d.id);
       toast({ title: 'Delegação cancelada', variant: 'success' });
@@ -183,6 +184,7 @@ function DelegationTable({
     }
   }
   return (
+    <>
     <Table>
       <TableHeader>
         <TableRow>
@@ -251,7 +253,7 @@ function DelegationTable({
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => cancel(d)}
+                      onClick={() => setCancelTarget(d)}
                       title="Cancelar"
                     >
                       <X className="size-4 text-destructive" />
@@ -264,6 +266,20 @@ function DelegationTable({
         })}
       </TableBody>
     </Table>
+    <ConfirmDialog
+      open={!!cancelTarget}
+      onOpenChange={(open) => !open && setCancelTarget(null)}
+      title="Cancelar delegacao"
+      description="A delegacao sera encerrada e nao podera mais aprovar em seu nome."
+      confirmLabel="Cancelar delegacao"
+      variant="destructive"
+      onConfirm={async () => {
+        if (!cancelTarget) return;
+        await cancel(cancelTarget);
+        setCancelTarget(null);
+      }}
+    />
+    </>
   );
 }
 

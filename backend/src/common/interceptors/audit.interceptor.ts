@@ -20,8 +20,17 @@ const ENTITY_MAP: Record<string, string> = {
   companies: 'Company',
 };
 
-/** Campos sensíveis mascarados nos snapshots (LGPD). */
-const SENSITIVE = /(cnpj|cpf|cgc|banco|agencia|conta|pix|senha|password|token)/i;
+/**
+ * Campos sensíveis mascarados nos snapshots (LGPD / segurança).
+ * Cobre dados pessoais (email, phone, CPF, CNPJ, endereço, CEP) e
+ * segredos (senha, token, chave, banco, pix).
+ */
+const SENSITIVE =
+  /(cnpj|cpf|cgc|banco|agencia|conta|pix|senha|password|token|email|phone|telefone|celular|endereco|address|cep|zipcode|logradouro|complemento|bairro|cidade|estado|uf|rg|nascimento|birth)/i;
+
+/** Tamanho máximo do JSON serializado de `after` (bytes). Payloads maiores
+ *  (ex.: rawXmlBase64 de NFes) seriam inúteis no log e inflariam a tabela.  */
+const MAX_AFTER_BYTES = 32_768; // 32 KB
 
 interface AuditableRequest {
   method: string;
@@ -101,7 +110,7 @@ export class AuditInterceptor implements NestInterceptor {
         action,
         entityType,
         entityId,
-        after: response ? JSON.stringify(this.mask(response)) : null,
+        after: response ? this.serializeAfter(this.mask(response)) : null,
         ipAddress: req.ip ?? null,
         userAgent: Array.isArray(userAgent)
           ? userAgent[0]
@@ -129,6 +138,22 @@ export class AuditInterceptor implements NestInterceptor {
     return value && typeof value === 'object' && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
+  }
+
+  /**
+   * Serializa o payload `after` com limite de tamanho.
+   * Campos com XML/base64 (rawXmlBase64, pdf, etc.) podem chegar a MBs —
+   * guardar isso no audit_log seria inútil e inflaria muito a tabela.
+   */
+  private serializeAfter(masked: unknown): string {
+    const full = JSON.stringify(masked);
+    if (full.length <= MAX_AFTER_BYTES) return full;
+    // Payload grande: reduz a um stub explicativo + tamanho original.
+    return JSON.stringify({
+      _truncated: true,
+      _originalBytes: full.length,
+      _hint: 'payload excedeu 32 KB; consulte a entidade diretamente',
+    });
   }
 
   /** Mascara recursivamente campos sensíveis no snapshot. */
