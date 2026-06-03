@@ -207,9 +207,9 @@ export class ErpBackSyncService {
             WHERE p2.LANCAMENTO = e.CTB_LANCAMENTO) AS parcelas
          FROM [${db}].dbo.ENTRADAS_ITEM ei WITH (NOLOCK)
          JOIN [${db}].dbo.ENTRADAS e WITH (NOLOCK)
-           ON e.NF_ENTRADA = ei.NF_ENTRADA
-          AND e.SERIE_NF_ENTRADA = ei.SERIE_NF_ENTRADA
-          AND e.NOME_CLIFOR = ei.NOME_CLIFOR
+           ON RTRIM(e.NF_ENTRADA) = RTRIM(ei.NF_ENTRADA)
+          AND RTRIM(e.NOME_CLIFOR) = RTRIM(ei.NOME_CLIFOR)
+          AND RTRIM(ISNULL(e.SERIE_NF_ENTRADA, '')) = RTRIM(ISNULL(ei.SERIE_NF_ENTRADA, ''))
         WHERE RTRIM(ei.REFERENCIA_PEDIDO) = '${pedido}'
         GROUP BY RTRIM(ei.NF_ENTRADA), RTRIM(e.SERIE_NF_ENTRADA),
                  e.CHAVE_NFE, e.CTB_LANCAMENTO`,
