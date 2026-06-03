@@ -1282,7 +1282,21 @@ export class FiscalDocumentsService {
       select: { accessKey: true },
     });
     if (!doc) throw new NotFoundException('NF não encontrada');
-    const base64 = await this.qive.getDanfeBase64(doc.accessKey);
+    let base64: string;
+    try {
+      base64 = await this.qive.getDanfeBase64(doc.accessKey);
+    } catch (err) {
+      // A Qive nem sempre tem o DANFe (NF antiga, ainda em processamento,
+      // ou só com XML). Não é erro do servidor — devolve 404 com mensagem
+      // clara em vez de 500 genérico.
+      this.logger.warn(
+        `DANFe indisponível na Qive (chave ${doc.accessKey}): ${(err as Error).message}`,
+      );
+      throw new NotFoundException(
+        'DANFe não disponível na Qive para esta NF (pode ter só XML, ser ' +
+          'antiga ou ainda estar em processamento). Tente baixar o XML.',
+      );
+    }
     return {
       pdf: Buffer.from(base64, 'base64'),
       filename: `DANFe-${doc.accessKey}.pdf`,
