@@ -4,6 +4,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import type { Request } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
+import { UserStatus } from '../../common/enums';
 import { AuthenticatedUser, JwtPayload } from '../auth.types';
 
 /**
@@ -46,8 +47,15 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       include: { companies: true },
     });
 
-    if (!user || user.deletedAt || user.status === 'INACTIVE') {
-      throw new UnauthorizedException('Usuário inválido ou inativo.');
+    // Só conta ACTIVE acessa o app. PENDING_SETUP (recém-provisionada via
+    // LDAP) aguarda o admin definir perfil/empresas — antes disso não deve
+    // ter sessão válida (audit M5). INACTIVE/excluída também barrada.
+    if (!user || user.deletedAt || user.status !== UserStatus.ACTIVE) {
+      throw new UnauthorizedException(
+        user && user.status === UserStatus.PENDING_SETUP
+          ? 'Conta aguardando liberação do administrador.'
+          : 'Usuário inválido ou inativo.',
+      );
     }
 
     return {

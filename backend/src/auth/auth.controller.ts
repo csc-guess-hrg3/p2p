@@ -21,7 +21,10 @@ import { LdapAuthGuard } from './guards/ldap-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
-import type { AuthenticatedUser } from './auth.types';
+import type { AuthenticatedUser, TokenPair } from './auth.types';
+
+const ACCESS_MAX_AGE_MS = 8 * 60 * 60 * 1000; // 8h
+const REFRESH_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7d
 
 class LocalLoginDto {
   @ApiProperty({ description: 'Username definido pelo Admin.' })
@@ -156,6 +159,33 @@ export class AuthController {
   }
 
   /**
+   * Seta os cookies httpOnly de sessão e devolve a resposta de login.
+   *
+   * Em modo cookie (default em PROD/HML) NÃO retorna os tokens no corpo:
+   * eles já viajam nos cookies httpOnly; devolvê-los no body exporia o
+   * refresh token (7 dias) a JS da página/XSS, logs de rede e proxies, sem
+   * benefício — o frontend em modo cookie ignora o corpo. Só o modo
+   * `bearer` (legado, clientes sem cookie) recebe os tokens no body.
+   * Audit M4 / task #60.
+   */
+  private applySession(res: Response, tokens: TokenPair) {
+    res.cookie(
+      'p2p_token',
+      tokens.accessToken,
+      cookieOptions({ maxAgeMs: ACCESS_MAX_AGE_MS }),
+    );
+    res.cookie(
+      'p2p_refresh',
+      tokens.refreshToken,
+      cookieOptions({ maxAgeMs: REFRESH_MAX_AGE_MS }),
+    );
+    if (process.env.AUTH_MODE === 'bearer') {
+      return tokens;
+    }
+    return { ok: true as const };
+  }
+
+  /**
    * Login via Active Directory. O LdapAuthGuard autentica contra o AD;
    * em seguida o usuário é provisionado (JIT) e recebe os tokens.
    *
@@ -178,9 +208,7 @@ export class AuthController {
   ) {
     const userId = await this.authService.provisionFromLdap(req.user);
     const tokens = await this.authService.issueTokens(userId);
-    res.cookie('p2p_token', tokens.accessToken, cookieOptions({ maxAgeMs: 8 * 60 * 60 * 1000 })); // 8h
-    res.cookie('p2p_refresh', tokens.refreshToken, cookieOptions({ maxAgeMs: 7 * 24 * 60 * 60 * 1000 })); // 7d
-    return tokens;
+    return this.applySession(res, tokens);
   }
 
   /**
@@ -205,17 +233,7 @@ export class AuthController {
     );
     const userId = await this.localAuth.login(dto.username, dto.password);
     const tokens = await this.authService.issueTokens(userId);
-    res.cookie(
-      'p2p_token',
-      tokens.accessToken,
-      cookieOptions({ maxAgeMs: 8 * 60 * 60 * 1000 }),
-    );
-    res.cookie(
-      'p2p_refresh',
-      tokens.refreshToken,
-      cookieOptions({ maxAgeMs: 7 * 24 * 60 * 60 * 1000 }),
-    );
-    return tokens;
+    return this.applySession(res, tokens);
   }
 
   /** Endpoint público: define/redefine senha a partir do token do e-mail. */
@@ -262,17 +280,7 @@ export class AuthController {
     );
     const userId = await this.storeAuth.setupPassword(dto.cpf, dto.password);
     const tokens = await this.authService.issueTokens(userId);
-    res.cookie(
-      'p2p_token',
-      tokens.accessToken,
-      cookieOptions({ maxAgeMs: 8 * 60 * 60 * 1000 }),
-    );
-    res.cookie(
-      'p2p_refresh',
-      tokens.refreshToken,
-      cookieOptions({ maxAgeMs: 7 * 24 * 60 * 60 * 1000 }),
-    );
-    return tokens;
+    return this.applySession(res, tokens);
   }
 
   /** Login do vendedor com CPF + senha. */
@@ -291,17 +299,7 @@ export class AuthController {
     );
     const userId = await this.storeAuth.login(dto.cpf, dto.password);
     const tokens = await this.authService.issueTokens(userId);
-    res.cookie(
-      'p2p_token',
-      tokens.accessToken,
-      cookieOptions({ maxAgeMs: 8 * 60 * 60 * 1000 }),
-    );
-    res.cookie(
-      'p2p_refresh',
-      tokens.refreshToken,
-      cookieOptions({ maxAgeMs: 7 * 24 * 60 * 60 * 1000 }),
-    );
-    return tokens;
+    return this.applySession(res, tokens);
   }
 
   /** Regras de complexidade (front mostra na tela de definição). */
@@ -329,9 +327,7 @@ export class AuthController {
       return this.authService.refresh('');
     }
     const tokens = await this.authService.refresh(refreshToken);
-    res.cookie('p2p_token', tokens.accessToken, cookieOptions({ maxAgeMs: 8 * 60 * 60 * 1000 }));
-    res.cookie('p2p_refresh', tokens.refreshToken, cookieOptions({ maxAgeMs: 7 * 24 * 60 * 60 * 1000 }));
-    return tokens;
+    return this.applySession(res, tokens);
   }
 
   /** Logout — apaga os cookies de sessão (revogação de refresh = roadmap). */

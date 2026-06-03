@@ -168,8 +168,11 @@ export class AuthService {
     }
 
     const user = await this.prisma.user.findUnique({ where: { id: sub } });
-    if (!user || user.deletedAt || user.status === UserStatus.INACTIVE) {
-      throw new UnauthorizedException('Usuário inválido ou inativo.');
+    // Mesma regra do JwtStrategy: só ACTIVE renova sessão (audit M5).
+    if (!user || user.deletedAt || user.status !== UserStatus.ACTIVE) {
+      throw new UnauthorizedException(
+        'Usuário inválido, inativo ou pendente de liberação.',
+      );
     }
     return this.issueTokens(sub);
   }

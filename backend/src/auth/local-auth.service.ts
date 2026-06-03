@@ -249,8 +249,14 @@ export class LocalAuthService {
     const port = Number(this.config.get<string>('SMTP_PORT') ?? 0);
     const from = this.config.get<string>('SMTP_FROM');
     if (!host || !port || !from) {
+      // NUNCA logar o rawToken: ele é uma credencial de uso único que
+      // permite definir a senha da conta (account takeover). Sem SMTP o
+      // link não é entregue — registramos só o destinatário/propósito e o
+      // admin precisa configurar o SMTP (ou reenviar via /auth/resend
+      // depois de configurado). Audit M10.
       this.logger.warn(
-        `SMTP não configurado — não enviei e-mail de ${purpose} para ${to}. Token: ${rawToken}`,
+        `SMTP não configurado — link de ${purpose} NÃO foi entregue para ${to}. ` +
+          `Configure SMTP_HOST/SMTP_PORT/SMTP_FROM e reenvie o link.`,
       );
       return;
     }
