@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   AlertCircle,
   CalendarClock,
-  Eye,
-  EyeOff,
+  BarChart3,
   PieChart as PieIcon,
   ShoppingCart,
 } from 'lucide-react';
@@ -35,11 +34,19 @@ import {
   TabsTrigger,
 } from '@/components/ui/tabs';
 import {
-  MyActionsCard,
   OrdersByMonthChart,
   OrdersByStatusChart,
   TopSuppliersChart,
 } from './dashboard/widgets';
+import { PendingTasksPanel } from './PendingTasksPage';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuCheckItem,
+} from '@/components/ui/dropdown-menu';
 
 type KpiVariant = 'default' | 'warning' | 'destructive';
 
@@ -104,7 +111,6 @@ function fmtPct(v: number | undefined): string {
  * a cada login. Cada widget tem uma chave estável (id).
  * -------------------------------------------------------------------- */
 const WIDGETS = [
-  { id: 'actions', label: 'Minhas ações' },
   { id: 'monthly', label: 'Pedidos por mês' },
   { id: 'suppliers', label: 'Top fornecedores' },
   { id: 'status', label: 'Pedidos por status' },
@@ -154,32 +160,7 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6 pb-10">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold text-foreground">Visão geral</h1>
-          <p className="text-sm text-muted-foreground">
-            {activeCompany?.name ?? 'Selecione uma empresa'} — atualizado
-            automaticamente a cada 5 minutos.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {WIDGETS.map((w) => {
-            const on = visible.has(w.id);
-            return (
-              <Button
-                key={w.id}
-                variant={on ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => toggle(w.id)}
-              >
-                {on ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
-                {w.label}
-              </Button>
-            );
-          })}
-        </div>
-      </div>
-
+      {/* 1) KPIs no topo — visada rápida do panorama. */}
       <div className="grid gap-4 md:grid-cols-3">
         <KpiCard
           icon={ShoppingCart}
@@ -242,10 +223,47 @@ export function DashboardPage() {
         />
       </div>
 
-      {/* Widgets visíveis — layout em grid 2 colunas a partir de lg. */}
+      {/* 2) Ação: minhas pendências. */}
+      <PendingTasksPanel companyId={companyId} />
+
+      {/* 3) Análises — cabeçalho enxuto + gráficos atrás de um menu discreto. */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">Análises</h2>
+          <p className="text-xs text-muted-foreground">
+            {activeCompany?.name ?? 'Selecione uma empresa'} — atualizado a cada
+            5 minutos.
+          </p>
+        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm">
+              <BarChart3 className="size-3.5" />
+              Gráficos
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>Mostrar gráficos</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {WIDGETS.map((w) => (
+              <DropdownMenuCheckItem
+                key={w.id}
+                checked={visible.has(w.id)}
+                onSelect={(e) => {
+                  e.preventDefault();
+                  toggle(w.id);
+                }}
+              >
+                {w.label}
+              </DropdownMenuCheckItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      {/* Gráficos visíveis — layout em grid 2 colunas a partir de lg. */}
       {visible.size > 0 && (
         <div className="grid gap-4 lg:grid-cols-2">
-          {visible.has('actions') && <MyActionsCard companyId={companyId} />}
           {visible.has('monthly') && <OrdersByMonthChart companyId={companyId} />}
           {visible.has('suppliers') && <TopSuppliersChart companyId={companyId} />}
           {visible.has('status') && <OrdersByStatusChart companyId={companyId} />}

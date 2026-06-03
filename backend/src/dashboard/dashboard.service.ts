@@ -286,12 +286,24 @@ export class DashboardService {
       },
     });
 
+    // 6) Requisições aprovadas aguardando conversão em pedido de compra
+    //    (ação do comprador). Escopo por empresa — quem converte atua
+    //    sobre requisições aprovadas da empresa, não só as próprias.
+    const toConvert = await this.prisma.requisition.count({
+      where: {
+        companyId: { in: companyIds },
+        status: 'APPROVED',
+        deletedAt: null,
+      },
+    });
+
     return {
       approvalsPending,
       paPending,
       fiscalPending,
       myDraftRequisitions,
       myInApproval,
+      toConvert,
     };
   }
 

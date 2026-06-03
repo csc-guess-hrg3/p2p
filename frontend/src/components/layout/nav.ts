@@ -90,7 +90,7 @@ const FISCAL: Profile[] = ['ADMIN', 'REVIEWER'];
 const FINANCE_ROLES: Profile[] = ['ADMIN'];
 
 export const NAV_ITEMS: NavEntry[] = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true, roles: ALL },
+  { to: '/', label: 'Início', icon: LayoutDashboard, end: true, roles: ALL },
   { to: '/requisicoes', label: 'Requisições', icon: FileText, roles: ALL },
   {
     // Aprovações é módulo padrão. O conteúdo difere por perfil:

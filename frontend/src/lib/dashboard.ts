@@ -122,6 +122,8 @@ export interface MyActions {
   myDraftRequisitions: number;
   /** Operador: requisições próprias em SUBMITTED/IN_APPROVAL/REVISION. */
   myInApproval?: number;
+  /** Comprador: requisições APROVADAS aguardando conversão em PC. */
+  toConvert?: number;
 }
 
 export function useOrdersByMonth(companyId?: string) {
