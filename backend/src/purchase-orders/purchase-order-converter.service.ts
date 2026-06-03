@@ -11,6 +11,7 @@ import { NumberingService } from '../numbering/numbering.service';
 import { LinxErpService } from '../integration/linx-erp.service';
 import {
   FundRequestStatus,
+  IntegrationLogStatus,
   PurchaseOrderStatus,
   RequisitionNfType,
   RequisitionStatus,
@@ -272,20 +273,15 @@ export class PurchaseOrderConverterService {
         'Requisição sem nota fiscal não gera pedido de compra — gera Solicitação de Verba.',
       );
     }
-    // Fornecedor externo precisa estar no ERP antes da conversão — o
-    // PC grava no Linx com o COD_FORNECEDOR e isso exige cadastro lá.
-    // Em teoria, o fluxo de aprovação já criou o fornecedor (via
-    // `needsSupplierErpCreation`); este guard pega o caso de falha de
-    // integração que não chegou a popular o erpCode.
-    if (!req.supplierErpCode) {
-      throw new BadRequestException(
-        'Fornecedor desta requisição ainda não está cadastrado no ERP. ' +
-          'Acione o cadastro automático ou cadastre manualmente antes de converter.',
-      );
-    }
-    // TS não propaga a narrowing do guard acima através do callback de
-    // transação — usamos uma const não-nula localmente.
-    const supplierErpCode: string = req.supplierErpCode;
+    // Chokepoint do cadastro de fornecedor. A conversão cria PC + SV, que
+    // exigem o CLIFOR no Linx. Se a requisição ainda não tem
+    // supplierErpCode — fornecedor externo, falha do best-effort na
+    // aprovação, ou fluxo de dispensa de cotação (sem Quotation) —
+    // cadastra agora a partir dos dados da própria requisição, garantindo
+    // que nenhum PC/SV suba sem fornecedor cadastrado.
+    const supplierErpCode: string = req.supplierErpCode
+      ? req.supplierErpCode
+      : await this.linx.ensureSupplierForRequisition(req.id);
     const existing = await this.prisma.purchaseOrder.findFirst({
       where: { requisitionId: req.id, deletedAt: null },
     });
@@ -531,6 +527,42 @@ export class PurchaseOrderConverterService {
         });
       } catch (err) {
         // Rollback dos PCs já criados — soft delete pra preservar histórico.
+        //
+        // ATENÇÃO (audit M14): os PCs já em `created` FORAM gravados no Linx
+        // (têm `erpPedido` real em COMPRAS). O soft-delete abaixo só afeta o
+        // P2P — esses pedidos ficam ÓRFÃOS no ERP, pois não há cancelamento
+        // automático no Linx. Antes de desfazer no P2P, registramos os
+        // órfãos em integration_logs pra reconciliação/cancelamento manual.
+        if (created.length > 0) {
+          try {
+            const orphans = await this.prisma.purchaseOrder.findMany({
+              where: { id: { in: created.map((c) => c.id) } },
+              select: { number: true, erpPedido: true },
+            });
+            const orphanList =
+              orphans
+                .filter((o) => o.erpPedido)
+                .map((o) => `${o.number} (erpPedido ${o.erpPedido})`)
+                .join('; ') || '(nenhum com erpPedido)';
+            await this.prisma.integrationLog.create({
+              data: {
+                companyId: req.companyId,
+                source: company.code === 'HRG3' ? 'ERP_HRG3' : 'ERP_GUESS',
+                jobType: 'CONVERT_PO_ROLLBACK',
+                status: IntegrationLogStatus.PARTIAL,
+                recordsProcessed: orphans.length,
+                errorDetails:
+                  `Conversão da requisição ${req.number} abortada por falha no Linx ` +
+                  `(${(err as Error).message}). PCs já gravados no ERP e soft-deletados no ` +
+                  `P2P — ÓRFÃOS no Linx, requerem cancelamento manual: ${orphanList}.`,
+              },
+            });
+          } catch (logErr) {
+            this.logger.error(
+              `Falha ao registrar PCs órfãos da conversão da req ${req.number}: ${(logErr as Error).message}`,
+            );
+          }
+        }
         for (const c of created) {
           await this.prisma.purchaseOrder.update({
             where: { id: c.id },

@@ -293,6 +293,24 @@ export class LinxErpService {
     const ctb = req.ctbTipoOperacao ?? cfg.ctbTipoOperacaoDefault;
     const natureza = req.naturezaEntrada ?? cfg.naturezaEntradaDefault;
 
+    // COMPRAS.FORNECEDOR é FK para FORNECEDORES.FORNECEDOR (o NOME gravado
+    // no cadastro, NÃO o clifor — ver trigger LXI_COMPRAS). Buscamos o
+    // nome canônico pelo CLIFOR (supplierErpCode) para garantir o match
+    // do FK — senão a razão social do PC pode divergir do nome curto
+    // gravado em FORNECEDORES e o trigger rejeita. Fallback: nome do PC.
+    let fornecedorNome = po.supplierName;
+    if (po.supplierErpCode) {
+      const fornRows = await this.prisma.$queryRawUnsafe<
+        Array<{ FORNECEDOR: string }>
+      >(
+        `SELECT TOP 1 FORNECEDOR FROM [${erpDb}].dbo.FORNECEDORES WHERE CLIFOR = @P1`,
+        po.supplierErpCode,
+      );
+      if (fornRows[0]?.FORNECEDOR) {
+        fornecedorNome = String(fornRows[0].FORNECEDOR).trim();
+      }
+    }
+
     // Idempotência blindada: grava staging id antes de tocar o Linx.
     await this.prepareStagingId(po.id);
     const obsTag = `P2P PC ${po.number}`;
@@ -360,7 +378,8 @@ export class LinxErpService {
              (PEDIDO, FORNECEDOR, FILIAL_A_ENTREGAR, FILIAL_COBRANCA,
               FILIAL_A_FATURAR, CONDICAO_PGTO, TRANSPORTADORA, MOEDA,
               COD_TRANSACAO, EMISSAO, CADASTRAMENTO, APROVADO_POR,
-              PEDIDO_FORNECEDOR, TOT_QTDE_ORIGINAL, TOT_VALOR_ORIGINAL,
+              PEDIDO_FORNECEDOR, TOT_QTDE_ORIGINAL, TOT_QTDE_ENTREGAR,
+              TOT_VALOR_ORIGINAL,
               TABELA_FILHA, OBS, REQUERIDO_POR, TIPO_COMPRA,
               STATUS_APROVACAO, DATA_APROVACAO, STATUS_COMPRA,
               NATUREZA_ENTRADA, APROVADOR_POR, LX_STATUS_COMPRA,
@@ -369,14 +388,14 @@ export class LinxErpService {
            VALUES
              (@P1, @P2, @P3, @P3, @P3, @P4, @P15, @P17,
               @P5, GETDATE(), GETDATE(), @P6,
-              N' ', @P7, @P8,
+              N' ', @P7, @P7, @P8,
               @P9, @P10, @P11, @P12,
               N'A', GETDATE(), N'A ',
               @P13, @P6, 1,
               @P14, GETDATE(),
               @P16)`,
           pedido,
-          this.trunc(po.supplierName, 25, 'FORNECEDOR') ?? '',
+          this.trunc(fornecedorNome, 25, 'FORNECEDOR') ?? '',
           this.trunc(po.branchName, 25, 'FILIAL') ?? '',
           this.trunc(po.paymentCondition, 3, 'CONDICAO_PGTO') ?? '',
           this.trunc(cfg.codTransacao, 23, 'COD_TRANSACAO'),
@@ -706,6 +725,70 @@ export class LinxErpService {
    */
 
   /**
+   * Insere os itens da SV em CTB_SOLICITACAO_VERBA_ITEM. Compartilhado
+   * pela integração nova e pela recuperação (capa que ficou sem itens
+   * por falha anterior). COD_CLIFOR vai NULL (nunca '') — o trigger
+   * LXI valida FK em CADASTRO_CLI_FOR e aceita só NULL ou clifor real.
+   */
+  private async insertSvItems(
+    erpDb: string,
+    solicitacao: number,
+    items: FundRequestItem[],
+    codClifor: string | null,
+  ): Promise<void> {
+    const moedaSV = await this.getDefaultMoeda(erpDb);
+    let idx = 1;
+    for (const it of items) {
+      const idItem = String(idx).padStart(4, '0');
+      const valor = Number(it.amount);
+      await this.prisma.$executeRawUnsafe(
+        `INSERT INTO [${erpDb}].dbo.CTB_SOLICITACAO_VERBA_ITEM
+           (EMPRESA, SOLICITACAO_VERBA, ID_SOLICITACAO_ITEM,
+            CONTA_CONTABIL, DESC_SOLICITACAO_VERBA_ITEM,
+            VALOR_SOLICITADO, VALOR_SOLICITADO_PADRAO,
+            VALOR_ORIGINAL, VALOR_ORIGINAL_PADRAO, VALOR_A_PAGAR,
+            VENCIMENTO, VENCIMENTO_REAL, MOEDA,
+            COD_CLIFOR, COD_FILIAL,
+            RATEIO_FILIAL, RATEIO_CENTRO_CUSTO,
+            BENEFICIARIO, BENEFICIARIO_BANCO,
+            BENEFICIARIO_AGENCIA, BENEFICIARIO_CONTA_CORRENTE,
+            LX_TIPO_LANCAMENTO, LX_VERBA_STATUS,
+            TIPO_MOVIMENTO, INDICA_FLUXO, CAMBIO_NA_DATA_EMISSAO)
+         VALUES
+           (1, @P1, @P2, @P3, @P4,
+            @P5, @P5, @P5, @P5, @P5,
+            @P6, @P6, @P15,
+            @P7, @P8,
+            @P9, @P10,
+            @P11, @P12, @P13, @P14,
+            N'ITP', N'A',
+            1, 1, 1)`,
+        solicitacao,
+        idItem,
+        this.trunc(it.accountingAccount, 20, 'CONTA_CONTABIL') ?? '',
+        this.trunc(it.description, 40, 'DESC_SV_ITEM') ?? '',
+        valor,
+        it.dueDate,
+        // COD_CLIFOR = clifor do fornecedor do pedido (a SV é paga a ele).
+        // O trigger LXI_CTB_SOLICITACAO_VERBA_ITEM valida FK em
+        // CADASTRO_CLI_FOR e aceita só um clifor existente OU NULL — NUNCA
+        // string vazia (daria "The transaction ended in the trigger").
+        // Sem fornecedor cadastrado, cai em NULL (fallback aceito).
+        this.trunc(codClifor, 6, 'COD_CLIFOR'),
+        this.trunc(it.branchRateioCode, 6, 'COD_FILIAL') ?? '',
+        this.trunc(it.branchRateioCode, 15, 'RATEIO_FILIAL') ?? '',
+        this.trunc(it.costCenterRateioCode, 15, 'RATEIO_CENTRO_CUSTO') ?? '',
+        this.trunc(it.beneficiaryName, 50, 'BENEFICIARIO') ?? '',
+        this.trunc(it.beneficiaryBank, 4, 'BENEFICIARIO_BANCO') ?? '',
+        this.trunc(it.beneficiaryAgency, 6, 'BENEFICIARIO_AGENCIA') ?? '',
+        this.trunc(it.beneficiaryAccount, 20, 'BENEFICIARIO_CC') ?? '',
+        moedaSV, // @P15
+      );
+      idx++;
+    }
+  }
+
+  /**
    * Grava a Solicitação de Verba (SV / FundRequest) no Linx.
    *
    * Schema validado via inspeção do banco real (GUESS_PRODUCAO):
@@ -735,6 +818,18 @@ export class LinxErpService {
     // erpDb já validado pela allow-list central (safeDbName).
     const erpDb = safeDbName(company.erpDbName);
 
+    // Clifor do fornecedor do pedido que originou a SV — vai em COD_CLIFOR
+    // dos itens (a SV é paga ao fornecedor). String vazia/ausente → NULL
+    // (o trigger só aceita clifor existente ou NULL). supplierErpCode é o
+    // próprio código CLIFOR no Linx.
+    const linkedPo = sv.purchaseOrderId
+      ? await this.prisma.purchaseOrder.findUnique({
+          where: { id: sv.purchaseOrderId },
+          select: { supplierErpCode: true },
+        })
+      : null;
+    const codClifor = linkedPo?.supplierErpCode || null;
+
     if (!sv.erpStagingId) {
       await this.prisma.fundRequest.update({
         where: { id: sv.id },
@@ -752,9 +847,47 @@ export class LinxErpService {
       this.logger.warn(
         `SV ${sv.number}: SOLICITACAO ${recovered} já existe no Linx — re-acoplando.`,
       );
+      // A capa pode ter ficado SEM itens se uma integração anterior
+      // falhou no insert do item (o bug do COD_CLIFOR=''). Ao reintegrar,
+      // completa os itens que faltam em vez de só re-acoplar a capa órfã.
+      try {
+        const itemRows = await this.prisma.$queryRawUnsafe<{ n: number }[]>(
+          `SELECT COUNT(*) AS n
+             FROM [${erpDb}].dbo.CTB_SOLICITACAO_VERBA_ITEM
+            WHERE EMPRESA = 1 AND SOLICITACAO_VERBA = @P1`,
+          Number(recovered),
+        );
+        const existingItems = Number(itemRows[0]?.n ?? 0);
+        if (existingItems === 0 && sv.items.length > 0) {
+          this.logger.warn(
+            `SV ${sv.number}: capa ${recovered} estava sem itens — inserindo ${sv.items.length}.`,
+          );
+          await this.insertSvItems(
+            erpDb,
+            Number(recovered),
+            sv.items,
+            codClifor,
+          );
+        }
+      } catch (err) {
+        const safeMsg = sanitizeErpErrorDetail(err);
+        await this.prisma.fundRequest.update({
+          where: { id: sv.id },
+          data: {
+            lastErpError: safeMsg.slice(0, 4000),
+            lastErpAttemptAt: new Date(),
+          },
+        });
+        throw err;
+      }
       await this.prisma.fundRequest.update({
         where: { id: sv.id },
-        data: { erpSolicitacao: recovered, integratedAt: new Date() },
+        data: {
+          erpSolicitacao: recovered,
+          integratedAt: new Date(),
+          lastErpError: null,
+          lastErpAttemptAt: new Date(),
+        },
       });
       return { solicitacao: recovered };
     }
@@ -800,52 +933,12 @@ export class LinxErpService {
         this.trunc(obsTag, 250, 'VERBA_OBS') ?? '',
       );
 
-      // Moeda padrão da empresa (cache 1h) — usada em todos os itens.
-      const moedaSV = await this.getDefaultMoeda(erpDb);
-      let idx = 1;
-      for (const it of sv.items) {
-        const idItem = String(idx).padStart(4, '0');
-        const valor = Number(it.amount);
-        await this.prisma.$executeRawUnsafe(
-          `INSERT INTO [${erpDb}].dbo.CTB_SOLICITACAO_VERBA_ITEM
-             (EMPRESA, SOLICITACAO_VERBA, ID_SOLICITACAO_ITEM,
-              CONTA_CONTABIL, DESC_SOLICITACAO_VERBA_ITEM,
-              VALOR_SOLICITADO, VALOR_SOLICITADO_PADRAO,
-              VALOR_ORIGINAL, VALOR_ORIGINAL_PADRAO, VALOR_A_PAGAR,
-              VENCIMENTO, VENCIMENTO_REAL, MOEDA,
-              COD_CLIFOR, COD_FILIAL,
-              RATEIO_FILIAL, RATEIO_CENTRO_CUSTO,
-              BENEFICIARIO, BENEFICIARIO_BANCO,
-              BENEFICIARIO_AGENCIA, BENEFICIARIO_CONTA_CORRENTE,
-              LX_TIPO_LANCAMENTO, LX_VERBA_STATUS,
-              TIPO_MOVIMENTO, INDICA_FLUXO, CAMBIO_NA_DATA_EMISSAO)
-           VALUES
-             (1, @P1, @P2, @P3, @P4,
-              @P5, @P5, @P5, @P5, @P5,
-              @P6, @P6, @P15,
-              @P7, @P8,
-              @P9, @P10,
-              @P11, @P12, @P13, @P14,
-              N'ITP', N'A',
-              1, 1, 1)`,
-          Number(solicitacao),
-          idItem,
-          this.trunc(it.accountingAccount, 20, 'CONTA_CONTABIL') ?? '',
-          this.trunc(it.description, 40, 'DESC_SV_ITEM') ?? '',
-          valor,
-          it.dueDate,
-          '', // COD_CLIFOR vazio quando beneficiário é PF sem cadastro
-          this.trunc(it.branchRateioCode, 6, 'COD_FILIAL') ?? '',
-          this.trunc(it.branchRateioCode, 15, 'RATEIO_FILIAL') ?? '',
-          this.trunc(it.costCenterRateioCode, 15, 'RATEIO_CENTRO_CUSTO') ?? '',
-          this.trunc(it.beneficiaryName, 50, 'BENEFICIARIO') ?? '',
-          this.trunc(it.beneficiaryBank, 4, 'BENEFICIARIO_BANCO') ?? '',
-          this.trunc(it.beneficiaryAgency, 6, 'BENEFICIARIO_AGENCIA') ?? '',
-          this.trunc(it.beneficiaryAccount, 20, 'BENEFICIARIO_CC') ?? '',
-          moedaSV, // @P15
-        );
-        idx++;
-      }
+      await this.insertSvItems(
+        erpDb,
+        Number(solicitacao),
+        sv.items,
+        codClifor,
+      );
 
       await this.prisma.fundRequest.update({
         where: { id: sv.id },
@@ -907,6 +1000,212 @@ export class LinxErpService {
   }
 
   /**
+   * Cadastra (ou reaproveita) um fornecedor no Linx a partir de dados
+   * genéricos — fonte única usada pela cotação E pela requisição.
+   * Idempotente por CNPJ (reaproveita CLIFOR existente). Insere em
+   * CADASTRO_CLI_FOR + FORNECEDORES. NÃO atualiza o P2P nem grava
+   * integration_log — isso fica com o chamador (que sabe o contexto).
+   *
+   * Retorna o CLIFOR e o nome gravado em FORNECEDORES.FORNECEDOR — esse
+   * nome é a FK consumida por COMPRAS.FORNECEDOR (trigger LXI_COMPRAS),
+   * então o chamador do pedido deve usá-lo, não a razão social.
+   */
+  private async ensureSupplierRegistered(
+    erpDb: string,
+    data: {
+      cnpj: string | null;
+      name: string;
+      fantasia?: string | null;
+      uf?: string | null;
+      logradouro?: string | null;
+      numero?: string | null;
+      bairro?: string | null;
+      cidade?: string | null;
+      cep?: string | null;
+      telefone?: string | null;
+      paymentConditionCode?: string | null;
+    },
+  ): Promise<{ clifor: string; reused: boolean; fornecedorNome: string }> {
+    const cnpj = (data.cnpj ?? '').replace(/\D/g, '');
+    if (cnpj.length !== 14 && cnpj.length !== 11) {
+      throw new BadRequestException(
+        `CNPJ/CPF inválido (${cnpj.length} dígitos): ${data.cnpj ?? '(vazio)'}`,
+      );
+    }
+    const isPJ = cnpj.length === 14;
+    const nomeCurto =
+      this.trunc(data.fantasia ?? data.name, 25, 'NOME_CLIFOR') ?? '';
+
+    // Idempotência cross-DB por CGC (armazenado com máscara no Linx).
+    const existing = await this.prisma.$queryRawUnsafe<
+      Array<{ CLIFOR: string }>
+    >(
+      `SELECT TOP 1 CLIFOR FROM [${erpDb}].dbo.CADASTRO_CLI_FOR
+       WHERE REPLACE(REPLACE(REPLACE(REPLACE(CGC_CPF,'.',''),'/',''),'-',''),' ','') = '${cnpj}'`,
+    );
+    if (existing[0]?.CLIFOR) {
+      const clifor = String(existing[0].CLIFOR).trim();
+      // Nome real gravado em FORNECEDORES (pra alinhar COMPRAS.FORNECEDOR).
+      const fornRows = await this.prisma.$queryRawUnsafe<
+        Array<{ FORNECEDOR: string }>
+      >(
+        `SELECT TOP 1 FORNECEDOR FROM [${erpDb}].dbo.FORNECEDORES WHERE CLIFOR = @P1`,
+        clifor,
+      );
+      const fornecedorNome = fornRows[0]?.FORNECEDOR
+        ? String(fornRows[0].FORNECEDOR).trim()
+        : nomeCurto;
+      this.logger.warn(
+        `Fornecedor CNPJ ${cnpj} já existia no Linx — reaproveitando CLIFOR ${clifor}`,
+      );
+      return { clifor, reused: true, fornecedorNome };
+    }
+
+    const seqResult = await this.prisma.$queryRawUnsafe<
+      { sequencia: string }[]
+    >(
+      `DECLARE @seq VARCHAR(20);
+       EXEC [${erpDb}].dbo.LX_SEQUENCIAL @TABELA_COLUNA = N'FORNECEDORES.CLIFOR',
+                                         @SEQUENCIA = @seq OUTPUT;
+       SELECT @seq AS sequencia;`,
+    );
+    const raw = seqResult[0]?.sequencia?.trim();
+    if (!raw) {
+      throw new InternalServerErrorException('LX_SEQUENCIAL não devolveu CLIFOR.');
+    }
+    const clifor = raw.padStart(6, '0').slice(0, 6);
+
+    const uf = this.trunc(data.uf, 2, 'UF') ?? 'SP';
+    const razao = this.trunc(data.name, 90, 'RAZAO_SOCIAL');
+    const cgcMasked = isPJ
+      ? `${cnpj.slice(0, 2)}.${cnpj.slice(2, 5)}.${cnpj.slice(5, 8)}/${cnpj.slice(8, 12)}-${cnpj.slice(12)}`
+      : `${cnpj.slice(0, 3)}.${cnpj.slice(3, 6)}.${cnpj.slice(6, 9)}-${cnpj.slice(9)}`;
+    const endereco = this.trunc(
+      data.logradouro
+        ? `${data.logradouro}${data.numero ? ', ' + data.numero : ''}`
+        : null,
+      60,
+      'ENDERECO',
+    );
+    const bairro = this.trunc(data.bairro, 25, 'BAIRRO');
+    const cidade = this.trunc(data.cidade, 25, 'CIDADE');
+    const cep = this.trunc((data.cep ?? '').replace(/\D/g, ''), 9, 'CEP');
+    const tel = this.trunc(
+      (data.telefone ?? '').replace(/\D/g, ''),
+      15,
+      'TELEFONE1',
+    );
+
+    await this.prisma.$executeRawUnsafe(
+      `INSERT INTO [${erpDb}].dbo.CADASTRO_CLI_FOR
+         (CLIFOR, NOME_CLIFOR, RAZAO_SOCIAL, CGC_CPF, RG_IE,
+          UF, COBRANCA_UF, ENTREGA_UF,
+          COBRANCA_CGC, ENTREGA_CGC, COBRANCA_IE, ENTREGA_IE,
+          ENDERECO, BAIRRO, CIDADE, CEP, TELEFONE1,
+          COBRANCA_ENDERECO, COBRANCA_BAIRRO, COBRANCA_CIDADE, COBRANCA_CEP,
+          CADASTRAMENTO, PJ_PF, INDICA_FORNECEDOR, INDICA_CLIENTE)
+       VALUES
+         (@P1, @P2, @P3, @P4, N'ISENTO',
+          @P5, @P5, @P5,
+          @P4, @P4, N'ISENTO', N'ISENTO',
+          @P6, @P7, @P8, @P9, @P10,
+          @P6, @P7, @P8, @P9,
+          GETDATE(), @P11, 1, 0)`,
+      clifor,
+      nomeCurto,
+      razao ?? '',
+      cgcMasked,
+      uf,
+      endereco ?? '',
+      bairro ?? '',
+      cidade ?? '',
+      cep ?? '',
+      tel ?? '',
+      isPJ ? 1 : 0,
+    );
+
+    const condPgto =
+      this.trunc(data.paymentConditionCode, 3, 'CONDICAO_PGTO') ?? '030';
+    await this.prisma.$executeRawUnsafe(
+      `INSERT INTO [${erpDb}].dbo.FORNECEDORES
+         (COD_FORNECEDOR, CLIFOR, FORNECEDOR, CGC_CPF, CONDICAO_PGTO,
+          FORNECE_MAT_CONSUMO, INATIVO)
+       VALUES
+         (@P1, @P1, @P2, @P3, @P4, 1, 0)`,
+      clifor,
+      nomeCurto,
+      cgcMasked,
+      condPgto,
+    );
+
+    this.logger.log(
+      `Fornecedor cadastrado no Linx: CLIFOR=${clifor} CNPJ=${cnpj} nome="${nomeCurto}"`,
+    );
+    return { clifor, reused: false, fornecedorNome: nomeCurto };
+  }
+
+  /**
+   * Garante o cadastro do fornecedor de uma REQUISIÇÃO no Linx e devolve
+   * o CLIFOR. Idempotente: se a req já tem `supplierErpCode`, devolve.
+   * Usa os campos `supplier*` da própria requisição (CNPJ + endereço),
+   * preenchidos quando o solicitante escolhe um fornecedor externo —
+   * cobre inclusive o fluxo de DISPENSA de cotação (sem Quotation).
+   */
+  async ensureSupplierForRequisition(requisitionId: string): Promise<string> {
+    const req = await this.prisma.requisition.findUniqueOrThrow({
+      where: { id: requisitionId },
+      include: { company: true },
+    });
+    if (req.supplierErpCode) return req.supplierErpCode;
+
+    const erpDb = safeDbName(req.company.erpDbName);
+    const start = Date.now();
+    try {
+      const { clifor, reused } = await this.ensureSupplierRegistered(erpDb, {
+        cnpj: req.supplierCnpj,
+        name: req.supplierName,
+        fantasia: req.supplierFantasia,
+        uf: req.supplierUf,
+        logradouro: req.supplierLogradouro,
+        numero: req.supplierNumero,
+        bairro: req.supplierBairro,
+        cidade: req.supplierCidade,
+        cep: req.supplierCep,
+        telefone: req.supplierTelefone,
+        paymentConditionCode: req.paymentConditionCode,
+      });
+      await this.prisma.requisition.update({
+        where: { id: req.id },
+        data: { supplierErpCode: clifor, needsSupplierErpCreation: false },
+      });
+      await this.prisma.integrationLog.create({
+        data: {
+          companyId: req.companyId,
+          source: erpDb === 'DB_HRG3' ? 'ERP_HRG3' : 'ERP_GUESS',
+          jobType: 'CREATE_SUPPLIER',
+          status: IntegrationLogStatus.SUCCESS,
+          recordsProcessed: reused ? 0 : 2,
+          durationMs: Date.now() - start,
+        },
+      });
+      return clifor;
+    } catch (err) {
+      const safeMsg = sanitizeErpErrorDetail(err);
+      await this.prisma.integrationLog.create({
+        data: {
+          companyId: req.companyId,
+          source: erpDb === 'DB_HRG3' ? 'ERP_HRG3' : 'ERP_GUESS',
+          jobType: 'CREATE_SUPPLIER',
+          status: IntegrationLogStatus.FAILED,
+          durationMs: Date.now() - start,
+          errorDetails: `req ${req.number}: ${safeMsg}`,
+        },
+      });
+      throw err;
+    }
+  }
+
+  /**
    * Cadastra um fornecedor novo no Linx a partir de uma cotação
    * vencedora cujo `supplierErpCode` ainda está null.
    *
@@ -948,132 +1247,25 @@ export class LinxErpService {
     });
     // erpDb já validado pela allow-list central (safeDbName).
     const erpDb = safeDbName(company.erpDbName);
-    const cnpj = (quotation.supplierCnpj ?? '').replace(/\D/g, '');
-    if (cnpj.length !== 14 && cnpj.length !== 11) {
-      throw new BadRequestException(
-        `CNPJ/CPF inválido (${cnpj.length} dígitos): ${quotation.supplierCnpj}`,
-      );
-    }
-    const isPJ = cnpj.length === 14;
     const start = Date.now();
 
     try {
-      // Idempotência cross-DB: já existe alguém com esse CGC no Linx?
-      // CADASTRO_CLI_FOR armazena com máscara (12.345.678/0001-90) —
-      // comparamos só os dígitos.
-      const existing = await this.prisma.$queryRawUnsafe<
-        Array<{ CLIFOR: string }>
-      >(
-        `SELECT TOP 1 CLIFOR FROM [${erpDb}].dbo.CADASTRO_CLI_FOR
-         WHERE REPLACE(REPLACE(REPLACE(REPLACE(CGC_CPF,'.',''),'/',''),'-',''),' ','') = '${cnpj}'`,
-      );
-      let clifor: string;
-      let reused = false;
-      if (existing[0]?.CLIFOR) {
-        clifor = String(existing[0].CLIFOR).trim();
-        reused = true;
-        this.logger.warn(
-          `Fornecedor CNPJ ${cnpj} já existia no Linx — reaproveitando CLIFOR ${clifor}`,
-        );
-      } else {
-        // 2) Sequencial.
-        const seqResult = await this.prisma.$queryRawUnsafe<
-          { sequencia: string }[]
-        >(
-          `DECLARE @seq VARCHAR(20);
-           EXEC [${erpDb}].dbo.LX_SEQUENCIAL @TABELA_COLUNA = N'FORNECEDORES.CLIFOR',
-                                             @SEQUENCIA = @seq OUTPUT;
-           SELECT @seq AS sequencia;`,
-        );
-        const raw = seqResult[0]?.sequencia?.trim();
-        if (!raw) {
-          throw new InternalServerErrorException(
-            'LX_SEQUENCIAL não devolveu CLIFOR.',
-          );
-        }
-        clifor = raw.padStart(6, '0').slice(0, 6);
-
-        const uf = this.trunc(quotation.supplierUf, 2, 'UF') ?? 'SP';
-        const nomeCurto = this.trunc(
-          quotation.supplierFantasia ?? quotation.supplierName,
-          25,
-          'NOME_CLIFOR',
-        );
-        const razao = this.trunc(quotation.supplierName, 90, 'RAZAO_SOCIAL');
-        const cgcMasked = isPJ
-          ? `${cnpj.slice(0, 2)}.${cnpj.slice(2, 5)}.${cnpj.slice(5, 8)}/${cnpj.slice(8, 12)}-${cnpj.slice(12)}`
-          : `${cnpj.slice(0, 3)}.${cnpj.slice(3, 6)}.${cnpj.slice(6, 9)}-${cnpj.slice(9)}`;
-        const endereco = this.trunc(
-          quotation.supplierLogradouro
-            ? `${quotation.supplierLogradouro}${quotation.supplierNumero ? ', ' + quotation.supplierNumero : ''}`
-            : null,
-          60,
-          'ENDERECO',
-        );
-        const bairro = this.trunc(quotation.supplierBairro, 25, 'BAIRRO');
-        const cidade = this.trunc(quotation.supplierCidade, 25, 'CIDADE');
-        const cep = this.trunc(
-          (quotation.supplierCep ?? '').replace(/\D/g, ''),
-          9,
-          'CEP',
-        );
-        const tel = this.trunc(
-          (quotation.supplierTelefone ?? '').replace(/\D/g, ''),
-          15,
-          'TELEFONE1',
-        );
-
-        // 3) CADASTRO_CLI_FOR. Os flags com default vão sozinhos;
-        //    explicitamos PJ_PF + INDICA_FORNECEDOR pra não cair
-        //    como cliente.
-        await this.prisma.$executeRawUnsafe(
-          `INSERT INTO [${erpDb}].dbo.CADASTRO_CLI_FOR
-             (CLIFOR, NOME_CLIFOR, RAZAO_SOCIAL, CGC_CPF, RG_IE,
-              UF, COBRANCA_UF, ENTREGA_UF,
-              COBRANCA_CGC, ENTREGA_CGC, COBRANCA_IE, ENTREGA_IE,
-              ENDERECO, BAIRRO, CIDADE, CEP, TELEFONE1,
-              COBRANCA_ENDERECO, COBRANCA_BAIRRO, COBRANCA_CIDADE, COBRANCA_CEP,
-              CADASTRAMENTO, PJ_PF, INDICA_FORNECEDOR, INDICA_CLIENTE)
-           VALUES
-             (@P1, @P2, @P3, @P4, N'ISENTO',
-              @P5, @P5, @P5,
-              @P4, @P4, N'ISENTO', N'ISENTO',
-              @P6, @P7, @P8, @P9, @P10,
-              @P6, @P7, @P8, @P9,
-              GETDATE(), @P11, 1, 0)`,
-          clifor,
-          nomeCurto ?? '',
-          razao ?? '',
-          cgcMasked,
-          uf,
-          endereco ?? '',
-          bairro ?? '',
-          cidade ?? '',
-          cep ?? '',
-          tel ?? '',
-          isPJ ? 1 : 0,
-        );
-
-        // 4) FORNECEDORES.
-        const condPgto =
-          this.trunc(quotation.paymentConditionCode, 3, 'CONDICAO_PGTO') ??
-          '030';
-        await this.prisma.$executeRawUnsafe(
-          `INSERT INTO [${erpDb}].dbo.FORNECEDORES
-             (COD_FORNECEDOR, CLIFOR, FORNECEDOR, CGC_CPF, CONDICAO_PGTO,
-              FORNECE_MAT_CONSUMO, INATIVO)
-           VALUES
-             (@P1, @P1, @P2, @P3, @P4, 1, 0)`,
-          clifor,
-          nomeCurto ?? '',
-          cgcMasked,
-          condPgto,
-        );
-
-        this.logger.log(
-          `Fornecedor cadastrado no Linx: CLIFOR=${clifor} CNPJ=${cnpj} nome="${nomeCurto}"`,
-        );
-      }
+      // Cadastro/idempotência centralizados em ensureSupplierRegistered
+      // (mesma lógica usada pela requisição). Aqui só passamos os dados
+      // da cotação e tratamos os updates do P2P + log.
+      const { clifor, reused } = await this.ensureSupplierRegistered(erpDb, {
+        cnpj: quotation.supplierCnpj,
+        name: quotation.supplierName,
+        fantasia: quotation.supplierFantasia,
+        uf: quotation.supplierUf,
+        logradouro: quotation.supplierLogradouro,
+        numero: quotation.supplierNumero,
+        bairro: quotation.supplierBairro,
+        cidade: quotation.supplierCidade,
+        cep: quotation.supplierCep,
+        telefone: quotation.supplierTelefone,
+        paymentConditionCode: quotation.paymentConditionCode,
+      });
 
       // 5) Atualiza P2P — cotação + requisição.
       await this.prisma.quotation.update({
