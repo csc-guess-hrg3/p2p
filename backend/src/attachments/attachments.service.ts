@@ -9,6 +9,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../auth/auth.types';
+import { UserProfile } from '../common/enums';
 import {
   ATTACHMENT_KINDS,
   isAttachmentKind,
@@ -61,7 +62,26 @@ export class AttachmentsService {
     }
   }
 
-  /** Resolve o parent e devolve companyId + code para o caminho do arquivo. */
+  /**
+   * Estados em que o documento-pai aceita adicionar/remover anexos —
+   * "criação/edição/revisão". Fora destes (em aprovação, aprovado,
+   * convertido, integrado, cancelado, recebimento confirmado…) os anexos
+   * ficam congelados, pois passam a fazer parte do registro aprovado.
+   * Os valores espelham os enums em ../common/enums.ts (status são String
+   * no schema).
+   */
+  private readonly editableStatuses: Record<ParentKind, ReadonlySet<string>> = {
+    requisition: new Set(['DRAFT', 'REVISION']),
+    purchaseOrder: new Set(['DRAFT']),
+    receiving: new Set(['DRAFT']),
+    fundRequest: new Set(['DRAFT']),
+  };
+
+  /**
+   * Resolve o parent e devolve companyId + code (p/ caminho do arquivo),
+   * além de `status` e `ownerId` (dono do documento) para as regras de
+   * autorização de anexo.
+   */
   private async resolveParent(kind: ParentKind, id: string) {
     if (kind === 'requisition') {
       const r = await this.prisma.requisition.findUnique({
@@ -69,7 +89,12 @@ export class AttachmentsService {
         include: { company: true },
       });
       if (!r || r.deletedAt) throw new NotFoundException();
-      return { companyId: r.companyId, companyCode: r.company.code };
+      return {
+        companyId: r.companyId,
+        companyCode: r.company.code,
+        status: r.status,
+        ownerId: r.requesterId,
+      };
     }
     if (kind === 'purchaseOrder') {
       const p = await this.prisma.purchaseOrder.findUnique({
@@ -77,7 +102,12 @@ export class AttachmentsService {
         include: { company: true },
       });
       if (!p || p.deletedAt) throw new NotFoundException();
-      return { companyId: p.companyId, companyCode: p.company.code };
+      return {
+        companyId: p.companyId,
+        companyCode: p.company.code,
+        status: p.status,
+        ownerId: p.buyerId,
+      };
     }
     if (kind === 'receiving') {
       const rec = await this.prisma.receiving.findUnique({ where: { id } });
@@ -85,14 +115,64 @@ export class AttachmentsService {
       const company = await this.prisma.company.findUniqueOrThrow({
         where: { id: rec.companyId },
       });
-      return { companyId: rec.companyId, companyCode: company.code };
+      return {
+        companyId: rec.companyId,
+        companyCode: company.code,
+        status: rec.status,
+        ownerId: rec.receivedById,
+      };
     }
     const fr = await this.prisma.fundRequest.findUnique({
       where: { id },
       include: { company: true },
     });
     if (!fr || fr.deletedAt) throw new NotFoundException();
-    return { companyId: fr.companyId, companyCode: fr.company.code };
+    return {
+      companyId: fr.companyId,
+      companyCode: fr.company.code,
+      status: fr.status,
+      ownerId: fr.requesterId,
+    };
+  }
+
+  /**
+   * Autorização para MUTAR anexos (adicionar/remover):
+   *  - documento precisa estar em estado editável (criação/edição/revisão);
+   *  - só o dono do documento (solicitante/comprador/recebedor) ou um ADMIN
+   *    pode mexer — os demais apenas visualizam/baixam.
+   * O estado editável vale para todos (inclusive ADMIN): anexos de um
+   * documento já aprovado/em aprovação não devem mudar.
+   */
+  private assertCanMutate(
+    user: AuthenticatedUser,
+    kind: ParentKind,
+    parent: { status: string; ownerId: string },
+  ) {
+    if (!this.editableStatuses[kind].has(parent.status)) {
+      throw new ForbiddenException(
+        'Anexos só podem ser adicionados ou removidos enquanto o documento está em criação, edição ou revisão.',
+      );
+    }
+    if (user.profile !== UserProfile.ADMIN && parent.ownerId !== user.id) {
+      throw new ForbiddenException(
+        'Apenas o autor do documento pode adicionar ou remover anexos.',
+      );
+    }
+  }
+
+  /** Descobre o tipo e id do parent a partir das FKs do anexo. */
+  private parentOfAttachment(att: {
+    requisitionId: string | null;
+    purchaseOrderId: string | null;
+    receivingId: string | null;
+    fundRequestId: string | null;
+  }): { kind: ParentKind; id: string } | null {
+    if (att.requisitionId) return { kind: 'requisition', id: att.requisitionId };
+    if (att.purchaseOrderId)
+      return { kind: 'purchaseOrder', id: att.purchaseOrderId };
+    if (att.receivingId) return { kind: 'receiving', id: att.receivingId };
+    if (att.fundRequestId) return { kind: 'fundRequest', id: att.fundRequestId };
+    return null;
   }
 
   async list(user: AuthenticatedUser, kind: ParentKind, parentId: string) {
@@ -170,10 +250,12 @@ export class AttachmentsService {
         `Tipo de anexo inválido. Valores aceitos: ${ATTACHMENT_KINDS.join(', ')}.`,
       );
     }
-    const { companyId, companyCode } = await this.resolveParent(kind, parentId);
+    const parent = await this.resolveParent(kind, parentId);
+    const { companyId, companyCode } = parent;
     if (!user.companyIds.includes(companyId)) {
       throw new ForbiddenException('Sem acesso a esta empresa.');
     }
+    this.assertCanMutate(user, kind, parent);
     const count = await this.prisma.attachment.count({
       where: { [this.parentField(kind)]: parentId },
     });
@@ -258,6 +340,13 @@ export class AttachmentsService {
     if (!att) throw new NotFoundException();
     if (!user.companyIds.includes(att.companyId)) {
       throw new ForbiddenException('Sem acesso a esta empresa.');
+    }
+    // Mesma regra do upload: só o dono do documento (ou ADMIN) remove, e
+    // apenas enquanto o documento está em criação/edição/revisão.
+    const parentRef = this.parentOfAttachment(att);
+    if (parentRef) {
+      const parent = await this.resolveParent(parentRef.kind, parentRef.id);
+      this.assertCanMutate(user, parentRef.kind, parent);
     }
     const abs = path.join(this.uploadRoot, att.storageKey);
     await this.prisma.attachment.delete({ where: { id: attachmentId } });

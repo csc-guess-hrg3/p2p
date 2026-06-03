@@ -67,3 +67,12 @@ backend/inspect-*.js
 backend/inspect-*.out
 backend/test-views-*.js
 backend/scripts/explore-*.js
+backend/scripts/erp-query.js
+backend/scripts/erp-objdef.js
+backend/scripts/hml-migrate.js
+# Probes/diagnósticos e dumps SQL ad-hoc (convenção: prefixo "_") — conectam
+# em banco e podem conter dados/credenciais; NUNCA versionar.
+backend/_*.js
+backend/_*.sql
+backend/scripts/_*.js
+backend/scripts/_*.sql

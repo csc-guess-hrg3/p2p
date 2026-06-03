@@ -7,7 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { QiveClientService } from '../integration/qive-client.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
-import { safeDbName } from '../common/erp/safe-db-name';
+import { safeDbName, safeErpDate } from '../common/erp/safe-db-name';
 
 /**
  * Tradução dos códigos Linx para descrição humana.
@@ -144,11 +144,16 @@ export class LegacyOrdersService {
     const pageSize = Math.min(Math.max(opts.pageSize ?? 50, 1), 200);
 
     const conds: string[] = ["c.TABELA_FILHA = 'COMPRAS_CONSUMIVEL'"];
-    if (opts.from) {
-      conds.push(`c.EMISSAO >= '${opts.from.slice(0, 10)}'`);
+    // Datas validadas contra ^YYYY-MM-DD$ antes de interpolar — qualquer
+    // valor fora do formato é descartado, evitando SQL injection via
+    // quebra do literal (ex.: from=`' OR 1=1--`). Ver safeErpDate.
+    const fromDate = safeErpDate(opts.from);
+    if (fromDate) {
+      conds.push(`c.EMISSAO >= '${fromDate}'`);
     }
-    if (opts.to) {
-      conds.push(`c.EMISSAO < DATEADD(day, 1, '${opts.to.slice(0, 10)}')`);
+    const toDate = safeErpDate(opts.to);
+    if (toDate) {
+      conds.push(`c.EMISSAO < DATEADD(day, 1, '${toDate}')`);
     }
     if (opts.search) {
       // Sanitização leve — só letras/dígitos/espaço/.-/

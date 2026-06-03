@@ -536,6 +536,19 @@ export class RequisitionsService {
     return { data, total, skip, take };
   }
 
+  /**
+   * Garante que um não-admin só acesse recursos da própria equipe.
+   * Espelha o filtro `teamId: user.teamId` aplicado em findAll, para que
+   * listagem e detalhe/clone tenham o MESMO escopo de visibilidade.
+   * ADMIN passa sempre.
+   */
+  private assertSameTeam(user: AuthenticatedUser, teamId: string | null) {
+    if (user.profile === UserProfile.ADMIN) return;
+    if (teamId !== user.teamId) {
+      throw new ForbiddenException('Sem acesso a esta requisição.');
+    }
+  }
+
   /** Detalhe de uma requisição. */
   async findOne(user: AuthenticatedUser, id: string) {
     const req = await this.prisma.requisition.findUnique({
@@ -575,6 +588,10 @@ export class RequisitionsService {
     if (!user.companyIds.includes(req.companyId)) {
       throw new ForbiddenException('Sem acesso a esta requisição.');
     }
+    // Escopo por equipe: espelha o filtro de findAll. Não-admin só
+    // acessa o detalhe de requisições da própria equipe — sem isto, a
+    // listagem filtra por equipe mas o GET :id vazava (IDOR de equipe).
+    this.assertSameTeam(user, req.teamId);
 
     // Pendências fiscais que afetam ESTA requisição. O modelo
     // FiscalItemRequest é por (supplier + item), não tem FK pra req.
@@ -657,20 +674,14 @@ export class RequisitionsService {
     if (req.requesterId !== user.id && user.profile !== UserProfile.ADMIN) {
       throw new ForbiddenException('Só o solicitante pode editar.');
     }
-    // RN: edição feita pelo próprio requisitante exige motivo SOMENTE
-    // quando a req já foi submetida e voltou pra revisão. Em DRAFT
-    // (rascunho), não há nada pra justificar — a req ainda nem foi
-    // vista pelo aprovador. Antes o backend exigia motivo SEMPRE, o
-    // que fazia o fluxo "Salvar e enviar para aprovação" quebrar com
-    // "Informe o motivo da edição".
-    const isSelfEdit = req.requesterId === user.id;
-    const needsAuditReason = req.status === RequisitionStatus.REVISION;
+    // O motivo da edição é OPCIONAL. Quando o aprovador devolve a req pra
+    // revisão, o solicitante só está cumprindo o que foi pedido (anexar
+    // cotações, corrigir um item etc.) — forçá-lo a justificar a própria
+    // edição é fricção desnecessária, já que o motivo da DEVOLUÇÃO já fica
+    // registrado pelo aprovador. Se vier um motivo no DTO, é gravado em
+    // lastEditReason (abaixo) pra trilha de auditoria; se não vier, segue
+    // sem bloquear — vale pra DRAFT, IN_APPROVAL e REVISION.
     const reason = (dto.editReason ?? '').trim();
-    if (isSelfEdit && needsAuditReason && reason.length < 5) {
-      throw new BadRequestException(
-        'Informe o motivo da edição (mínimo 5 caracteres).',
-      );
-    }
 
     const company = await this.resolveCompany(user, req.companyId);
     const data: Prisma.RequisitionUpdateInput = {};
@@ -1290,6 +1301,9 @@ export class RequisitionsService {
     if (!user.companyIds.includes(src.companyId)) {
       throw new ForbiddenException('Sem acesso a esta empresa.');
     }
+    // Mesmo escopo por equipe do findOne — não-admin não clona
+    // requisição de outra equipe (copiaria itens/rateios/justificativa).
+    this.assertSameTeam(user, src.teamId);
     const number = await this.numbering.next(src.company.code, 'REQ');
     const stamp = new Date().toLocaleDateString('pt-BR');
     const created = await this.prisma.requisition.create({

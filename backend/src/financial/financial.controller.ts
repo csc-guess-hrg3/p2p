@@ -2,6 +2,9 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FinancialService } from './financial.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { UserProfile } from '../common/enums';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
 
@@ -21,7 +24,8 @@ import type { AuthenticatedUser } from '../auth/auth.types';
  */
 @ApiTags('Financeiro')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserProfile.ADMIN)
 @Controller('financial')
 export class FinancialController {
   constructor(private readonly financial: FinancialService) {}

@@ -37,3 +37,16 @@ export function isErpDbAllowed(name: string): boolean {
 export function listAllowedErpDbs(): readonly string[] {
   return [...ALLOWED_ERP_DBS];
 }
+
+/**
+ * Valida uma data destinada a interpolação direta em literal SQL
+ * (`'${data}'`). Só aceita o formato ISO `YYYY-MM-DD`; qualquer outra
+ * coisa vira `null`. Isso impede SQL injection via filtros de data
+ * (uma aspa simples nos primeiros chars quebraria o literal). Use
+ * SEMPRE que uma data vinda do usuário for interpolada num
+ * `$queryRawUnsafe`.
+ */
+export function safeErpDate(s?: string | null): string | null {
+  if (!s) return null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}
