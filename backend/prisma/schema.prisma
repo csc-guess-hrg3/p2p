@@ -811,6 +811,15 @@ model PurchaseOrder {
   erpStagingId     String?   @unique @db.NVarChar(50) // idempotência no envio ao ERP
   pendingErpSince  DateTime?
   integratedAt     DateTime?
+  // ── Sync-back financeiro (mão de volta do ERP) ──
+  // Eixo ORTOGONAL ao `status` operacional (recebimento). Preenchido pelo
+  // erp-back-sync a partir das entradas de NF (ENTRADAS) + saldo do título
+  // (W_CTB_A_PAGAR_PARCELA_SALDO) no Linx. Fecha "até a conciliação do
+  // pagamento" do PRD §11.
+  financialStatus   String    @default("PENDENTE") @db.NVarChar(20) // PENDENTE | FATURADO | PARCIALMENTE_PAGO | PAGO
+  invoicedAt        DateTime? // 1ª entrada de NF contra o pedido (Faturado)
+  paidAt            DateTime? // saldo do(s) título(s) zerou (Pago)
+  financialSyncedAt DateTime? // última verificação do back-sync financeiro
   submittedAt      DateTime?
   approvedAt       DateTime?
   sentToSupplierAt DateTime?
@@ -920,6 +929,12 @@ model FundRequest {
   erpStagingId    String?   @unique @db.NVarChar(50)
   pendingErpSince DateTime?
   integratedAt    DateTime?
+  // ── Sync-back financeiro (compensação/pagamento do adiantamento) ──
+  // Preenchido pelo erp-back-sync a partir do saldo da SV no Linx
+  // (W_CTB_SOLICITACAO_VERBA_SALDO.VALOR_A_PAGAR ≤ 0 = compensado/pago).
+  financialStatus   String    @default("PENDENTE") @db.NVarChar(20) // PENDENTE | PARCIALMENTE_PAGO | PAGO
+  paidAt            DateTime? // saldo da SV zerou (adiantamento compensado/pago)
+  financialSyncedAt DateTime?
   // Última mensagem de erro na tentativa de gravação no Linx. Limpado
   // automaticamente quando a integração tem sucesso. Permite que a UI
   // mostre "Falha na integração" com tooltip em vez de só "—" silencioso
