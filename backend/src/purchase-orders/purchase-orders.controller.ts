@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Logger,
   Param,
   Post,
   Query,
@@ -30,6 +31,8 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 @UseGuards(JwtAuthGuard)
 @Controller('purchase-orders')
 export class PurchaseOrdersController {
+  private readonly logger = new Logger(PurchaseOrdersController.name);
+
   constructor(
     private readonly purchaseOrders: PurchaseOrdersService,
     private readonly historyService: PurchaseOrderHistoryService,
@@ -103,8 +106,13 @@ export class PurchaseOrdersController {
     if (user.profile !== 'ADMIN') {
       throw new ForbiddenException('Só Admin pode disparar o back-sync.');
     }
-    // Não awaita — devolve imediatamente e roda async.
-    void this.erpBackSync.syncAll();
+    // Não awaita — devolve imediatamente e roda async. O .catch evita
+    // unhandled rejection se o back-sync falhar (audit B12).
+    void this.erpBackSync.syncAll().catch((err) => {
+      this.logger.error(
+        `Falha no back-sync disparado manualmente: ${(err as Error)?.message ?? err}`,
+      );
+    });
     return { ok: true, message: 'Back-sync disparado. Veja o log do servidor.' };
   }
 

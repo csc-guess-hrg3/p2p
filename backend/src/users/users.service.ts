@@ -37,6 +37,8 @@ export class UsersService {
         skip,
         take,
         orderBy: { name: 'asc' },
+        // Nunca serializar o hash de senha (audit B9).
+        omit: { passwordHash: true },
         include: { companies: { include: { company: true } } },
       }),
       this.prisma.user.count({ where }),
@@ -49,6 +51,8 @@ export class UsersService {
   async findOne(id: string) {
     const user = await this.prisma.user.findUnique({
       where: { id },
+      // Nunca serializar o hash de senha (audit B9).
+      omit: { passwordHash: true },
       include: {
         companies: { include: { company: true } },
         team: { select: { id: true, name: true } },
