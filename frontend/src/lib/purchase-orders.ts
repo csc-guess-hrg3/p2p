@@ -162,6 +162,44 @@ export function useTriggerErpBackSync() {
   });
 }
 
+/**
+ * Read-through do estado FINANCEIRO do PC no Linx (a "mão de volta" do
+ * pagamento — PRD §11): faturado/pago + títulos vinculados. Sob demanda,
+ * não persiste nada no P2P.
+ */
+export interface FinanceiroErpTitulo {
+  nf: string | null;
+  serie: string | null;
+  chaveNfe: string | null;
+  lancamento: number | null;
+  dataEntrada: string | null;
+  vencimento: string | null;
+  saldo: number;
+  parcelas: number;
+  pago: boolean;
+}
+export interface FinanceiroErp {
+  faturado: boolean;
+  primeiraEntradaEm: string | null;
+  totalSaldo: number;
+  pago: boolean;
+  titulos: FinanceiroErpTitulo[];
+}
+
+export function usePurchaseOrderFinanceiroErp(
+  id: string | undefined,
+  enabled = false,
+) {
+  return useQuery({
+    queryKey: ['purchase-order-financeiro-erp', id],
+    queryFn: async () =>
+      (await api.get<FinanceiroErp>(`/purchase-orders/${id}/financeiro-erp`))
+        .data,
+    enabled: !!id && enabled,
+    staleTime: 0,
+  });
+}
+
 export function useConvertToPurchaseOrder() {
   const qc = useQueryClient();
   return useMutation({

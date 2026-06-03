@@ -146,6 +146,106 @@ export class ErpBackSyncService {
     };
   }
 
+  /**
+   * Read-through do estado FINANCEIRO de um PC no Linx — a "mão de volta"
+   * do pagamento (PRD §11). SOMENTE LEITURA, sob demanda: não persiste
+   * nada, só consulta e devolve. A UI do detalhe do PC mostra Faturado/
+   * Pago + os títulos vinculados.
+   *
+   * Cadeia: COMPRAS.PEDIDO → ENTRADAS_ITEM.REFERENCIA_PEDIDO → ENTRADAS
+   * (CTB_LANCAMENTO = título) → W_CTB_A_PAGAR_PARCELA(_SALDO). Faturado =
+   * existe NF entrada; Pago = saldo do(s) título(s) ≤ 0.
+   */
+  async readFinanceiroByPedido(
+    erpDbName: string,
+    erpPedido: string,
+  ): Promise<{
+    faturado: boolean;
+    primeiraEntradaEm: Date | null;
+    totalSaldo: number;
+    pago: boolean;
+    titulos: Array<{
+      nf: string | null;
+      serie: string | null;
+      chaveNfe: string | null;
+      lancamento: number | null;
+      dataEntrada: Date | null;
+      vencimento: Date | null;
+      saldo: number;
+      parcelas: number;
+      pago: boolean;
+    }>;
+  }> {
+    const db = safeDbName(erpDbName);
+    const pedido = erpPedido.replace(/[^0-9A-Za-z]/g, '').slice(0, 20);
+    const rows = await this.prisma.$queryRawUnsafe<
+      Array<{
+        nf: string | null;
+        serie: string | null;
+        chave: string | null;
+        lancamento: number | null;
+        data_entrada: Date | null;
+        vencimento: Date | null;
+        saldo: number | null;
+        parcelas: number | null;
+      }>
+    >(
+      `SELECT
+          RTRIM(ei.NF_ENTRADA)        AS nf,
+          RTRIM(e.SERIE_NF_ENTRADA)   AS serie,
+          e.CHAVE_NFE                 AS chave,
+          e.CTB_LANCAMENTO            AS lancamento,
+          MIN(e.RECEBIMENTO)          AS data_entrada,
+          ISNULL((SELECT SUM(ps.SALDO_PRINCIPAL_DEVIDO)
+                    FROM [${db}].dbo.W_CTB_A_PAGAR_PARCELA_SALDO ps WITH (NOLOCK)
+                   WHERE ps.LANCAMENTO = e.CTB_LANCAMENTO), 0) AS saldo,
+          (SELECT MAX(p.VENCIMENTO_REAL)
+             FROM [${db}].dbo.W_CTB_A_PAGAR_PARCELA p WITH (NOLOCK)
+            WHERE p.LANCAMENTO = e.CTB_LANCAMENTO) AS vencimento,
+          (SELECT COUNT(*)
+             FROM [${db}].dbo.W_CTB_A_PAGAR_PARCELA p2 WITH (NOLOCK)
+            WHERE p2.LANCAMENTO = e.CTB_LANCAMENTO) AS parcelas
+         FROM [${db}].dbo.ENTRADAS_ITEM ei WITH (NOLOCK)
+         JOIN [${db}].dbo.ENTRADAS e WITH (NOLOCK)
+           ON e.NF_ENTRADA = ei.NF_ENTRADA
+          AND e.SERIE_NF_ENTRADA = ei.SERIE_NF_ENTRADA
+          AND e.NOME_CLIFOR = ei.NOME_CLIFOR
+        WHERE RTRIM(ei.REFERENCIA_PEDIDO) = '${pedido}'
+        GROUP BY RTRIM(ei.NF_ENTRADA), RTRIM(e.SERIE_NF_ENTRADA),
+                 e.CHAVE_NFE, e.CTB_LANCAMENTO`,
+    );
+
+    const titulos = rows.map((r) => {
+      const saldo = Number(r.saldo ?? 0);
+      const parcelas = Number(r.parcelas ?? 0);
+      return {
+        nf: r.nf,
+        serie: r.serie,
+        chaveNfe: r.chave,
+        lancamento: r.lancamento,
+        dataEntrada: r.data_entrada,
+        vencimento: r.vencimento,
+        saldo,
+        parcelas,
+        // só considera "pago" um título que de fato existe (tem parcela).
+        pago: parcelas > 0 && saldo <= 0,
+      };
+    });
+    const comTitulo = titulos.filter((t) => t.parcelas > 0);
+    const totalSaldo = comTitulo.reduce((s, t) => s + t.saldo, 0);
+    const datas = titulos
+      .map((t) => t.dataEntrada)
+      .filter((d): d is Date => !!d)
+      .sort((a, b) => a.getTime() - b.getTime());
+    return {
+      faturado: titulos.length > 0,
+      primeiraEntradaEm: datas[0] ?? null,
+      totalSaldo,
+      pago: comTitulo.length > 0 && totalSaldo <= 0,
+      titulos,
+    };
+  }
+
   @Cron(CronExpression.EVERY_30_MINUTES, { name: 'erp-back-sync' })
   async syncAll(): Promise<void> {
     const started = Date.now();

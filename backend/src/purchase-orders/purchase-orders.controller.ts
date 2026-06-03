@@ -96,6 +96,32 @@ export class PurchaseOrdersController {
     );
   }
 
+  @Get(':id/financeiro-erp')
+  @ApiOperation({
+    summary:
+      'Read-through do estado FINANCEIRO do PC no Linx (a "mão de volta" ' +
+      'do pagamento — PRD §11): faturado (entrou NF), título(s) vinculados ' +
+      'com vencimento/saldo e se está pago. Somente leitura, sob demanda.',
+  })
+  async financeiroErp(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    const po = await this.purchaseOrders.findOne(user, id);
+    if (!po.erpPedido) {
+      throw new NotFoundException(
+        'PC sem número no Linx — ainda não foi integrado.',
+      );
+    }
+    const company = await this.prisma.company.findUniqueOrThrow({
+      where: { id: po.companyId },
+    });
+    return this.erpBackSync.readFinanceiroByPedido(
+      company.erpDbName,
+      po.erpPedido,
+    );
+  }
+
   @Post('admin/erp-back-sync')
   @ApiOperation({
     summary:

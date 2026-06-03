@@ -20,6 +20,7 @@ import { CancelItemsDialog } from './CancelItemsDialog';
 import { EditPoDialog } from './EditPoDialog';
 import { AttachmentsSection } from '@/components/AttachmentsSection';
 import { PoFiscalDocumentsCard } from './PoFiscalDocumentsCard';
+import { PoFinanceiroCard } from './PoFinanceiroCard';
 import { useAuth } from '@/lib/auth';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
@@ -356,6 +357,8 @@ export function PurchaseOrderDetailPage() {
       </Card>
 
       <PoFiscalDocumentsCard purchaseOrderId={po.id} />
+
+      {po.erpPedido && <PoFinanceiroCard purchaseOrderId={po.id} />}
 
       {/*
         Card "Estado atual no Linx" foi MOVIDO pra tela de Recebimento.
