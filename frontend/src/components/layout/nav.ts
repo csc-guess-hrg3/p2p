@@ -229,7 +229,7 @@ export const NAV_SECTIONS: NavSection[] = [
     entries: [
       {
         to: '/legacy-orders',
-        label: 'Pedidos do Linx',
+        label: 'Pedidos externos',
         icon: ShoppingCart,
         roles: ['ADMIN'],
       },

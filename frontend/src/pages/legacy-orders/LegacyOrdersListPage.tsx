@@ -195,11 +195,12 @@ export function LegacyOrdersListPage() {
   return (
     <div className="space-y-4 p-6">
       <div>
-        <h1 className="text-2xl font-semibold">Pedidos do Linx</h1>
+        <h1 className="text-2xl font-semibold">Pedidos externos</h1>
         <p className="text-sm text-muted-foreground">
-          Pedidos de consumível que não foram feitos pelo P2P (BPM, Fusion
-          ou cadastro direto no Linx). Inclui pedidos ativos e fechados.
-          Tela só de consulta — empresa {activeCompany.code}.
+          Pedidos de consumível criados fora do P2P — direto no Linx (BPM,
+          Fusion ou cadastro manual). São pedidos Linx como os do P2P, só
+          muda a origem. Inclui ativos e fechados — empresa{' '}
+          {activeCompany.code}.
         </p>
       </div>
 

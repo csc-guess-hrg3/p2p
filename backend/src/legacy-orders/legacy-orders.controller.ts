@@ -85,6 +85,20 @@ export class LegacyOrdersController {
     return this.legacyOrders.detail(user, companyId, pedido);
   }
 
+  @Get(':companyId/:pedido/financeiro-erp')
+  @ApiOperation({
+    summary:
+      'Estado financeiro do pedido externo no Linx (faturado/pago) — mesmo ' +
+      'read-through dos pedidos do P2P. Somente leitura.',
+  })
+  financeiro(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('companyId') companyId: string,
+    @Param('pedido') pedido: string,
+  ) {
+    return this.legacyOrders.financeiro(user, companyId, pedido);
+  }
+
   @Get(':companyId/:pedido/nfes')
   @ApiOperation({ summary: 'NFes (ENTRADAS) vinculadas ao pedido' })
   nfes(

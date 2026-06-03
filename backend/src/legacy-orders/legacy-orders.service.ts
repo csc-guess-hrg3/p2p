@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { QiveClientService } from '../integration/qive-client.service';
+import { ErpBackSyncService } from '../integration/erp-back-sync.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { safeDbName, safeErpDate } from '../common/erp/safe-db-name';
 
@@ -83,7 +84,23 @@ export class LegacyOrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly qive: QiveClientService,
+    private readonly erpBackSync: ErpBackSyncService,
   ) {}
+
+  /**
+   * Estado financeiro do pedido (faturado/pago) — mesmo read-through dos
+   * pedidos do P2P (PRD §11). Pedido externo é um COMPRAS como qualquer
+   * outro; só muda a origem. Reusa ErpBackSync.readFinanceiroByPedido.
+   */
+  async financeiro(
+    user: AuthenticatedUser,
+    companyId: string,
+    pedido: string,
+  ) {
+    this.requireAdmin(user);
+    const company = await this.resolveCompany(companyId);
+    return this.erpBackSync.readFinanceiroByPedido(company.erpDbName, pedido);
+  }
 
   private requireAdmin(user: AuthenticatedUser) {
     if (user.profile !== 'ADMIN') {

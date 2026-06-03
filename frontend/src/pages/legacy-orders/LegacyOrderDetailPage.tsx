@@ -3,9 +3,11 @@ import { ArrowLeft, CloudDownload, Download, ExternalLink } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   useLegacyOrder,
+  useLegacyOrderFinanceiroErp,
   downloadLegacyDanfe,
   type LegacyOrderNfe,
 } from '@/lib/legacy-orders';
+import { FinanceiroErpCard } from '@/pages/purchase-orders/PoFinanceiroCard';
 import {
   downloadFiscalXml,
   downloadFiscalDanfe,
@@ -33,6 +35,7 @@ export function LegacyOrderDetailPage() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const { data, isLoading, error } = useLegacyOrder(companyId, pedido);
+  const fin = useLegacyOrderFinanceiroErp(companyId, pedido);
   const fetchByChave = useFetchFiscalByChave();
 
   async function handleFetchFromQive(chave: string) {
@@ -310,6 +313,13 @@ export function LegacyOrderDetailPage() {
           </Table>
         )}
       </div>
+
+      <FinanceiroErpCard
+        data={fin.data}
+        isLoading={fin.isLoading}
+        isFetching={fin.isFetching}
+        onRefresh={() => fin.refetch()}
+      />
     </div>
   );
 }

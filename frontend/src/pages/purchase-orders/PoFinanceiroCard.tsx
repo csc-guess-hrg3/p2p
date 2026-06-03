@@ -1,5 +1,8 @@
 import { Banknote, CheckCircle2, Clock, RefreshCw } from 'lucide-react';
-import { usePurchaseOrderFinanceiroErp } from '@/lib/purchase-orders';
+import {
+  usePurchaseOrderFinanceiroErp,
+  type FinanceiroErp,
+} from '@/lib/purchase-orders';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,6 +19,8 @@ import {
  * "Mão de volta" do pagamento (PRD §11): mostra, lido do Linx em tempo
  * real, se o pedido foi faturado (entrou NF) e se o(s) título(s) foram
  * pagos. Somente leitura — não persiste nada no P2P.
+ *
+ * Wrapper para pedido do P2P (busca pelo id da PO).
  */
 export function PoFinanceiroCard({
   purchaseOrderId,
@@ -26,7 +31,31 @@ export function PoFinanceiroCard({
     purchaseOrderId,
     true,
   );
+  return (
+    <FinanceiroErpCard
+      data={data}
+      isLoading={isLoading}
+      isFetching={isFetching}
+      onRefresh={() => refetch()}
+    />
+  );
+}
 
+/**
+ * Card genérico — recebe os dados já carregados. Reusado pelo pedido do
+ * P2P e pelo pedido externo (legacy/Linx). Mesmo tratamento pra todos.
+ */
+export function FinanceiroErpCard({
+  data,
+  isLoading,
+  isFetching,
+  onRefresh,
+}: {
+  data: FinanceiroErp | undefined;
+  isLoading: boolean;
+  isFetching: boolean;
+  onRefresh: () => void;
+}) {
   const status = !data
     ? null
     : data.pago
@@ -54,7 +83,7 @@ export function PoFinanceiroCard({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => refetch()}
+            onClick={onRefresh}
             disabled={isFetching}
             title="Reconsultar o estado financeiro no Linx"
           >

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from './api';
+import type { FinanceiroErp } from './purchase-orders';
 
 /**
  * Cliente do módulo Pedidos Legados — pedidos consumível direto do Linx.
@@ -152,6 +153,27 @@ export function useLegacyOrder(
       (
         await api.get<LegacyOrderDetail>(
           `/legacy-orders/${companyId}/${pedido}`,
+        )
+      ).data,
+  });
+}
+
+/**
+ * Estado financeiro do pedido externo no Linx (faturado/pago) — mesmo
+ * read-through dos pedidos do P2P. Reusa o tipo FinanceiroErp.
+ */
+export function useLegacyOrderFinanceiroErp(
+  companyId: string | null | undefined,
+  pedido: string | null | undefined,
+) {
+  return useQuery({
+    queryKey: ['legacy-order-financeiro', companyId, pedido],
+    enabled: !!companyId && !!pedido,
+    staleTime: 0,
+    queryFn: async () =>
+      (
+        await api.get<FinanceiroErp>(
+          `/legacy-orders/${companyId}/${pedido}/financeiro-erp`,
         )
       ).data,
   });
