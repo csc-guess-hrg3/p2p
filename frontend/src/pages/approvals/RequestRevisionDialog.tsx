@@ -54,9 +54,8 @@ export function RequestRevisionDialog({ step, onClose, waiver }: Props) {
   useEffect(() => {
     if (mode === 'waiver-rejected' && waiver) {
       setReason(
-        `Dispensa de cotação NÃO aceita. Motivo apresentado pelo solicitante: ` +
-          `${QUOTATION_WAIVER_LABELS[waiver.reason]}. ` +
-          `Por favor, anexe as 3 cotações exigidas pela política antes de re-submeter.`,
+        `Dispensa de cotação não aceita. Por favor, anexe as 3 cotações ` +
+          `exigidas pela política antes de re-submeter.`,
       );
     } else if (mode === 'other') {
       setReason('');

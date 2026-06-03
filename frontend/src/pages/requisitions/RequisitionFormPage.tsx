@@ -7,12 +7,13 @@ import { isAxiosError } from 'axios';
 import { extractApiMessage } from '@/lib/api-errors';
 import { Copy, Info, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useCompany } from '@/lib/company';
-import { useBranches, useComprasTipos, usePaymentConditions } from '@/lib/integration';
+import { useBranches, usePaymentConditions } from '@/lib/integration';
 import {
   useRequisition,
   useCreateRequisition,
   useUpdateRequisition,
   useSubmitRequisition,
+  useResubmitRequisition,
   useClearQuotationWaiver,
   type RequisitionInput,
   type RequisitionItemForm,
@@ -53,7 +54,6 @@ import { ItemDialog } from './ItemDialog';
 import { SupplierPicker, type SupplierPickerValue } from './SupplierPicker';
 import { InlineQuotationsAndAttachments } from './InlineQuotationsAndAttachments';
 import { AttachmentsSection } from '@/components/AttachmentsSection';
-import { EditReasonDialog } from '@/components/EditReasonDialog';
 import { useToast } from '@/components/ui/use-toast';
 
 const schema = z
@@ -108,12 +108,12 @@ export function RequisitionFormPage() {
 
   const branches = useBranches(code);
   const paymentConditions = usePaymentConditions(code);
-  const comprasTipos = useComprasTipos(code);
   const existing = useRequisition(isEdit ? id : undefined);
   const createMut = useCreateRequisition();
   const updateMut = useUpdateRequisition();
   const clearWaiverMut = useClearQuotationWaiver(id);
   const submitMut = useSubmitRequisition();
+  const resubmitMut = useResubmitRequisition();
   const fiscalMut = useCreateFiscalItemRequest();
   // Quando o usuário clica em "Salvar e enviar para aprovação", marcamos
   // esse flag pra que o `persist` chame o submit logo após criar/atualizar
@@ -142,10 +142,6 @@ export function RequisitionFormPage() {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [dialogInitial, setDialogInitial] =
     useState<RequisitionItemForm | null>(null);
-  // Em edição, o backend exige motivo (mín. 5 chars). Guardamos o DTO
-  // pronto e abrimos um diálogo dedicado pra coletar o motivo.
-  const [pendingDto, setPendingDto] = useState<RequisitionInput | null>(null);
-  const [reasonOpen, setReasonOpen] = useState(false);
   // Bumpado ao final do reset de edição. Usado como `key` nas selects
   // ligadas a listas do ERP (Filial, Condição de pagamento, Tipo de compra)
   // pra forçar um remount LIMPO depois que o valor já está no form e as
@@ -177,7 +173,14 @@ export function RequisitionFormPage() {
       recurrenceMonths: '',
       contractRef: '',
       justification: '',
-      tipoCompra: '',
+      // Paliativo: o tipo de compra do P2P é fixo em "COMPRAS P2P" — esse é
+      // o TIPO_COMPRA criado na COMPRAS_TIPOS do Linx (AE_DOCUMENTO=P2P,
+      // INDICA_COMPRA_CONSUMO=1, sem "controla assinatura"/"controla alçada").
+      // O valor TEM que bater exatamente com a tabela, senão a gravação do
+      // Pedido de Compra no ERP falha. O campo foi ocultado da UI — toda
+      // requisição nasce classificada como COMPRAS P2P, satisfaz a validação
+      // do conversor e grava TIPO_COMPRA=COMPRAS P2P sem o solicitante escolher.
+      tipoCompra: 'COMPRAS P2P',
     },
   });
 
@@ -232,7 +235,9 @@ export function RequisitionFormPage() {
         : '',
       contractRef: r.contractRef ?? '',
       justification: r.justification ?? '',
-      tipoCompra: r.tipoCompra ?? '',
+      // Paliativo: campo oculto, fixado em "COMPRAS P2P" (ver defaultValues).
+      // Requisições antigas sem tipoCompra também passam a valer como COMPRAS P2P.
+      tipoCompra: r.tipoCompra || 'COMPRAS P2P',
     });
     setSupplier({
       supplierErpCode: r.supplierErpCode ?? '',
@@ -258,6 +263,16 @@ export function RequisitionFormPage() {
     // (ver comentário em `resetNonce`). Roda DEPOIS do reset acima.
     setResetNonce((n) => n + 1);
   }, [existing.data, reset, branches.data, paymentConditions.data]);
+
+  // Abre o diálogo de dispensa logo após o auto-save de uma req nova. O
+  // QuotationWaiverDialog só monta quando `existing.data` do id recém-criado
+  // carrega — então esperamos por ele aqui em vez de um setTimeout no persist.
+  useEffect(() => {
+    if (openWaiverAfterSave && isEdit && id && existing.data) {
+      setWaiverOpen(true);
+      setOpenWaiverAfterSave(false);
+    }
+  }, [openWaiverAfterSave, isEdit, id, existing.data]);
 
   // Edição liberada em DRAFT (rascunho) e REVISION (devolvida pra ajuste).
   // A tela de detalhe usa o mesmo critério (canEdit = isDraft || isRevision)
@@ -435,16 +450,10 @@ export function RequisitionFormPage() {
         notes: it.notes,
       })),
     };
-    // Diálogo de "Motivo da edição" só faz sentido quando a requisição
-    // JÁ foi submetida pra aprovação e voltou pra revisão — aí mexer no
-    // conteúdo deixa rastro pro aprovador. Em DRAFT (rascunho), o usuário
-    // está só montando a requisição, não tem o que justificar.
-    const needsEditReason = isEdit && existing.data?.status === 'REVISION';
-    if (needsEditReason) {
-      setPendingDto(dto);
-      setReasonOpen(true);
-      return;
-    }
+    // Reenvio após revisão NÃO pede mais "motivo da edição": o solicitante
+    // está só cumprindo o que o aprovador pediu (anexar cotações, corrigir
+    // item etc.). O motivo da devolução já está registrado. Salva e reenvia
+    // direto — o backend reinicia o fluxo de aprovação (reapprove).
     await persist(dto, values.supplierErpCode);
   }
 
@@ -452,12 +461,18 @@ export function RequisitionFormPage() {
   async function persist(dto: RequisitionInput, supplierErpCode: string) {
     if (!activeCompany) return;
     try {
-      // Em UPDATE, o backend rejeita campos não-whitelisted (companyId
-      // e tipoNotaFiscal não estão em UpdateRequisitionDto — são imutáveis
-      // após criação). Tira eles do payload pra não estourar 400
-      // "property X should not exist" pro usuário.
-      const { companyId: _companyId, tipoNotaFiscal: _tipoNF, ...updatable } =
-        dto;
+      // Em UPDATE, o backend rejeita campos não-whitelisted (companyId,
+      // tipoNotaFiscal e tipoCompra não estão em UpdateRequisitionDto —
+      // são imutáveis após criação). Tira eles do payload pra não estourar
+      // 400 "property X should not exist" pro usuário. O tipoCompra
+      // ("COMPRAS P2P") já foi gravado no create e é fixo/oculto, então
+      // nunca precisa ir num update.
+      const {
+        companyId: _companyId,
+        tipoNotaFiscal: _tipoNF,
+        tipoCompra: _tipoCompra,
+        ...updatable
+      } = dto;
       const saved = isEdit
         ? await updateMut.mutateAsync({ id: id!, dto: updatable })
         : await createMut.mutateAsync(dto);
@@ -484,13 +499,14 @@ export function RequisitionFormPage() {
           variant: 'destructive',
         });
       }
-      // Se o usuário pediu "Solicitar dispensa" numa req nova, abrimos o
-      // diálogo logo após salvar (agora já temos `id` no `saved.id`).
+      // Se o usuário pediu "Solicitar dispensa" numa req nova, navegamos pro
+      // modo edição e deixamos o flag `openWaiverAfterSave` ligado — um efeito
+      // abre o diálogo assim que `existing.data` do novo id terminar de
+      // carregar. (Antes era um setTimeout(50ms) frágil: no share lento os
+      // dados ainda não tinham chegado, o QuotationWaiverDialog nem estava
+      // montado, e o usuário precisava clicar duas vezes.)
       if (openWaiverAfterSave) {
-        setOpenWaiverAfterSave(false);
         navigate(`/requisicoes/${saved.id}/editar`, { replace: !isEdit });
-        // Pequeno timeout pra dar tempo da rota mudar antes do dialog abrir.
-        setTimeout(() => setWaiverOpen(true), 50);
         return;
       }
       // Se o usuário clicou em "Salvar e enviar para aprovação", submete
@@ -498,9 +514,20 @@ export function RequisitionFormPage() {
       // pra update — o solicitante não precisa sair do form pra submeter.
       if (submitAfterSave) {
         try {
-          await submitMut.mutateAsync(saved.id);
+          // Requisição DEVOLVIDA (REVISION) usa /resubmit (reinicia a
+          // cadeia); rascunho novo usa /submit. Antes chamava sempre
+          // /submit, e o backend recusava a REVISION com "Apenas
+          // requisições em rascunho podem ser submetidas".
+          const isRevisionResend = existing.data?.status === 'REVISION';
+          if (isRevisionResend) {
+            await resubmitMut.mutateAsync(saved.id);
+          } else {
+            await submitMut.mutateAsync(saved.id);
+          }
           toast({
-            title: 'Requisição enviada para aprovação',
+            title: isRevisionResend
+              ? 'Requisição reenviada para aprovação'
+              : 'Requisição enviada para aprovação',
             variant: 'success',
           });
           navigate(`/requisicoes/${saved.id}`, { replace: !isEdit });
@@ -755,45 +782,12 @@ export function RequisitionFormPage() {
             <FieldError msg={errors.paymentConditionCode?.message} />
           </div>
 
-          {/* Tipo de compra do Linx — vem de v_p2p_compras_tipos da empresa
-              ativa. Opcional pro solicitante (loose end 6.1 do SPEC):
-              quando não escolhe, o backend cai no default da empresa OU o
-              fiscal sobrescreve no FiscalClassifyDialog antes de converter. */}
-          <div className="space-y-1.5">
-            <Label>
-              Tipo de compra{' '}
-              <span className="text-muted-foreground">(opcional)</span>
-            </Label>
-            <Controller
-              control={control}
-              name="tipoCompra"
-              render={({ field }) => (
-                <Select
-                  key={`tipo-${resetNonce}`}
-                  value={field.value || ''}
-                  onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Padrão da empresa (definido pelo fiscal)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">
-                      Padrão (definido pelo fiscal)
-                    </SelectItem>
-                    {(comprasTipos.data ?? []).map((t) => (
-                      <SelectItem key={t.tipoCompra} value={t.tipoCompra}>
-                        {t.tipoCompra}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
-            <p className="text-xs text-muted-foreground">
-              Como esta compra deve ser classificada no ERP. Se não souber,
-              deixe em branco — o fiscal decide na revisão.
-            </p>
-          </div>
+          {/* Tipo de compra do Linx: OCULTO (paliativo). Fixado em "COMPRAS P2P"
+              no estado do form (ver defaultValues/reset) — valor exato da
+              COMPRAS_TIPOS do Linx (AE_DOCUMENTO=P2P), criado sem "controla
+              assinatura"/"controla alçada". Toda requisição segue por ele sem o
+              solicitante escolher. Para reativar a escolha, restaure o Select
+              aqui e o useComprasTipos. */}
 
           <div className="space-y-1.5">
             <Label htmlFor="contractRef">
@@ -1059,28 +1053,6 @@ export function RequisitionFormPage() {
         />
       )}
 
-      <EditReasonDialog
-        open={reasonOpen}
-        onOpenChange={(v) => {
-          setReasonOpen(v);
-          if (!v) setPendingDto(null);
-        }}
-        title="Motivo da edição"
-        description="A requisição volta para o fluxo de aprovação após salvar."
-        confirmLabel="Salvar e reenviar para aprovação"
-        pending={updateMut.isPending}
-        onConfirm={async (reason) => {
-          if (!pendingDto) return;
-          await persist(
-            { ...pendingDto, editReason: reason } as RequisitionInput & {
-              editReason?: string;
-            },
-            pendingDto.supplierErpCode,
-          );
-          setReasonOpen(false);
-          setPendingDto(null);
-        }}
-      />
     </form>
   );
 }
