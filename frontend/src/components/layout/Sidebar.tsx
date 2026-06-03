@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { ChevronDown, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
-  NAV_ITEMS,
+  NAV_SECTIONS,
   filterNavEntries,
   isNavGroup,
   type NavItem,
@@ -171,9 +171,14 @@ function NavGroupBlock({
 
 export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
   const { user } = useAuth();
-  const entries = filterNavEntries(NAV_ITEMS, user?.profile, {
-    extraModules: user?.extraModules,
-  });
+  // Filtra cada seção pelo perfil/módulos; seções que ficam vazias somem
+  // (ex.: a seção Administração não aparece para quem não é admin).
+  const sections = NAV_SECTIONS.map((s) => ({
+    heading: s.heading,
+    entries: filterNavEntries(s.entries, user?.profile, {
+      extraModules: user?.extraModules,
+    }),
+  })).filter((s) => s.entries.length > 0);
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() =>
     loadExpanded(),
@@ -226,21 +231,37 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
             <X className="size-5" />
           </button>
         </div>
-        <nav className="sidebar-scroll flex-1 space-y-1 overflow-y-auto px-3 py-2">
-          {entries.map((entry) =>
-            isNavGroup(entry) ? (
-              <NavGroupBlock
-                key={entry.key}
-                group={entry}
-                depth={0}
-                expandedMap={expanded}
-                onToggle={toggle}
-                badges={badges}
-              />
-            ) : (
-              <NavLeaf key={entry.to} item={entry} badges={badges} />
-            ),
-          )}
+        <nav className="sidebar-scroll flex-1 overflow-y-auto px-3 py-2">
+          {sections.map((section, idx) => (
+            <div
+              key={section.heading ?? `sec-${idx}`}
+              className={cn(
+                'space-y-1',
+                idx > 0 &&
+                  'mt-3 border-t border-sidebar-border/60 pt-3',
+              )}
+            >
+              {section.heading && (
+                <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">
+                  {section.heading}
+                </p>
+              )}
+              {section.entries.map((entry) =>
+                isNavGroup(entry) ? (
+                  <NavGroupBlock
+                    key={entry.key}
+                    group={entry}
+                    depth={0}
+                    expandedMap={expanded}
+                    onToggle={toggle}
+                    badges={badges}
+                  />
+                ) : (
+                  <NavLeaf key={entry.to} item={entry} badges={badges} />
+                ),
+              )}
+            </div>
+          ))}
         </nav>
         <div className="border-t border-sidebar-border px-6 py-4 text-xs text-sidebar-foreground/60">
           Procure-to-Pay · MVP

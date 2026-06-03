@@ -77,6 +77,17 @@ export interface NavGroup {
 /** Top-level pode ser item solto ou grupo. */
 export type NavEntry = NavItem | NavGroup;
 
+/**
+ * Seção da navegação — separa "Operação" (dia a dia) de "Administração"
+ * (governança), com um cabeçalho/divisor entre elas. Seções sem rótulo
+ * são o bloco principal; a seção de Administração só aparece para quem
+ * tem acesso aos seus itens (some inteira quando filtrada a vazio).
+ */
+export interface NavSection {
+  heading?: string;
+  entries: NavEntry[];
+}
+
 export function isNavGroup(entry: NavEntry): entry is NavGroup {
   return (entry as NavGroup).children !== undefined;
 }
@@ -89,7 +100,10 @@ const FISCAL: Profile[] = ['ADMIN', 'REVIEWER'];
 // Quem opera CP no dia a dia entra na equipe Financeiro.
 const FINANCE_ROLES: Profile[] = ['ADMIN'];
 
-export const NAV_ITEMS: NavEntry[] = [
+export const NAV_SECTIONS: NavSection[] = [
+  {
+    // ── Operação (dia a dia) — bloco principal, sem rótulo ──
+    entries: [
   { to: '/', label: 'Início', icon: LayoutDashboard, end: true, roles: ALL },
   { to: '/requisicoes', label: 'Requisições', icon: FileText, roles: ALL },
   {
@@ -207,14 +221,28 @@ export const NAV_ITEMS: NavEntry[] = [
     roles: ['ADMIN', 'MANAGER', 'REVIEWER'],
     module: 'REPORTS',
   },
-  {
-    to: '/legacy-orders',
-    label: 'Pedidos do Linx',
-    icon: ShoppingCart,
-    roles: ['ADMIN'],
+    ],
   },
-  { to: '/admin', label: 'Administração', icon: Settings, roles: ['ADMIN'] },
+  {
+    // ── Administração / Governança — separada da operação ──
+    heading: 'Administração',
+    entries: [
+      {
+        to: '/legacy-orders',
+        label: 'Pedidos do Linx',
+        icon: ShoppingCart,
+        roles: ['ADMIN'],
+      },
+      { to: '/admin', label: 'Administração', icon: Settings, roles: ['ADMIN'] },
+    ],
+  },
 ];
+
+/**
+ * Lista linear de todas as entradas (Topbar / paleta de comandos /
+ * breadcrumb). Derivada das seções para manter uma fonte única.
+ */
+export const NAV_ITEMS: NavEntry[] = NAV_SECTIONS.flatMap((s) => s.entries);
 
 /** Contexto extra de permissão derivado do usuário logado. */
 export interface NavAccess {
