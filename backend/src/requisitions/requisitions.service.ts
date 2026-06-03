@@ -1054,6 +1054,13 @@ export class RequisitionsService {
       );
     }
 
+    // Limpa qualquer cadeia órfã antes de gerar a nova (audit M13): se um
+    // submit anterior falhou DEPOIS do createMany dos steps mas ANTES do
+    // update do status, a requisição ficou DRAFT com steps PENDING órfãos;
+    // sem este reset, um novo submit DUPLICARIA a cadeia. Mesmo padrão
+    // defensivo já usado no fluxo de re-submissão (resubmit).
+    await this.approvals.resetForRequisition(req.id);
+
     const firstLevel = await this.approvals.startApproval({
       companyId: req.companyId,
       teamId: req.teamId,

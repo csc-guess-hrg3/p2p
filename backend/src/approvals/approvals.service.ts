@@ -313,20 +313,30 @@ export class ApprovalsService {
       );
     }
 
-    await this.prisma.approvalStep.update({
-      where: { id: stepId },
-      data: {
-        status: approved
-          ? ApprovalStepStatus.APPROVED
-          : ApprovalStepStatus.REJECTED,
-        decidedById: user.id,
-        decidedAt: new Date(),
-        comments: finalComments,
-      },
-    });
+    const stepDecision = {
+      status: approved
+        ? ApprovalStepStatus.APPROVED
+        : ApprovalStepStatus.REJECTED,
+      decidedById: user.id,
+      decidedAt: new Date(),
+      comments: finalComments,
+    };
 
     if (!approved) {
-      await this.updateEntityStatus(step, false, finalComments ?? undefined);
+      // Atomicidade (audit M12): marca o step e rejeita o documento numa
+      // única transação. Notificação fica fora (após o commit).
+      await this.prisma.$transaction(async (tx) => {
+        await tx.approvalStep.update({
+          where: { id: stepId },
+          data: stepDecision,
+        });
+        await this.writeEntityFinalStatus(
+          tx,
+          step,
+          false,
+          finalComments ?? undefined,
+        );
+      });
       const rejectedRequesterId = await this.engine.documentRequester(step);
       if (rejectedRequesterId) {
         const docNum = await this.engine.documentNumber(step);
@@ -349,6 +359,8 @@ export class ApprovalsService {
       return { result: 'REJECTED' as const };
     }
 
+    // Aprovação: o próximo nível pendente é uma leitura sobre OUTROS steps
+    // (não depende do update deste), então pode ser resolvida antes da tx.
     const next = await this.prisma.approvalStep.findFirst({
       where: {
         ...filter,
@@ -359,6 +371,15 @@ export class ApprovalsService {
     });
 
     if (next) {
+      // Nível intermediário aprovado: marca o step e avança o nível
+      // corrente do documento atomicamente (audit M12).
+      await this.prisma.$transaction(async (tx) => {
+        await tx.approvalStep.update({
+          where: { id: stepId },
+          data: stepDecision,
+        });
+        await this.updateEntityCurrentLevel(tx, step, next.level);
+      });
       // Notificação só pra aprovador fixo. Pra dinâmico (sem assignedApproverId)
       // precisaríamos resolver os candidatos (Fase 1.5): por ora ficam só
       // visíveis na lista do `/aprovacoes` de quem tiver perfil compatível.
@@ -373,11 +394,21 @@ export class ApprovalsService {
           await this.engine.documentNumber(step),
         );
       }
-      await this.updateEntityCurrentLevel(step, next.level);
       return { result: 'PENDING' as const, nextLevel: next.level };
     }
 
-    await this.updateEntityStatus(step, true);
+    // Aprovação final: marca o step e aprova o documento atomicamente.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.approvalStep.update({
+        where: { id: stepId },
+        data: stepDecision,
+      });
+      await this.writeEntityFinalStatus(tx, step, true);
+    });
+    // Efeitos no ERP (cadastro de fornecedor da cotação vencedora /
+    // reabertura do PC pra 'aprovado' no Linx) rodam APÓS o commit —
+    // best-effort, nunca dentro da transação (chamada de rede). Audit M12.
+    await this.runPostApprovalErpEffects(step);
     const approvedRequesterId = await this.engine.documentRequester(step);
     if (approvedRequesterId) {
       const docNum = await this.engine.documentNumber(step);
@@ -506,8 +537,9 @@ export class ApprovalsService {
     return { result: 'REVISION' as const };
   }
 
-  /** Atualiza o nível de aprovação corrente do documento. */
+  /** Atualiza o nível de aprovação corrente do documento (dentro de tx). */
   private async updateEntityCurrentLevel(
+    tx: Prisma.TransactionClient,
     step: {
       entityType: string;
       requisitionId: string | null;
@@ -517,39 +549,42 @@ export class ApprovalsService {
     level: number,
   ): Promise<void> {
     if (step.entityType === ApprovalEntityType.REQUISITION) {
-      await this.prisma.requisition.update({
+      await tx.requisition.update({
         where: { id: step.requisitionId as string },
         data: { currentTierLevel: level },
       });
     } else if (step.entityType === ApprovalEntityType.PURCHASE_ORDER) {
-      await this.prisma.purchaseOrder.update({
+      await tx.purchaseOrder.update({
         where: { id: step.purchaseOrderId as string },
         data: { currentTierLevel: level },
       });
     } else {
-      await this.prisma.fundRequest.update({
+      await tx.fundRequest.update({
         where: { id: step.fundRequestId as string },
         data: { currentTierLevel: level },
       });
     }
   }
 
-  /** Aplica o resultado final (aprovado/rejeitado) no documento. */
-  private async updateEntityStatus(
+  /**
+   * Grava o status final (aprovado/rejeitado) no documento. SOMENTE banco
+   * — roda dentro da transação do decide(). Os efeitos no ERP (que fazem
+   * chamada de rede) ficam em runPostApprovalErpEffects, após o commit.
+   */
+  private async writeEntityFinalStatus(
+    tx: Prisma.TransactionClient,
     step: {
       entityType: string;
       requisitionId: string | null;
       purchaseOrderId: string | null;
       fundRequestId: string | null;
-      decidedById?: string | null;
-      assignedApproverId?: string | null;
     },
     approved: boolean,
     rejectionReason?: string,
   ): Promise<void> {
     const now = new Date();
     if (step.entityType === ApprovalEntityType.REQUISITION) {
-      await this.prisma.requisition.update({
+      await tx.requisition.update({
         where: { id: step.requisitionId as string },
         data: approved
           ? { status: RequisitionStatus.APPROVED, approvedAt: now }
@@ -559,38 +594,8 @@ export class ApprovalsService {
               rejectionReason: rejectionReason ?? null,
             },
       });
-      // Quando a requisição é aprovada e tem cotação vencedora com
-      // fornecedor não cadastrado no ERP, dispara o cadastro
-      // automático. Best-effort: falha aqui não bloqueia a aprovação
-      // (logada em integration_logs, admin pode reprocessar pelo
-      // endpoint /admin/suppliers/from-quotation/:id).
-      if (approved) {
-        try {
-          const winners = await this.prisma.quotation.findMany({
-            where: {
-              requisitionId: step.requisitionId as string,
-              isWinner: true,
-              supplierErpCode: null,
-            },
-            select: { id: true },
-          });
-          for (const q of winners) {
-            try {
-              await this.linx.criarFornecedorDeQuotation(q.id);
-            } catch (e) {
-              this.logger.warn(
-                `Falha ao criar fornecedor da cotação ${q.id}: ${(e as Error).message}`,
-              );
-            }
-          }
-        } catch (e) {
-          this.logger.warn(
-            `Falha ao buscar cotações vencedoras: ${(e as Error).message}`,
-          );
-        }
-      }
     } else if (step.entityType === ApprovalEntityType.PURCHASE_ORDER) {
-      await this.prisma.purchaseOrder.update({
+      await tx.purchaseOrder.update({
         where: { id: step.purchaseOrderId as string },
         data: approved
           ? { status: PurchaseOrderStatus.APPROVED, approvedAt: now }
@@ -600,40 +605,8 @@ export class ApprovalsService {
               cancellationReason: rejectionReason ?? null,
             },
       });
-      // Reaprovação após edição: o PC tinha sido marcado 'em estudo'
-      // no Linx; agora voltamos pra 'aprovado'. Idempotente — markPedido-
-      // Aprovado lida com o caso de não haver erpPedido.
-      if (approved) {
-        // O decisor concreto sempre é gravado em decidedById no decide();
-        // assignedApproverId só serve como fallback no fluxo legacy fixo.
-        const deciderId =
-          step.decidedById ?? step.assignedApproverId ?? undefined;
-        if (!deciderId) {
-          throw new Error(
-            'Step sem decisor identificado — não foi possível atualizar o ERP.',
-          );
-        }
-        const decider = await this.prisma.user.findUniqueOrThrow({
-          where: { id: deciderId },
-        });
-        const po = await this.prisma.purchaseOrder.findUniqueOrThrow({
-          where: { id: step.purchaseOrderId as string },
-          select: { id: true, companyId: true, erpPedido: true, number: true },
-        });
-        try {
-          await this.linx.markPedidoAprovado(po, {
-            id: decider.id,
-            name: decider.name,
-            adUsername: decider.adUsername,
-          } as AuthenticatedUser);
-        } catch (err) {
-          this.logger.warn(
-            `PC ${po.number}: falha ao reabrir Linx pra 'A' após aprovação: ${(err as Error).message}`,
-          );
-        }
-      }
     } else {
-      await this.prisma.fundRequest.update({
+      await tx.fundRequest.update({
         where: { id: step.fundRequestId as string },
         data: approved
           ? { status: FundRequestStatus.APPROVED, approvedAt: now }
@@ -643,6 +616,78 @@ export class ApprovalsService {
               rejectionReason: rejectionReason ?? null,
             },
       });
+    }
+  }
+
+  /**
+   * Efeitos no ERP após aprovação FINAL — rodam DEPOIS do commit, fora de
+   * qualquer transação (chamadas de rede ao Linx não podem segurar a tx).
+   * Tudo best-effort: falha aqui é logada e NÃO desfaz a aprovação já
+   * persistida (admin reprocessa pelos endpoints de reconciliação).
+   */
+  private async runPostApprovalErpEffects(step: {
+    entityType: string;
+    requisitionId: string | null;
+    purchaseOrderId: string | null;
+    decidedById?: string | null;
+    assignedApproverId?: string | null;
+  }): Promise<void> {
+    if (step.entityType === ApprovalEntityType.REQUISITION) {
+      // Cotação vencedora com fornecedor não cadastrado no ERP → cadastro
+      // automático (logado em integration_logs; reprocessável via
+      // /admin/suppliers/from-quotation/:id).
+      try {
+        const winners = await this.prisma.quotation.findMany({
+          where: {
+            requisitionId: step.requisitionId as string,
+            isWinner: true,
+            supplierErpCode: null,
+          },
+          select: { id: true },
+        });
+        for (const q of winners) {
+          try {
+            await this.linx.criarFornecedorDeQuotation(q.id);
+          } catch (e) {
+            this.logger.warn(
+              `Falha ao criar fornecedor da cotação ${q.id}: ${(e as Error).message}`,
+            );
+          }
+        }
+      } catch (e) {
+        this.logger.warn(
+          `Falha ao buscar cotações vencedoras: ${(e as Error).message}`,
+        );
+      }
+    } else if (step.entityType === ApprovalEntityType.PURCHASE_ORDER) {
+      // Reaprovação após edição: o PC tinha sido marcado 'em estudo' no
+      // Linx; reabrimos pra 'aprovado'. Idempotente.
+      const deciderId =
+        step.decidedById ?? step.assignedApproverId ?? undefined;
+      if (!deciderId) {
+        this.logger.warn(
+          'Step sem decisor identificado — pulei a reabertura no ERP (aprovação já persistida).',
+        );
+        return;
+      }
+      try {
+        const decider = await this.prisma.user.findUniqueOrThrow({
+          where: { id: deciderId },
+        });
+        const po = await this.prisma.purchaseOrder.findUniqueOrThrow({
+          where: { id: step.purchaseOrderId as string },
+          select: { id: true, companyId: true, erpPedido: true, number: true },
+        });
+        await this.linx.markPedidoAprovado(po, {
+          id: decider.id,
+          name: decider.name,
+          adUsername: decider.adUsername,
+        } as AuthenticatedUser);
+      } catch (err) {
+        this.logger.warn(
+          `PC ${step.purchaseOrderId}: falha ao reabrir Linx pra 'A' após aprovação: ${(err as Error).message}`,
+        );
+      }
     }
   }
 }
