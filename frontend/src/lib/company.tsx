@@ -23,11 +23,15 @@ const CompanyContext = createContext<CompanyContextValue | undefined>(
 
 export function CompanyProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
-  const { data: companies = [] } = useQuery({
+  const { data } = useQuery({
     queryKey: ['companies'],
     queryFn: async () => (await api.get<Company[]>('/companies')).data,
     enabled: !!user,
   });
+  // Blindagem: garante que `companies` é SEMPRE um array. Se o endpoint
+  // responder algo inesperado (não-array), evita o crash "x.find is not a
+  // function" que derrubava a tela inteira.
+  const companies: Company[] = Array.isArray(data) ? data : [];
   const [activeId, setActiveId] = useState<string | null>(() =>
     localStorage.getItem(ACTIVE_KEY),
   );
