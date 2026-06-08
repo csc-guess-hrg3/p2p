@@ -81,11 +81,16 @@ export class QuotationsService {
   async list(user: AuthenticatedUser, requisitionId: string) {
     const req = await this.prisma.requisition.findUnique({
       where: { id: requisitionId },
-      select: { companyId: true, deletedAt: true },
+      select: { companyId: true, teamId: true, deletedAt: true },
     });
     if (!req || req.deletedAt) throw new NotFoundException();
     if (!user.companyIds.includes(req.companyId)) {
       throw new ForbiddenException('Sem acesso a esta empresa.');
+    }
+    // Isolamento por equipe (espelha requisitions.findOne): não-admin só vê
+    // cotações da própria equipe.
+    if (user.profile !== UserProfile.ADMIN && req.teamId !== user.teamId) {
+      throw new ForbiddenException('Sem acesso a esta requisição.');
     }
     return this.prisma.quotation.findMany({
       where: { requisitionId },

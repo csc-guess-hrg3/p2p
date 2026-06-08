@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { PurchaseOrderStatus, UserProfile } from '../common/enums';
 import { AuthenticatedUser } from '../auth/auth.types';
+import { assertPoTeamAccess } from './po-access';
 
 /**
  * Cancelamento de Pedido de Compra — total e parcial (RN-OC-03).
@@ -181,14 +182,13 @@ export class PurchaseOrderCancellerService {
         items: { include: { rateios: true } },
         buyer: { select: { id: true, name: true } },
         receivings: true,
+        requisition: { select: { teamId: true } },
       },
     });
     if (!po || po.deletedAt) {
       throw new NotFoundException('Pedido de compra não encontrado.');
     }
-    if (!user.companyIds.includes(po.companyId)) {
-      throw new ForbiddenException('Sem acesso a este pedido.');
-    }
+    assertPoTeamAccess(user, po);
     return po;
   }
 }

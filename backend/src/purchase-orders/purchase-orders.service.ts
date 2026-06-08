@@ -13,6 +13,7 @@ import { IntegrationService } from '../integration/integration.service';
 import { PurchaseOrderStatus, UserProfile } from '../common/enums';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { QueryPurchaseOrdersDto } from './dto/query-purchase-orders.dto';
+import { assertPoTeamAccess } from './po-access';
 
 @Injectable()
 export class PurchaseOrdersService {
@@ -83,14 +84,13 @@ export class PurchaseOrdersService {
         items: { include: { rateios: true } },
         buyer: { select: { id: true, name: true } },
         receivings: true,
+        requisition: { select: { teamId: true } },
       },
     });
     if (!po || po.deletedAt) {
       throw new NotFoundException('Pedido de compra não encontrado.');
     }
-    if (!user.companyIds.includes(po.companyId)) {
-      throw new ForbiddenException('Sem acesso a este pedido.');
-    }
+    assertPoTeamAccess(user, po);
     return po;
   }
 

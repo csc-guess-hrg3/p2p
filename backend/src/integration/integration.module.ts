@@ -6,6 +6,7 @@ import { EmailService } from './email.service';
 import { CnpjPublicService } from './cnpj-public.service';
 import { ErpBackSyncService } from './erp-back-sync.service';
 import { QiveClientService } from './qive-client.service';
+import { CompanyAccessGuard } from './company-access.guard';
 
 @Module({
   providers: [
@@ -15,6 +16,7 @@ import { QiveClientService } from './qive-client.service';
     CnpjPublicService,
     ErpBackSyncService,
     QiveClientService,
+    CompanyAccessGuard,
   ],
   exports: [
     IntegrationService,

@@ -15,6 +15,7 @@ import {
 } from '../common/enums';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { EditPurchaseOrderDto } from './dto/edit-po.dto';
+import { assertPoTeamAccess } from './po-access';
 
 /**
  * Edição in-place de Pedidos de Compra (PRD RN-OC-01).
@@ -52,14 +53,15 @@ export class PurchaseOrderEditorService {
 
     const po = await this.prisma.purchaseOrder.findUnique({
       where: { id },
-      include: { items: true },
+      include: {
+        items: true,
+        requisition: { select: { teamId: true } },
+      },
     });
     if (!po || po.deletedAt) {
       throw new NotFoundException('Pedido não encontrado.');
     }
-    if (!user.companyIds.includes(po.companyId)) {
-      throw new ForbiddenException('Sem acesso a este pedido.');
-    }
+    assertPoTeamAccess(user, po);
     const closed: string[] = [
       PurchaseOrderStatus.CANCELLED,
       PurchaseOrderStatus.FULLY_RECEIVED,

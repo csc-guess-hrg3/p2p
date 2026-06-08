@@ -1,18 +1,28 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  ForbiddenException,
+  Get,
+  Param,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { IntegrationService } from './integration.service';
 import { CnpjPublicService } from './cnpj-public.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CompanyAccessGuard } from './company-access.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
+import { UserProfile } from '../common/enums';
 
 /**
  * Endpoints de leitura dos dados de referência do ERP.
- * :company aceita GUESS ou HRG3.
+ * :company aceita GUESS ou HRG3 — CompanyAccessGuard exige que o usuário
+ * pertença à empresa (isolamento cross-tenant).
  */
 @ApiTags('Integração ERP')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, CompanyAccessGuard)
 @Controller('integration/:company')
 export class IntegrationController {
   constructor(
@@ -134,6 +144,9 @@ export class IntegrationController {
     @Query('includeInactive') includeInactive?: string,
     @Query('scope') scope?: 'all' | 'mine',
   ) {
+    if (scope === 'all' && user.profile !== UserProfile.ADMIN) {
+      throw new ForbiddenException('Apenas administradores podem usar scope=all.');
+    }
     return this.integration.getBranchRateios(
       company,
       includeInactive !== 'true',
@@ -153,6 +166,9 @@ export class IntegrationController {
     @Query('includeInactive') includeInactive?: string,
     @Query('scope') scope?: 'all' | 'mine',
   ) {
+    if (scope === 'all' && user.profile !== UserProfile.ADMIN) {
+      throw new ForbiddenException('Apenas administradores podem usar scope=all.');
+    }
     return this.integration.getCostCenterRateios(
       company,
       includeInactive !== 'true',

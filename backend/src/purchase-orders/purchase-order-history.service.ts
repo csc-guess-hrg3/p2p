@@ -1,6 +1,7 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../auth/auth.types';
+import { assertPoTeamAccess } from './po-access';
 
 /** Linha cronológica do PC apresentada na timeline da UI. */
 export interface PurchaseOrderTimelineEvent {
@@ -31,14 +32,15 @@ export class PurchaseOrderHistoryService {
   ): Promise<PurchaseOrderTimelineEvent[]> {
     const po = await this.prisma.purchaseOrder.findUnique({
       where: { id: purchaseOrderId },
-      include: { buyer: { select: { id: true, name: true } } },
+      include: {
+        buyer: { select: { id: true, name: true } },
+        requisition: { select: { teamId: true } },
+      },
     });
     if (!po || po.deletedAt) {
       throw new NotFoundException('Pedido de compra não encontrado.');
     }
-    if (!user.companyIds.includes(po.companyId)) {
-      throw new ForbiddenException('Sem acesso a este pedido.');
-    }
+    assertPoTeamAccess(user, po);
 
     const events: PurchaseOrderTimelineEvent[] = [];
 

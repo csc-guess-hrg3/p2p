@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { SecretService } from '../common/crypto/secret.service';
 import { AuthenticatedUser } from '../auth/auth.types';
 
 /**
@@ -44,7 +45,10 @@ export interface CompanyErpConfigPatch {
 
 @Injectable()
 export class CompaniesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly secrets: SecretService,
+  ) {}
 
   /** Empresas às quais o usuário tem acesso. */
   async findAllForUser(user: AuthenticatedUser) {
@@ -96,10 +100,13 @@ export class CompaniesService {
     }
 
     const current = company.erpConfig;
+    // Cifra a senha SMTP at-rest (AES-256-GCM via SecretService) — antes
+    // era gravada em texto plano no banco (auditoria P1-3). A leitura passa
+    // por decrypt(), que trata valores legados em claro por compatibilidade.
     const passwordPatch =
       patch.smtpPassword === undefined
         ? {}
-        : { smtpPassword: patch.smtpPassword };
+        : { smtpPassword: this.secrets.encrypt(patch.smtpPassword) };
     const data = {
       codTransacao: patch.codTransacao ?? current?.codTransacao ?? 'COMPRAS_003',
       tabelaFilha: patch.tabelaFilha ?? current?.tabelaFilha ?? 'COMPRAS_CONSUMIVEL',

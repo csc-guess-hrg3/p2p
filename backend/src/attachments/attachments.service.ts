@@ -94,12 +94,13 @@ export class AttachmentsService {
         companyCode: r.company.code,
         status: r.status,
         ownerId: r.requesterId,
+        teamId: r.teamId,
       };
     }
     if (kind === 'purchaseOrder') {
       const p = await this.prisma.purchaseOrder.findUnique({
         where: { id },
-        include: { company: true },
+        include: { company: true, requisition: { select: { teamId: true } } },
       });
       if (!p || p.deletedAt) throw new NotFoundException();
       return {
@@ -107,6 +108,7 @@ export class AttachmentsService {
         companyCode: p.company.code,
         status: p.status,
         ownerId: p.buyerId,
+        teamId: p.requisition?.teamId ?? null,
       };
     }
     if (kind === 'receiving') {
@@ -120,6 +122,9 @@ export class AttachmentsService {
         companyCode: company.code,
         status: rec.status,
         ownerId: rec.receivedById,
+        // Recebimento/SV não têm teamId próprio — escopo de empresa
+        // (consistente com a auditoria P3-2). null = sem trava de equipe.
+        teamId: null as string | null,
       };
     }
     const fr = await this.prisma.fundRequest.findUnique({
@@ -132,7 +137,26 @@ export class AttachmentsService {
       companyCode: fr.company.code,
       status: fr.status,
       ownerId: fr.requesterId,
+      teamId: null as string | null,
     };
+  }
+
+  /**
+   * Isolamento por equipe dos anexos: quando o documento-pai tem equipe
+   * (requisição/PC), não-admin só acessa anexos da própria equipe — antes
+   * dava pra listar/baixar anexos de qualquer equipe (auditoria P1-2).
+   */
+  private assertParentTeamAccess(
+    user: AuthenticatedUser,
+    parent: { teamId: string | null },
+  ): void {
+    if (
+      parent.teamId !== null &&
+      user.profile !== UserProfile.ADMIN &&
+      parent.teamId !== user.teamId
+    ) {
+      throw new ForbiddenException('Sem acesso aos anexos deste documento.');
+    }
   }
 
   /**
@@ -176,10 +200,11 @@ export class AttachmentsService {
   }
 
   async list(user: AuthenticatedUser, kind: ParentKind, parentId: string) {
-    const { companyId } = await this.resolveParent(kind, parentId);
-    if (!user.companyIds.includes(companyId)) {
+    const parent = await this.resolveParent(kind, parentId);
+    if (!user.companyIds.includes(parent.companyId)) {
       throw new ForbiddenException('Sem acesso a esta empresa.');
     }
+    this.assertParentTeamAccess(user, parent);
     // Cotações têm relação 1-1 com anexo (Quotation.attachmentId).
     // Trazemos junto pro frontend identificar "este anexo é da cotação
     // do fornecedor X" sem precisar de uma chamada separada — atende a
@@ -324,6 +349,11 @@ export class AttachmentsService {
     if (!user.companyIds.includes(att.companyId)) {
       throw new ForbiddenException('Sem acesso a esta empresa.');
     }
+    const parentRef = this.parentOfAttachment(att);
+    if (parentRef) {
+      const parent = await this.resolveParent(parentRef.kind, parentRef.id);
+      this.assertParentTeamAccess(user, parent);
+    }
     const abs = path.join(this.uploadRoot, att.storageKey);
     return {
       absolutePath: abs,
@@ -346,6 +376,7 @@ export class AttachmentsService {
     const parentRef = this.parentOfAttachment(att);
     if (parentRef) {
       const parent = await this.resolveParent(parentRef.kind, parentRef.id);
+      this.assertParentTeamAccess(user, parent);
       this.assertCanMutate(user, parentRef.kind, parent);
     }
     const abs = path.join(this.uploadRoot, att.storageKey);
