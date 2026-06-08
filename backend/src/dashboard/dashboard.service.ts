@@ -1,7 +1,7 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { PurchaseOrderStatus } from '../common/enums';
+import { PurchaseOrderStatus, UserProfile } from '../common/enums';
 import { AuthenticatedUser } from '../auth/auth.types';
 
 // Status que encerram o pedido — fora do conjunto "em aberto".
@@ -31,83 +31,196 @@ export class DashboardService {
     return user.companyIds;
   }
 
-  private openWhere(companyIds: string[]): Prisma.PurchaseOrderWhereInput {
+  /**
+   * Rebaixa o escopo pedido conforme o papel (SEGURANÇA — não confia no
+   * frontend) e devolve o filtro de Pedido correspondente:
+   *   - operador/revisor: sempre 'mine'
+   *   - gestor: 'mine' ou 'team' (pede 'all' → vira 'team')
+   *   - admin: 'mine' | 'team' | 'all'
+   * 'mine' = comprador OU solicitante da requisição de origem.
+   */
+  private resolvePoScope(
+    user: AuthenticatedUser,
+    requested?: 'mine' | 'team' | 'all',
+  ): { scope: 'mine' | 'team' | 'all'; where: Prisma.PurchaseOrderWhereInput } {
+    const isAdmin = user.profile === UserProfile.ADMIN;
+    const isManager = user.profile === UserProfile.MANAGER;
+    let scope: 'mine' | 'team' | 'all' = requested ?? (isAdmin ? 'all' : 'mine');
+    if (scope === 'all' && !isAdmin) scope = isManager ? 'team' : 'mine';
+    if (scope === 'team' && !isAdmin && !isManager) scope = 'mine';
+    const where: Prisma.PurchaseOrderWhereInput =
+      scope === 'mine'
+        ? {
+            OR: [
+              { buyerId: user.id },
+              { requisition: { requesterId: user.id } },
+            ],
+          }
+        : scope === 'team'
+          ? { requisition: { teamId: user.teamId } }
+          : {};
+    return { scope, where };
+  }
+
+  private openWhere(
+    companyIds: string[],
+    scopeWhere: Prisma.PurchaseOrderWhereInput = {},
+  ): Prisma.PurchaseOrderWhereInput {
     return {
       deletedAt: null,
       companyId: { in: companyIds },
       status: { notIn: FINALIZED_PO_STATUS },
+      ...scopeWhere,
     };
   }
 
-  private overdueWhere(companyIds: string[]): Prisma.PurchaseOrderWhereInput {
+  private overdueWhere(
+    companyIds: string[],
+    scopeWhere: Prisma.PurchaseOrderWhereInput = {},
+  ): Prisma.PurchaseOrderWhereInput {
     return {
-      ...this.openWhere(companyIds),
+      ...this.openWhere(companyIds, scopeWhere),
       expectedDelivery: { lt: new Date() },
     };
   }
 
-  /** Resumo com os 3 KPIs. */
-  async summary(user: AuthenticatedUser, companyId?: string) {
+  /** Resumo com os KPIs, escopados por papel. */
+  async summary(
+    user: AuthenticatedUser,
+    companyId?: string,
+    requestedScope?: 'mine' | 'team' | 'all',
+  ) {
     const companyIds = this.resolveScope(user, companyId);
+    const { scope, where } = this.resolvePoScope(user, requestedScope);
+    // Orçamento (consumo da empresa) só faz sentido — e só é liberado — na
+    // visão consolidada (admin / scope=all). Não vaza pra operador/gestor.
+    const wantBudget = scope === 'all';
 
     const [open, overdue, budget] = await Promise.all([
       this.prisma.purchaseOrder.aggregate({
-        where: this.openWhere(companyIds),
+        where: this.openWhere(companyIds, where),
         _count: true,
         _sum: { totalAmount: true },
       }),
       this.prisma.purchaseOrder.aggregate({
-        where: this.overdueWhere(companyIds),
+        where: this.overdueWhere(companyIds, where),
         _count: true,
         _sum: { totalAmount: true },
       }),
-      this.budgetConsumption(user, companyId),
+      wantBudget ? this.budgetConsumption(user, companyId) : Promise.resolve(null),
     ]);
 
     const openAmount = Number(open._sum.totalAmount ?? 0);
     const overdueAmount = Number(overdue._sum.totalAmount ?? 0);
 
     return {
-      // KPI 1 — Pedidos em aberto
+      scope, // escopo efetivo (pode ter sido rebaixado pelo papel)
       openOrders: {
         count: open._count,
         totalAmount: openAmount,
       },
-      // KPI 2 — Pedidos em atraso (entrega vencida, ainda não finalizado)
       overdueOrders: {
         count: overdue._count,
         totalAmount: overdueAmount,
-        // % do volume (valor) em aberto que está atrasado — meta PRD ≤ 5%
         pctOfOpenVolume:
           openAmount > 0
             ? Number(((overdueAmount / openAmount) * 100).toFixed(2))
             : 0,
       },
-      // KPI 3 — Consumo orçamentário do mês corrente
-      budgetConsumption: budget.totals,
+      // Só na visão consolidada (admin). null nos demais.
+      budgetConsumption: budget ? budget.totals : null,
     };
   }
 
-  /** Drill-down: pedidos em aberto. */
-  async openOrders(user: AuthenticatedUser, companyId?: string) {
+  /** Drill-down: pedidos em aberto (escopado). */
+  async openOrders(
+    user: AuthenticatedUser,
+    companyId?: string,
+    requestedScope?: 'mine' | 'team' | 'all',
+  ) {
     const companyIds = this.resolveScope(user, companyId);
+    const { where } = this.resolvePoScope(user, requestedScope);
     return this.prisma.purchaseOrder.findMany({
-      where: this.openWhere(companyIds),
+      where: this.openWhere(companyIds, where),
       orderBy: { createdAt: 'desc' },
       take: 200,
       include: { buyer: { select: { id: true, name: true } } },
     });
   }
 
-  /** Drill-down: pedidos em atraso. */
-  async overdueOrders(user: AuthenticatedUser, companyId?: string) {
+  /** Drill-down: pedidos em atraso (escopado). */
+  async overdueOrders(
+    user: AuthenticatedUser,
+    companyId?: string,
+    requestedScope?: 'mine' | 'team' | 'all',
+  ) {
     const companyIds = this.resolveScope(user, companyId);
+    const { where } = this.resolvePoScope(user, requestedScope);
     return this.prisma.purchaseOrder.findMany({
-      where: this.overdueWhere(companyIds),
+      where: this.overdueWhere(companyIds, where),
       orderBy: { expectedDelivery: 'asc' },
       take: 200,
       include: { buyer: { select: { id: true, name: true } } },
     });
+  }
+
+  /**
+   * Visão consolidada por EQUIPE (só admin) — em aberto e em atraso por
+   * equipe da requisição de origem. Para a dimensão "Por equipe" do admin.
+   */
+  async byTeam(user: AuthenticatedUser, companyId?: string) {
+    if (user.profile !== UserProfile.ADMIN) {
+      throw new ForbiddenException('Visão por equipe é exclusiva de admin.');
+    }
+    const companyIds = this.resolveScope(user, companyId);
+    const rows = await this.prisma.purchaseOrder.findMany({
+      where: this.openWhere(companyIds),
+      select: {
+        totalAmount: true,
+        expectedDelivery: true,
+        requisition: { select: { teamId: true, team: { select: { name: true } } } },
+      },
+    });
+    const now = new Date();
+    const map = new Map<
+      string,
+      {
+        teamId: string | null;
+        teamName: string;
+        openCount: number;
+        openAmount: number;
+        overdueCount: number;
+        overdueAmount: number;
+      }
+    >();
+    for (const po of rows) {
+      const teamId = po.requisition?.teamId ?? null;
+      const key = teamId ?? '__none__';
+      const teamName = po.requisition?.team?.name ?? 'Sem equipe';
+      const e =
+        map.get(key) ??
+        {
+          teamId,
+          teamName,
+          openCount: 0,
+          openAmount: 0,
+          overdueCount: 0,
+          overdueAmount: 0,
+        };
+      const amt = Number(po.totalAmount);
+      e.openCount += 1;
+      e.openAmount += amt;
+      if (po.expectedDelivery && po.expectedDelivery < now) {
+        e.overdueCount += 1;
+        e.overdueAmount += amt;
+      }
+      map.set(key, e);
+    }
+    return {
+      byTeam: Array.from(map.values()).sort(
+        (a, b) => b.openAmount - a.openAmount,
+      ),
+    };
   }
 
   /**
@@ -313,6 +426,12 @@ export class DashboardService {
    * é da Fase 2. Retorna os totais e o detalhamento por CC.
    */
   async budgetConsumption(user: AuthenticatedUser, companyId?: string) {
+    // Consumo orçamentário consolidado é visão de gestão da empresa: só admin.
+    if (user.profile !== UserProfile.ADMIN) {
+      throw new ForbiddenException(
+        'Apenas administradores podem ver o consumo orçamentário consolidado.',
+      );
+    }
     const companyIds = this.resolveScope(user, companyId);
     const now = new Date();
     const where: Prisma.BudgetEntryWhereInput = {

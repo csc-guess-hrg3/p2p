@@ -14,30 +14,39 @@ export class DashboardController {
   constructor(private readonly dashboard: DashboardService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Resumo dos 3 KPIs do dashboard' })
+  @ApiOperation({ summary: 'Resumo dos KPIs (escopado por papel)' })
   summary(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: QueryDashboardDto,
   ) {
-    return this.dashboard.summary(user, query.companyId);
+    return this.dashboard.summary(user, query.companyId, query.scope);
   }
 
   @Get('open-orders')
-  @ApiOperation({ summary: 'Drill-down: pedidos em aberto' })
+  @ApiOperation({ summary: 'Drill-down: pedidos em aberto (escopado)' })
   openOrders(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: QueryDashboardDto,
   ) {
-    return this.dashboard.openOrders(user, query.companyId);
+    return this.dashboard.openOrders(user, query.companyId, query.scope);
   }
 
   @Get('overdue-orders')
-  @ApiOperation({ summary: 'Drill-down: pedidos em atraso' })
+  @ApiOperation({ summary: 'Drill-down: pedidos em atraso (escopado)' })
   overdueOrders(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: QueryDashboardDto,
   ) {
-    return this.dashboard.overdueOrders(user, query.companyId);
+    return this.dashboard.overdueOrders(user, query.companyId, query.scope);
+  }
+
+  @Get('by-team')
+  @ApiOperation({ summary: 'Consolidado por equipe (só admin)' })
+  byTeam(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: QueryDashboardDto,
+  ) {
+    return this.dashboard.byTeam(user, query.companyId);
   }
 
   @Get('budget-consumption')

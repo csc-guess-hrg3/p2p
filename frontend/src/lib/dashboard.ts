@@ -5,19 +5,32 @@ import { api } from './api';
 /* Tipos                                                              */
 /* ------------------------------------------------------------------ */
 
+export type DashScope = 'mine' | 'team' | 'all';
+
 export interface DashboardSummary {
+  scope: DashScope;
   openOrders: { count: number; totalAmount: number };
   overdueOrders: {
     count: number;
     totalAmount: number;
     pctOfOpenVolume: number;
   };
+  // Só vem na visão consolidada (admin/scope=all); null nos demais.
   budgetConsumption: {
     budgeted: number;
     committed: number;
     consumed: number;
     pctConsumed: number;
-  };
+  } | null;
+}
+
+export interface DashboardByTeamRow {
+  teamId: string | null;
+  teamName: string;
+  openCount: number;
+  openAmount: number;
+  overdueCount: number;
+  overdueAmount: number;
 }
 
 export interface DashboardOrder {
@@ -57,42 +70,67 @@ export interface BudgetDrilldown {
  */
 const STALE_MS = 5 * 60_000;
 
-export function useDashboardSummary(companyId?: string) {
+export function useDashboardSummary(companyId?: string, scope?: DashScope) {
   return useQuery({
-    queryKey: ['dashboard', 'summary', companyId],
+    queryKey: ['dashboard', 'summary', companyId, scope],
     queryFn: async () =>
-      (await api.get<DashboardSummary>('/dashboard', { params: { companyId } }))
-        .data,
+      (
+        await api.get<DashboardSummary>('/dashboard', {
+          params: { companyId, scope },
+        })
+      ).data,
     staleTime: STALE_MS,
     enabled: !!companyId,
   });
 }
 
-export function useOpenOrders(companyId?: string) {
+export function useOpenOrders(
+  companyId?: string,
+  scope?: DashScope,
+  enabled = true,
+) {
   return useQuery({
-    queryKey: ['dashboard', 'open-orders', companyId],
+    queryKey: ['dashboard', 'open-orders', companyId, scope],
     queryFn: async () =>
       (
         await api.get<DashboardOrder[]>('/dashboard/open-orders', {
-          params: { companyId },
+          params: { companyId, scope },
         })
       ).data,
     staleTime: STALE_MS,
-    enabled: !!companyId,
+    enabled: !!companyId && enabled,
   });
 }
 
-export function useOverdueOrders(companyId?: string) {
+export function useOverdueOrders(
+  companyId?: string,
+  scope?: DashScope,
+  enabled = true,
+) {
   return useQuery({
-    queryKey: ['dashboard', 'overdue-orders', companyId],
+    queryKey: ['dashboard', 'overdue-orders', companyId, scope],
     queryFn: async () =>
       (
         await api.get<DashboardOrder[]>('/dashboard/overdue-orders', {
+          params: { companyId, scope },
+        })
+      ).data,
+    staleTime: STALE_MS,
+    enabled: !!companyId && enabled,
+  });
+}
+
+export function useDashboardByTeam(companyId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ['dashboard', 'by-team', companyId],
+    queryFn: async () =>
+      (
+        await api.get<{ byTeam: DashboardByTeamRow[] }>('/dashboard/by-team', {
           params: { companyId },
         })
       ).data,
     staleTime: STALE_MS,
-    enabled: !!companyId,
+    enabled: !!companyId && enabled,
   });
 }
 
