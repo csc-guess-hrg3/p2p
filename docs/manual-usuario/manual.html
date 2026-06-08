@@ -1,0 +1,1462 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manual do Usuário — P2P</title>
+<style>
+:root{
+  --azul:#1F4E8C; --azul-2:#2563eb; --azul-3:#16365f;
+  --azul-bg:#eef3fb;
+  --tinta:#10151c; --tinta-2:#39424d;
+  --cinza:#5b6470; --cinza-2:#8a929c;
+  --linha:#e6eaf0; --linha-2:#eef1f6;
+  --fundo:#f6f8fc; --card:#ffffff;
+  --verde:#157347; --verde-bg:#e8f5ee;
+  --amarelo:#9a6700; --amarelo-bg:#fdf4e0;
+  --vermelho:#b42318; --vermelho-bg:#fdecea;
+  --info:#0b5cab; --info-bg:#e9f1fb;
+  --sombra:0 1px 2px rgba(16,21,28,.04), 0 6px 24px rgba(16,21,28,.06);
+  --raio:14px;
+  --nav-w:288px; --hdr-h:58px;
+}
+*{box-sizing:border-box}
+html{ scroll-behavior:smooth; -webkit-text-size-adjust:100%; }
+[id]{ scroll-margin-top:calc(var(--hdr-h) + 18px); }
+body{
+  margin:0; background:var(--fundo); color:var(--tinta);
+  font-family:'Inter','Segoe UI','Helvetica Neue',Arial,sans-serif;
+  font-size:16px; line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+}
+a{ color:var(--azul-2); text-decoration:none; }
+img{ max-width:100%; }
+
+/* ---------- Logo ---------- */
+.logo{ display:inline-flex; align-items:center; gap:1px; font-weight:800; letter-spacing:-.5px; line-height:1; }
+.logo .hrg{ color:var(--tinta); }
+.logo .three{ background:var(--azul); color:#fff; border-radius:6px; display:inline-flex; align-items:center; justify-content:center; }
+.logo.sm{ font-size:19px; } .logo.sm .three{ width:24px; height:24px; font-size:15px; margin-left:3px; }
+.logo.white .hrg{ color:#fff; } .logo.white .three{ background:#fff; color:var(--azul); }
+
+/* ============ HEADER (tela) ============ */
+.site-header{
+  position:sticky; top:0; z-index:40; height:var(--hdr-h);
+  display:flex; align-items:center; gap:14px;
+  padding:0 18px; background:rgba(255,255,255,.85); backdrop-filter:saturate(180%) blur(10px);
+  border-bottom:1px solid var(--linha);
+}
+.site-header .menu-btn{
+  display:none; border:1px solid var(--linha); background:#fff; border-radius:10px;
+  width:38px; height:38px; align-items:center; justify-content:center; cursor:pointer; color:var(--tinta-2);
+}
+.site-header .hd-title{ font-weight:700; font-size:15px; color:var(--tinta); }
+.site-header .hd-title span{ color:var(--cinza-2); font-weight:500; }
+.site-header .spacer{ flex:1; }
+.btn-print{
+  display:inline-flex; align-items:center; gap:8px; cursor:pointer;
+  background:var(--azul); color:#fff; border:0; border-radius:10px;
+  padding:9px 15px; font-size:13.5px; font-weight:600; font-family:inherit;
+}
+.btn-print:hover{ background:var(--azul-3); }
+.btn-print svg{ width:16px; height:16px; }
+
+/* ============ SHELL ============ */
+.shell{ display:flex; align-items:flex-start; }
+.sidenav{
+  position:sticky; top:var(--hdr-h); align-self:flex-start;
+  width:var(--nav-w); flex:0 0 var(--nav-w);
+  height:calc(100vh - var(--hdr-h)); overflow-y:auto;
+  border-right:1px solid var(--linha); background:#fff;
+  padding:18px 12px 40px;
+}
+.sidenav .nav-h{ font-size:11px; letter-spacing:1.4px; text-transform:uppercase; color:var(--cinza-2); font-weight:700; padding:8px 12px 4px; }
+.nav-grp{
+  display:flex; align-items:center; gap:9px; padding:8px 12px; border-radius:9px;
+  color:var(--tinta); font-weight:650; font-size:14px; margin-top:2px;
+}
+.nav-grp:hover{ background:var(--azul-bg); }
+.nav-grp .n{
+  flex:0 0 22px; height:22px; border-radius:6px; background:#eef1f6; color:var(--azul);
+  display:inline-flex; align-items:center; justify-content:center; font-size:12px; font-weight:800;
+}
+.nav-grp.active{ background:var(--azul); color:#fff; }
+.nav-grp.active .n{ background:rgba(255,255,255,.22); color:#fff; }
+.nav-sub{
+  display:block; padding:5px 12px 5px 43px; border-radius:8px;
+  color:var(--cinza); font-size:13px;
+}
+.nav-sub:hover{ background:var(--linha-2); color:var(--tinta); }
+.nav-sub.active{ color:var(--azul); font-weight:650; background:var(--azul-bg); }
+
+.backdrop{ display:none; }
+
+/* ============ CONTEÚDO ============ */
+.doc{ flex:1 1 auto; min-width:0; padding:0 0 80px; }
+.wrap{ max-width:920px; margin:0 auto; padding:0 28px; }
+
+/* ----- HERO (tela) ----- */
+.hero{
+  position:relative; overflow:hidden; color:#fff;
+  background:
+    radial-gradient(900px 460px at 88% -10%, #2a63ad 0%, rgba(42,99,173,0) 60%),
+    linear-gradient(150deg,#16365f 0%, #1F4E8C 52%, #0f2746 100%);
+}
+.hero::after{ content:""; position:absolute; right:-140px; bottom:-160px; width:460px; height:460px; border-radius:50%; background:radial-gradient(circle at 30% 30%, rgba(255,255,255,.10), rgba(255,255,255,0) 70%); }
+.hero .wrap{ padding-top:46px; padding-bottom:46px; position:relative; z-index:1; }
+.hero .top{ display:flex; align-items:center; gap:12px; margin-bottom:30px; }
+.hero .kick{ font-size:11px; letter-spacing:2px; text-transform:uppercase; color:#cfe0f6; border:1px solid rgba(255,255,255,.35); padding:4px 11px; border-radius:30px; }
+.hero h1{ font-size:40px; line-height:1.05; margin:0; font-weight:800; letter-spacing:-1px; }
+.hero h1 small{ display:block; font-size:18px; font-weight:600; color:#bcd0ec; margin-top:8px; letter-spacing:0; }
+.hero .sub{ font-size:16px; color:#d7e3f4; max-width:640px; margin:16px 0 0; }
+.hero .chips{ display:flex; flex-wrap:wrap; gap:8px; margin-top:22px; }
+.hero .chip{ background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.18); padding:6px 13px; border-radius:8px; font-size:13px; color:#eaf1fb; }
+.hero .meta{ margin-top:24px; font-size:13px; color:#aebfd8; }
+.hero .meta b{ color:#fff; font-weight:600; }
+
+/* ----- Capítulos ----- */
+.section{ max-width:920px; margin:0 auto; padding:30px 28px 0; }
+.chapter-kicker{ font-size:12px; letter-spacing:2px; text-transform:uppercase; color:var(--azul-2); font-weight:700; }
+h1.chapter{ font-size:30px; color:var(--tinta); margin:4px 0 0; font-weight:800; letter-spacing:-.5px; }
+.chapter-rule{ height:4px; width:56px; background:var(--azul); border-radius:4px; margin:14px 0 18px; }
+h2.sec{ font-size:21px; color:var(--tinta); margin:34px 0 10px; padding-bottom:8px; border-bottom:1px solid var(--linha); font-weight:750; }
+h3.sub{ font-size:16.5px; color:var(--azul); margin:22px 0 6px; font-weight:700; }
+h4{ font-size:15px; margin:16px 0 4px; }
+p{ margin:10px 0; }
+ul,ol{ margin:10px 0; padding-left:22px; }
+li{ margin:5px 0; }
+strong{ font-weight:650; }
+em{ color:var(--tinta-2); }
+code{ background:#eef1f6; border:1px solid #e1e6ee; border-radius:6px; padding:1px 6px; font-family:'JetBrains Mono','Consolas',monospace; font-size:.86em; color:#234; }
+hr.soft{ border:0; border-top:1px solid var(--linha); margin:26px 0; }
+.small{ font-size:13px; color:var(--cinza); }
+.center{ text-align:center; }
+
+/* ----- Tabelas (responsivas) ----- */
+.tbl{ overflow-x:auto; margin:16px 0; border:1px solid var(--linha); border-radius:12px; box-shadow:var(--sombra); }
+.tbl table{ width:100%; border-collapse:collapse; font-size:14px; margin:0; }
+.tbl th{ background:var(--azul); color:#fff; text-align:left; padding:11px 14px; font-weight:600; font-size:13px; white-space:nowrap; }
+.tbl td{ padding:10px 14px; border-top:1px solid var(--linha); vertical-align:top; }
+.tbl tbody tr:nth-child(even){ background:#f8fafd; }
+.tbl table.mini th{ background:#33415a; }
+
+/* ----- Badges ----- */
+.badge{ display:inline-block; padding:2px 10px; border-radius:20px; font-size:12px; font-weight:600; white-space:nowrap; border:1px solid transparent; vertical-align:baseline; }
+.b-neutral{ background:#eef0f3; color:#454c55; border-color:#dde1e6; }
+.b-blue{ background:#e7f0fb; color:#1351a8; border-color:#cfe0f5; }
+.b-green{ background:var(--verde-bg); color:var(--verde); border-color:#cfe9da; }
+.b-yellow{ background:var(--amarelo-bg); color:var(--amarelo); border-color:#f3e2bf; }
+.b-red{ background:var(--vermelho-bg); color:var(--vermelho); border-color:#f5cfcb; }
+
+/* ----- Callouts ----- */
+.callout{ border-radius:12px; padding:14px 16px 14px 18px; margin:18px 0; font-size:14.5px; border:1px solid; border-left-width:4px; box-shadow:var(--sombra); }
+.callout .ct{ font-weight:700; display:block; margin-bottom:3px; }
+.callout p{ margin:4px 0; }
+.c-info{ background:var(--info-bg); border-color:#cfe0f5; border-left-color:var(--info); } .c-info .ct{ color:var(--info); }
+.c-dica{ background:var(--verde-bg); border-color:#cfe9da; border-left-color:var(--verde); } .c-dica .ct{ color:var(--verde); }
+.c-atencao{ background:var(--amarelo-bg); border-color:#f3e2bf; border-left-color:var(--amarelo); } .c-atencao .ct{ color:var(--amarelo); }
+.c-import{ background:var(--vermelho-bg); border-color:#f5cfcb; border-left-color:var(--vermelho); } .c-import .ct{ color:var(--vermelho); }
+
+/* ----- Cards de perfil ----- */
+.cards{ display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px; margin:18px 0; }
+.card{ border:1px solid var(--linha); border-radius:14px; padding:16px 18px; background:var(--card); box-shadow:var(--sombra); }
+.card .h{ font-weight:750; color:var(--azul); font-size:16px; margin-bottom:2px; }
+.card .r{ font-size:13px; color:var(--cinza); margin-bottom:8px; }
+.card ul{ margin:6px 0 0; padding-left:18px; font-size:13.5px; }
+
+/* ----- Fluxo ----- */
+.flow{ display:flex; flex-wrap:wrap; align-items:stretch; gap:8px; margin:20px 0; }
+.flow .step{ flex:1 1 110px; background:var(--azul-bg); border:1px solid #d6e2f4; border-radius:12px; padding:12px 10px; text-align:center; font-size:12.5px; }
+.flow .step .n{ display:inline-flex; width:26px; height:26px; border-radius:50%; background:var(--azul); color:#fff; align-items:center; justify-content:center; font-weight:800; font-size:13px; margin-bottom:6px; }
+.flow .step b{ display:block; color:var(--tinta); font-size:13px; }
+.flow .arrow{ align-self:center; color:var(--azul-2); font-weight:800; font-size:18px; }
+
+/* ----- Passo a passo ----- */
+ol.steps{ counter-reset:st; list-style:none; padding-left:0; margin:18px 0; }
+ol.steps>li{ position:relative; padding:2px 0 16px 46px; margin:0; }
+ol.steps>li::before{ counter-increment:st; content:counter(st); position:absolute; left:0; top:-2px; width:30px; height:30px; border-radius:50%; background:var(--azul); color:#fff; font-weight:700; font-size:14px; display:flex; align-items:center; justify-content:center; }
+ol.steps>li:not(:last-child)::after{ content:""; position:absolute; left:14.5px; top:32px; bottom:0; width:2px; background:var(--linha); }
+
+/* impressão-only escondido na tela */
+.print-only{ display:none !important; }
+
+/* ============ RESPONSIVO ============ */
+@media (max-width:960px){
+  :root{ --nav-w:280px; }
+  .site-header .menu-btn{ display:inline-flex; }
+  .sidenav{
+    position:fixed; top:0; left:0; height:100vh; z-index:60;
+    transform:translateX(-100%); transition:transform .25s ease;
+    box-shadow:0 0 40px rgba(0,0,0,.18); padding-top:16px;
+  }
+  body.nav-open .sidenav{ transform:translateX(0); }
+  body.nav-open .backdrop{ display:block; position:fixed; inset:0; z-index:50; background:rgba(8,12,18,.45); }
+  .hero h1{ font-size:30px; }
+  .hero .sub{ font-size:15px; }
+}
+@media (max-width:560px){
+  body{ font-size:15px; }
+  .wrap{ padding:0 18px; }
+  .section{ padding-left:18px; padding-right:18px; }
+  h1.chapter{ font-size:25px; }
+  h2.sec{ font-size:18.5px; }
+  .hero .wrap{ padding-top:34px; padding-bottom:34px; }
+  .hero h1{ font-size:26px; }
+  .btn-print span{ display:none; }
+  .btn-print{ padding:9px 11px; }
+}
+
+/* ============ IMPRESSÃO / PDF ============ */
+@page{ size:A4; margin:20mm 16mm 18mm 16mm; @bottom-center{ content:counter(page); font-family:Arial,sans-serif; font-size:9pt; color:#8a929c; } @bottom-right{ content:"Manual do Usuário · P2P"; font-family:Arial,sans-serif; font-size:8pt; color:#b3bac3; } }
+@page cover{ margin:0; @bottom-center{content:none} @bottom-right{content:none} }
+@page :first{ margin:0; }
+
+@media print{
+  html{ scroll-behavior:auto; }
+  body{ background:#fff; font-size:10.4pt; line-height:1.55; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .screen-only{ display:none !important; }
+  .print-only{ display:block !important; }
+  .shell{ display:block; }
+  .doc{ padding:0; }
+  .wrap{ max-width:none; margin:0; padding:0; }
+  a{ color:inherit; }
+  .tbl{ border:0; border-radius:0; box-shadow:none; overflow:visible; }
+  .tbl table{ font-size:9.3pt; }
+  .tbl th{ padding:7px 9px; font-size:9pt; } .tbl td{ padding:6px 9px; border-bottom:1px solid #e4e8ee; border-top:0; }
+  .callout,.card,.tbl{ box-shadow:none; }
+  .section{ break-before:page; padding:2mm 0 0; max-width:none; margin:0; }
+  h1.chapter{ color:var(--azul); font-size:21pt; }
+  h2.sec{ font-size:14.5pt; } h3.sub{ font-size:11.6pt; }
+  thead{ display:table-header-group; } tr{ break-inside:avoid; }
+  .callout,.card,.flow .step,ol.steps>li{ break-inside:avoid; }
+
+  /* Capa de impressão */
+  .cover{ page:cover; position:relative; height:297mm; width:210mm; color:#fff; padding:34mm 24mm; display:flex; flex-direction:column;
+    background:radial-gradient(1200px 600px at 80% -5%, #2a63ad 0%, rgba(42,99,173,0) 60%), linear-gradient(160deg,#16365f 0%, #1F4E8C 45%, #0f2746 100%); break-after:page; }
+  .cover .top{ display:flex; align-items:center; gap:14px; } .cover .spacer{ flex:1; }
+  .cover .badge-mvp{ font-size:8.5pt; letter-spacing:2px; text-transform:uppercase; border:1px solid rgba(255,255,255,.4); padding:4px 10px; border-radius:30px; color:#dce7f6; }
+  .cover .logo.lg{ font-size:34pt; } .cover .logo.lg .three{ width:44px; height:44px; font-size:30pt; margin-left:4px; }
+  .cover h1{ font-size:46pt; line-height:1.02; margin:0; font-weight:800; letter-spacing:-1px; }
+  .cover h1 small{ display:block; font-size:20pt; font-weight:600; color:#bcd0ec; margin-top:10px; letter-spacing:0; }
+  .cover .sub{ font-size:12.5pt; color:#cfdcef; max-width:135mm; margin-top:14px; }
+  .cover .pills{ display:flex; flex-wrap:wrap; gap:8px; margin-top:26px; }
+  .cover .pill{ background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.18); padding:6px 12px; border-radius:8px; font-size:9.2pt; color:#e7eefa; }
+  .cover .meta{ margin-top:30px; font-size:10pt; color:#aebfd8; } .cover .meta b{ color:#fff; }
+  .cover .foot{ position:absolute; left:24mm; bottom:20mm; font-size:9pt; color:#9fb2d0; }
+
+  /* Sumário de impressão */
+  .tocp{ break-after:page; }
+  .tocp h2{ color:var(--azul); font-size:22pt; margin:0 0 14px; }
+  .tocp .toc{ column-count:2; column-gap:14mm; }
+  .tocp a{ color:inherit; text-decoration:none; }
+  .tocp .grp{ break-inside:avoid; margin-bottom:11px; }
+  .tocp .g-title{ display:block; color:var(--azul); font-weight:700; font-size:10.6pt; }
+  .tocp .g-title .g-num{ color:var(--azul-2); font-weight:800; margin-right:6px; }
+  .tocp .item{ display:block; font-size:9.4pt; color:#3b424c; padding:1.5px 0 1.5px 18px; }
+  .tocp .item::before{ content:"›"; color:var(--cinza-2); margin-right:7px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ===== Cabeçalho (tela) ===== -->
+<header class="site-header screen-only">
+  <button class="menu-btn" id="menuBtn" aria-label="Abrir índice">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+  <span class="logo sm"><span class="hrg">HRG</span><span class="three">3</span></span>
+  <span class="hd-title">Manual do Usuário <span>· P2P</span></span>
+  <span class="spacer"></span>
+  <button class="btn-print" onclick="window.print()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+    <span>Baixar em PDF</span>
+  </button>
+</header>
+
+<div class="shell">
+  <!-- ===== Índice lateral (tela) ===== -->
+  <nav class="sidenav screen-only" id="sidenav">
+    <div class="nav-h">Conteúdo</div>
+    <a class="nav-grp" href="#c1"><span class="n">1</span>Apresentação</a>
+      <a class="nav-sub" href="#c1-1">O que é o P2P</a>
+      <a class="nav-sub" href="#c1-2">P2P e o ERP (Linx)</a>
+      <a class="nav-sub" href="#c1-3">Visão geral do fluxo</a>
+      <a class="nav-sub" href="#c1-4">Os perfis</a>
+    <a class="nav-grp" href="#c2"><span class="n">2</span>Primeiros passos</a>
+      <a class="nav-sub" href="#c2-1">Login</a>
+      <a class="nav-sub" href="#c2-2">Definir senha</a>
+      <a class="nav-sub" href="#c2-3">Conhecendo a tela</a>
+      <a class="nav-sub" href="#c2-4">Trocar de empresa</a>
+      <a class="nav-sub" href="#c2-5">Notificações</a>
+      <a class="nav-sub" href="#c2-6">Filtro de escopo</a>
+      <a class="nav-sub" href="#c2-7">Anexar arquivos</a>
+    <a class="nav-grp" href="#c3"><span class="n">3</span>Início (Painel)</a>
+      <a class="nav-sub" href="#c3-1">Minhas pendências</a>
+      <a class="nav-sub" href="#c3-2">Indicadores (KPIs)</a>
+      <a class="nav-sub" href="#c3-3">Análises e gráficos</a>
+    <a class="nav-grp" href="#c4"><span class="n">4</span>Requisições</a>
+      <a class="nav-sub" href="#c4-1">O que é</a>
+      <a class="nav-sub" href="#c4-2">A lista</a>
+      <a class="nav-sub" href="#c4-3">Criar</a>
+      <a class="nav-sub" href="#c4-4">Adicionar itens</a>
+      <a class="nav-sub" href="#c4-5">Cotações e dispensa</a>
+      <a class="nav-sub" href="#c4-6">Enviar para aprovação</a>
+      <a class="nav-sub" href="#c4-7">Status e progresso</a>
+    <a class="nav-grp" href="#c5"><span class="n">5</span>Aprovações</a>
+      <a class="nav-sub" href="#c5-1">Cadeia e alçada</a>
+      <a class="nav-sub" href="#c5-2">Aprovar / devolver</a>
+      <a class="nav-sub" href="#c5-3">Escolher cotação</a>
+      <a class="nav-sub" href="#c5-4">Acompanhar</a>
+    <a class="nav-grp" href="#c6"><span class="n">6</span>Pedidos de Compra</a>
+      <a class="nav-sub" href="#c6-1">Converter</a>
+      <a class="nav-sub" href="#c6-2">Lista e detalhe</a>
+      <a class="nav-sub" href="#c6-3">Editar e cancelar</a>
+      <a class="nav-sub" href="#c6-4">Notas e financeiro</a>
+    <a class="nav-grp" href="#c7"><span class="n">7</span>Solicitações de Verba</a>
+      <a class="nav-sub" href="#c7-1">O que é uma SV</a>
+      <a class="nav-sub" href="#c7-2">Lista e integração</a>
+    <a class="nav-grp" href="#c8"><span class="n">8</span>Recebimentos</a>
+      <a class="nav-sub" href="#c8-1">Registrar</a>
+      <a class="nav-sub" href="#c8-2">Confirmar e divergências</a>
+      <a class="nav-sub" href="#c8-3">Medição de serviço</a>
+    <a class="nav-grp" href="#c9"><span class="n">9</span>Produto Acabado</a>
+      <a class="nav-sub" href="#c9-1">Aprovar / reprovar</a>
+      <a class="nav-sub" href="#c9-2">Reagendar e grade</a>
+    <a class="nav-grp" href="#c10"><span class="n">10</span>Fiscal</a>
+      <a class="nav-sub" href="#c10-1">Pendências fiscais</a>
+      <a class="nav-sub" href="#c10-2">Notas fiscais (Qive)</a>
+    <a class="nav-grp" href="#c11"><span class="n">11</span>Financeiro</a>
+      <a class="nav-sub" href="#c11-1">Títulos a pagar</a>
+      <a class="nav-sub" href="#c11-2">Adiantamentos</a>
+      <a class="nav-sub" href="#c11-3">DDAs</a>
+      <a class="nav-sub" href="#c11-4">Provisões</a>
+    <a class="nav-grp" href="#c12"><span class="n">12</span>Pedidos externos</a>
+    <a class="nav-grp" href="#c13"><span class="n">13</span>Relatórios</a>
+    <a class="nav-grp" href="#c14"><span class="n">14</span>Administração</a>
+      <a class="nav-sub" href="#c14-1">Usuários</a>
+      <a class="nav-sub" href="#c14-2">Equipes e aprovação</a>
+      <a class="nav-sub" href="#c14-3">Cargos</a>
+      <a class="nav-sub" href="#c14-4">Filiais</a>
+      <a class="nav-sub" href="#c14-5">Delegações</a>
+      <a class="nav-sub" href="#c14-6">Sincronização com AD</a>
+      <a class="nav-sub" href="#c14-7">Parâmetros</a>
+      <a class="nav-sub" href="#c14-8">Integração ERP</a>
+    <a class="nav-grp" href="#c15"><span class="n">15</span>Glossário</a>
+    <a class="nav-grp" href="#c16"><span class="n">16</span>Perguntas frequentes</a>
+  </nav>
+  <div class="backdrop" id="backdrop"></div>
+
+  <main class="doc">
+
+  <!-- ===== Capa (somente impressão) ===== -->
+  <section class="cover print-only">
+    <div class="top">
+      <span class="logo lg white"><span class="hrg">HRG</span><span class="three">3</span></span>
+      <span class="spacer"></span>
+      <span class="badge-mvp">Procure&nbsp;to&nbsp;Pay</span>
+    </div>
+    <div class="spacer"></div>
+    <div>
+      <h1>Manual do Usuário<small>Sistema P2P — Gestão de Compras</small></h1>
+      <p class="sub">Guia completo e ilustrado para todos os usuários: do primeiro acesso à requisição, aprovação,
+      pedido de compra, recebimento e acompanhamento fiscal e financeiro.</p>
+      <div class="pills">
+        <span class="pill">Requisições</span><span class="pill">Aprovações</span><span class="pill">Pedidos de Compra</span>
+        <span class="pill">Recebimentos</span><span class="pill">Fiscal</span><span class="pill">Financeiro</span><span class="pill">Administração</span>
+      </div>
+      <div class="meta"><b>Versão:</b> 1.0 &nbsp;·&nbsp; <b>Atualizado em:</b> junho de 2026<br><b>Público:</b> Operadores, Gestores, Revisores/Fiscal e Administradores</div>
+    </div>
+    <div class="foot">© HRG3 / Guess Brasil — Documento de uso interno.</div>
+  </section>
+
+  <!-- ===== Sumário (somente impressão) ===== -->
+  <section class="tocp print-only">
+    <h2>Sumário</h2>
+    <div class="toc">
+      <div class="grp"><a class="g-title" href="#c1"><span class="g-num">1</span>Apresentação</a><a class="item" href="#c1-1">1.1 O que é o P2P</a><a class="item" href="#c1-2">1.2 P2P e o ERP (Linx)</a><a class="item" href="#c1-3">1.3 Visão geral do fluxo</a><a class="item" href="#c1-4">1.4 Os perfis</a></div>
+      <div class="grp"><a class="g-title" href="#c2"><span class="g-num">2</span>Primeiros passos</a><a class="item" href="#c2-1">2.1 Login</a><a class="item" href="#c2-2">2.2 Definir senha</a><a class="item" href="#c2-3">2.3 Conhecendo a tela</a><a class="item" href="#c2-4">2.4 Trocar de empresa</a><a class="item" href="#c2-5">2.5 Notificações</a><a class="item" href="#c2-6">2.6 Filtro de escopo</a><a class="item" href="#c2-7">2.7 Anexar arquivos</a></div>
+      <div class="grp"><a class="g-title" href="#c3"><span class="g-num">3</span>Início (Painel)</a><a class="item" href="#c3-1">3.1 Minhas pendências</a><a class="item" href="#c3-2">3.2 Indicadores</a><a class="item" href="#c3-3">3.3 Análises e gráficos</a></div>
+      <div class="grp"><a class="g-title" href="#c4"><span class="g-num">4</span>Requisições</a><a class="item" href="#c4-1">4.1 O que é</a><a class="item" href="#c4-2">4.2 A lista</a><a class="item" href="#c4-3">4.3 Criar</a><a class="item" href="#c4-4">4.4 Adicionar itens</a><a class="item" href="#c4-5">4.5 Cotações e dispensa</a><a class="item" href="#c4-6">4.6 Enviar para aprovação</a><a class="item" href="#c4-7">4.7 Status e progresso</a></div>
+      <div class="grp"><a class="g-title" href="#c5"><span class="g-num">5</span>Aprovações</a><a class="item" href="#c5-1">5.1 Cadeia e alçada</a><a class="item" href="#c5-2">5.2 Aprovar/devolver</a><a class="item" href="#c5-3">5.3 Escolher cotação</a><a class="item" href="#c5-4">5.4 Acompanhar</a></div>
+      <div class="grp"><a class="g-title" href="#c6"><span class="g-num">6</span>Pedidos de Compra</a><a class="item" href="#c6-1">6.1 Converter</a><a class="item" href="#c6-2">6.2 Lista e detalhe</a><a class="item" href="#c6-3">6.3 Editar e cancelar</a><a class="item" href="#c6-4">6.4 Notas e financeiro</a></div>
+      <div class="grp"><a class="g-title" href="#c7"><span class="g-num">7</span>Solicitações de Verba</a><a class="item" href="#c7-1">7.1 O que é uma SV</a><a class="item" href="#c7-2">7.2 Lista e integração</a></div>
+      <div class="grp"><a class="g-title" href="#c8"><span class="g-num">8</span>Recebimentos</a><a class="item" href="#c8-1">8.1 Registrar</a><a class="item" href="#c8-2">8.2 Confirmar/divergências</a><a class="item" href="#c8-3">8.3 Medição de serviço</a></div>
+      <div class="grp"><a class="g-title" href="#c9"><span class="g-num">9</span>Produto Acabado</a><a class="item" href="#c9-1">9.1 Aprovar/reprovar</a><a class="item" href="#c9-2">9.2 Reagendar e grade</a></div>
+      <div class="grp"><a class="g-title" href="#c10"><span class="g-num">10</span>Fiscal</a><a class="item" href="#c10-1">10.1 Pendências fiscais</a><a class="item" href="#c10-2">10.2 Notas fiscais (Qive)</a></div>
+      <div class="grp"><a class="g-title" href="#c11"><span class="g-num">11</span>Financeiro</a><a class="item" href="#c11-1">11.1 Títulos a pagar</a><a class="item" href="#c11-2">11.2 Adiantamentos</a><a class="item" href="#c11-3">11.3 DDAs</a><a class="item" href="#c11-4">11.4 Provisões</a></div>
+      <div class="grp"><a class="g-title" href="#c12"><span class="g-num">12</span>Pedidos externos</a></div>
+      <div class="grp"><a class="g-title" href="#c13"><span class="g-num">13</span>Relatórios</a></div>
+      <div class="grp"><a class="g-title" href="#c14"><span class="g-num">14</span>Administração</a><a class="item" href="#c14-1">14.1 Usuários</a><a class="item" href="#c14-2">14.2 Equipes e aprovação</a><a class="item" href="#c14-3">14.3 Cargos</a><a class="item" href="#c14-4">14.4 Filiais</a><a class="item" href="#c14-5">14.5 Delegações</a><a class="item" href="#c14-6">14.6 Sincronização AD</a><a class="item" href="#c14-7">14.7 Parâmetros</a><a class="item" href="#c14-8">14.8 Integração ERP</a></div>
+      <div class="grp"><a class="g-title" href="#c15"><span class="g-num">15</span>Glossário</a></div>
+      <div class="grp"><a class="g-title" href="#c16"><span class="g-num">16</span>Perguntas frequentes</a></div>
+    </div>
+  </section>
+
+  <!-- ===== Hero (somente tela) ===== -->
+  <section class="hero screen-only">
+    <div class="wrap">
+      <div class="top">
+        <span class="logo sm white"><span class="hrg">HRG</span><span class="three">3</span></span>
+        <span class="kick">Procure to Pay</span>
+      </div>
+      <h1>Manual do Usuário<small>Sistema P2P — Gestão de Compras</small></h1>
+      <p class="sub">Guia completo e ilustrado para todos os usuários: do primeiro acesso à requisição, aprovação,
+      pedido de compra, recebimento e acompanhamento fiscal e financeiro. Use o índice à esquerda para navegar.</p>
+      <div class="chips">
+        <span class="chip">Requisições</span><span class="chip">Aprovações</span><span class="chip">Pedidos de Compra</span>
+        <span class="chip">Recebimentos</span><span class="chip">Fiscal</span><span class="chip">Financeiro</span><span class="chip">Administração</span>
+      </div>
+      <div class="meta"><b>Versão 1.0</b> · junho de 2026 · para Operadores, Gestores, Revisores/Fiscal e Administradores</div>
+    </div>
+  </section>
+
+
+<!-- ==================== 1. APRESENTAÇÃO ==================== -->
+<section class="section" id="c1">
+  <div class="chapter-kicker">Capítulo 1</div>
+  <h1 class="chapter">Apresentação</h1>
+  <div class="chapter-rule"></div>
+  <p>Bem-vindo ao <strong>P2P</strong>, o sistema de compras da empresa. Este manual foi escrito para
+  <em>todos os perfis</em> — de quem nunca usou um sistema de compras até quem administra a plataforma.
+  Cada capítulo explica uma parte do dia a dia, com passos numerados, telas descritas campo a campo e
+  caixas de dica e atenção.</p>
+
+  <h2 class="sec" id="c1-1">1.1 O que é o P2P</h2>
+  <p>P2P significa <strong>Procure-to-Pay</strong> (“do pedido ao pagamento”). É onde nasce e vive todo o
+  processo de compra da empresa: alguém <strong>solicita</strong> uma compra, os gestores <strong>aprovam</strong>,
+  vira um <strong>pedido</strong> ao fornecedor, o material/serviço é <strong>recebido</strong> e, por fim, a
+  <strong>nota fiscal</strong> e o <strong>pagamento</strong> são acompanhados.</p>
+  <p>Antes do P2P, esse ciclo ficava espalhado em planilhas, e-mails e ligações — sem rastreabilidade e sem
+  controle. O P2P reúne tudo em um único lugar, com histórico de cada passo e quem fez o quê.</p>
+
+  <div class="callout c-info">
+    <span class="ct">Em uma frase</span>
+    <p>O P2P é o <strong>sistema oficial de compras</strong>. O ERP (Linx) continua sendo o sistema oficial de
+    contabilidade, fiscal e pagamentos. Os dois conversam entre si o tempo todo.</p>
+  </div>
+
+  <h2 class="sec" id="c1-2">1.2 P2P e o ERP (Linx) trabalhando juntos</h2>
+  <p>É importante entender essa divisão de papéis, porque ela explica várias telas do sistema:</p>
+  <div class="tbl"><div class="tbl"><table>
+    <thead><tr><th style="width:50%">O P2P cuida de…</th><th>O ERP / Linx cuida de…</th></tr></thead>
+    <tbody>
+      <tr><td>Requisição de compra</td><td>Registro contábil e fiscal</td></tr>
+      <tr><td>Aprovação por alçada</td><td>Emissão/recebimento de nota fiscal</td></tr>
+      <tr><td>Pedido de compra</td><td>Geração do título a pagar</td></tr>
+      <tr><td>Recebimento e medição</td><td>Pagamento ao fornecedor</td></tr>
+      <tr><td>Acompanhamento de tudo isso</td><td>Cadastros-mestre (fornecedores, filiais, contas, itens)</td></tr>
+    </tbody>
+  </table></div></div>
+  <p>Quando um pedido é aprovado no P2P, ele é <strong>gravado no Linx</strong> automaticamente. E quando uma nota
+  fiscal entra ou um título é pago no Linx, o P2P <strong>lê essa informação de volta</strong> e mostra para você.
+  Por isso muitas telas têm um botão <span class="badge b-blue">Atualizar</span>: ele consulta o Linx na hora.</p>
+
+  <h2 class="sec" id="c1-3">1.3 Visão geral do fluxo de compras</h2>
+  <p>O caminho principal de uma compra indireta (serviços e consumo) é este:</p>
+  <div class="flow">
+    <div class="step"><span class="n">1</span><b>Requisição</b><br>você pede</div>
+    <div class="arrow">›</div>
+    <div class="step"><span class="n">2</span><b>Aprovação</b><br>gestores autorizam</div>
+    <div class="arrow">›</div>
+    <div class="step"><span class="n">3</span><b>Pedido</b><br>enviado ao fornecedor</div>
+    <div class="arrow">›</div>
+    <div class="step"><span class="n">4</span><b>Recebimento</b><br>material/serviço chega</div>
+    <div class="arrow">›</div>
+    <div class="step"><span class="n">5</span><b>Fiscal</b><br>nota é vinculada</div>
+    <div class="arrow">›</div>
+    <div class="step"><span class="n">6</span><b>Financeiro</b><br>título é pago</div>
+  </div>
+  <p>Existem variações importantes que você vai conhecer ao longo do manual:</p>
+  <ul>
+    <li><strong>Compra com adiantamento</strong> (nota fiscal ainda não emitida): o sistema cria, junto do
+    pedido, uma <strong>Solicitação de Verba</strong> (capítulo 7).</li>
+    <li><strong>Produto Acabado (PA)</strong>: pedidos de mercadoria que <em>nascem no Linx</em> e vêm ao P2P
+    apenas para o diretor da marca aprovar (capítulo 9).</li>
+    <li><strong>Pedidos externos</strong>: compras feitas direto no Linx, exibidas no P2P só para consulta
+    (capítulo 12).</li>
+  </ul>
+
+  <h2 class="sec" id="c1-4">1.4 Quem usa o P2P — os perfis</h2>
+  <p>Cada pessoa tem um <strong>perfil</strong>, que define o que ela vê e pode fazer. O menu lateral muda
+  conforme o seu perfil — então não estranhe se um colega enxerga itens que você não vê.</p>
+  <div class="cards">
+    <div class="card">
+      <div class="h">Operador</div>
+      <div class="r">O dia a dia das compras</div>
+      <ul><li>Cria e edita requisições</li><li>Registra recebimentos</li><li>Acompanha seus próprios documentos</li></ul>
+    </div>
+    <div class="card">
+      <div class="h">Gestor (Manager)</div>
+      <div class="r">Autoriza dentro da alçada</div>
+      <ul><li>Aprova, rejeita ou devolve requisições</li><li>Vê indicadores da sua equipe</li><li>Escolhe a cotação vencedora</li></ul>
+    </div>
+    <div class="card">
+      <div class="h">Revisor / Fiscal</div>
+      <div class="r">Garante a parte fiscal</div>
+      <ul><li>Classifica requisições fiscalmente</li><li>Resolve pendências de itens</li><li>Vincula notas fiscais aos pedidos</li></ul>
+    </div>
+    <div class="card">
+      <div class="h">Administrador</div>
+      <div class="r">Configura a plataforma</div>
+      <ul><li>Gerencia usuários, equipes e cargos</li><li>Define cadeias de aprovação e parâmetros</li><li>Acesso total a todos os módulos</li></ul>
+    </div>
+  </div>
+  <div class="callout c-info">
+    <span class="ct">Módulos liberados por equipe</span>
+    <p>Além do perfil, alguns módulos (<strong>Produto Acabado, Pendências Fiscais, Relatórios, Recebimentos e
+    Financeiro</strong>) podem ser liberados para a sua <em>equipe</em> pelo Administrador. Se a sua equipe não
+    tem um módulo liberado, ele simplesmente não aparece no menu.</p>
+  </div>
+</section>
+
+<!-- ==================== 2. PRIMEIROS PASSOS ==================== -->
+<section class="section" id="c2">
+  <div class="chapter-kicker">Capítulo 2</div>
+  <h1 class="chapter">Primeiros passos</h1>
+  <div class="chapter-rule"></div>
+
+  <h2 class="sec" id="c2-1">2.1 Acessando o sistema (login)</h2>
+  <p>Ao abrir o endereço do P2P, você verá a tela de entrada com o logo <span class="logo sm"><span class="hrg">HRG</span><span class="three">3</span></span>
+  e o subtítulo <em>Procure-to-Pay</em>. Há duas formas de entrar, em abas:</p>
+
+  <h3 class="sub">Aba “Corporativo” (a maioria dos usuários)</h3>
+  <div class="tbl"><div class="tbl"><table>
+    <thead><tr><th style="width:25%">Campo</th><th>Como preencher</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Usuário</strong></td><td>Seu login corporativo (o mesmo do computador/rede) ou seu usuário local do P2P.</td></tr>
+      <tr><td><strong>Senha</strong></td><td>A senha corporativa (do Active Directory) ou a senha que você definiu no primeiro acesso.</td></tr>
+    </tbody>
+  </table></div></div>
+  <p>Clique em <span class="badge b-blue">Entrar</span>. O sistema primeiro tenta validar você no diretório
+  corporativo (AD); se não encontrar, tenta como usuário local.</p>
+
+  <h3 class="sub">Aba “Loja” (vendedores)</h3>
+  <p>Vendedores de loja entram pelo <strong>CPF</strong> (aceita pontos e hífen). O sistema verifica o CPF no
+  cadastro de vendedores:</p>
+  <ul>
+    <li>Se for o primeiro acesso, leva você direto para <em>definir uma senha</em>.</li>
+    <li>Se já tiver senha, pede a senha.</li>
+    <li>Se o CPF não estiver cadastrado, aparece: <em>“CPF não encontrado no cadastro de vendedores. Procure o RH.”</em></li>
+  </ul>
+
+  <div class="callout c-atencao">
+    <span class="ct">Ambiente: Produção × Homologação</span>
+    <p>No rodapé do login há a opção <strong>Verificar ambiente</strong>. <strong>Produção (PROD)</strong> tem os dados
+    reais. <strong>Homologação (HML)</strong> é só para testes. Quando você está em HML, aparece uma etiqueta laranja
+    <span class="badge b-yellow">Homologação</span> no topo do sistema. Na dúvida, use Produção.</p>
+  </div>
+  <div class="callout c-info">
+    <span class="ct">Mensagem de erro genérica</span>
+    <p>Por segurança, erro de login mostra sempre <em>“Usuário ou senha inválidos”</em>, sem dizer qual dos dois
+    está errado. Confira o teclado (Caps Lock) e tente de novo.</p>
+  </div>
+
+  <h2 class="sec" id="c2-2">2.2 Definindo sua senha</h2>
+  <p>Usuários criados manualmente (ou que pediram recuperação) recebem um <strong>e-mail com um link</strong> para
+  definir a senha. O link vale por <strong>24 horas</strong>.</p>
+  <ol class="steps">
+    <li>Abra o e-mail <b>“Defina sua senha”</b> e clique no link.</li>
+    <li>Digite a senha em <b>Nova senha</b> e repita em <b>Confirmar senha</b>.</li>
+    <li>Acompanhe a lista de requisitos: cada regra atendida ganha um <b>✓</b> (tamanho mínimo, letra maiúscula,
+    minúscula, número, caractere especial e senhas iguais).</li>
+    <li>Quando tudo estiver verde, clique em <b>Definir senha</b>. Você será levado ao login em poucos segundos.</li>
+  </ol>
+  <div class="callout c-dica">
+    <span class="ct">Dica</span>
+    <p>Esqueceu a senha? Peça ao Administrador para reenviar o link (há um botão de envelope ao lado do seu nome na
+    tela de Usuários).</p>
+  </div>
+
+  <h2 class="sec" id="c2-3">2.3 Conhecendo a tela</h2>
+  <p>Depois de entrar, a tela tem três áreas:</p>
+  <h3 class="sub">Menu lateral (à esquerda)</h3>
+  <ul>
+    <li>Mostra o logo no topo e os itens de navegação, agrupados em <strong>Operação</strong> (dia a dia) e
+    <strong>Administração</strong>.</li>
+    <li>Alguns itens são <strong>grupos</strong> que abrem e fecham ao clicar (ex.: <em>Fiscal</em>, <em>Financeiro</em>).</li>
+    <li>Alguns itens têm um <strong>número</strong> ao lado (ex.: pendências fiscais aguardando ação).</li>
+    <li>No rodapé há <strong>Recolher menu</strong>, que reduz o menu a só ícones (passe o mouse para ver o nome).</li>
+    <li>No celular, o menu fica escondido — toque no ícone <strong>≡</strong> para abri-lo.</li>
+  </ul>
+  <h3 class="sub">Barra superior</h3>
+  <div class="tbl"><div class="tbl"><table>
+    <thead><tr><th style="width:28%">Elemento</th><th>Para que serve</th></tr></thead>
+    <tbody>
+      <tr><td>Título da página</td><td>Mostra onde você está (muda conforme navega).</td></tr>
+      <tr><td>🔔 Sino</td><td>Abre suas notificações (ver 2.5). O número indica não lidas.</td></tr>
+      <tr><td>Seletor de empresa</td><td>Troca a empresa ativa, se você tem acesso a mais de uma (ver 2.4).</td></tr>
+      <tr><td>Menu do usuário</td><td>Seu nome e perfil; opção <strong>Sair</strong>.</td></tr>
+    </tbody>
+  </table></div></div>
+  <h3 class="sub">Área de conteúdo</h3>
+  <p>É o centro da tela, onde aparecem as listas, formulários e detalhes de cada módulo.</p>
+
+  <h2 class="sec" id="c2-4">2.4 Trocando de empresa</h2>
+  <p>O P2P atende mais de uma empresa do grupo. A <strong>empresa ativa</strong> aparece na barra superior e
+  determina tudo o que você vê (requisições, pedidos, fornecedores etc.). Se você tem acesso a mais de uma,
+  clique no seletor e escolha. Cada empresa tem seus próprios cadastros, parâmetros e filiais.</p>
+
+  <h2 class="sec" id="c2-5">2.5 Notificações</h2>
+  <p>O <strong>sino</strong> na barra superior avisa quando algo precisa da sua atenção: uma requisição aprovada,
+  uma devolução, uma pendência etc.</p>
+  <ul>
+    <li>O número vermelho mostra quantas notificações você ainda não leu (atualiza sozinho a cada minuto).</li>
+    <li>Clique no sino para ver a lista (até 100). Cada item mostra título, resumo e data.</li>
+    <li>Clicar em uma notificação <strong>marca como lida</strong> e leva você direto à tela relacionada.</li>
+    <li>Use <strong>Marcar todas como lidas</strong> para limpar o contador.</li>
+  </ul>
+
+  <h2 class="sec" id="c2-6">2.6 Filtro de escopo (Meus / Da equipe / Todos)</h2>
+  <p>Em várias listas há um seletor de <strong>escopo</strong>, que controla <em>de quem</em> são os itens exibidos:</p>
+  <div class="tbl"><div class="tbl"><table>
+    <thead><tr><th style="width:25%">Opção</th><th>O que mostra</th><th style="width:24%">Quem vê</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Meus</strong></td><td>Apenas os seus próprios documentos (padrão).</td><td>Todos</td></tr>
+      <tr><td><strong>Da equipe</strong></td><td>Os documentos de todos os membros da sua equipe.</td><td>Quem tem equipe</td></tr>
+      <tr><td><strong>Todos</strong></td><td>Tudo da empresa.</td><td>Administrador</td></tr>
+    </tbody>
+  </table></div></div>
+  <p>A sua escolha é lembrada por tela na próxima vez que você acessar.</p>
+
+  <h2 class="sec" id="c2-7">2.7 Anexando arquivos</h2>
+  <p>Muitas telas têm uma seção <strong>Anexos</strong> para cotações, contratos, fotos de recebimento, comprovantes
+  e outros documentos de apoio.</p>
+  <ol class="steps">
+    <li>Escolha o <b>Tipo do anexo</b> na lista (ex.: Cotação, Contrato, Foto do recebimento).</li>
+    <li>Clique em <b>Adicionar</b> e selecione o arquivo no computador.</li>
+    <li>Aguarde o envio. O arquivo aparece na lista com tamanho e botões de <b>visualizar</b>, <b>baixar</b> e
+    <b>excluir</b>.</li>
+  </ol>
+  <p class="small">Formatos aceitos: PDF, Word, Excel e imagens (JPG, PNG, GIF). Limite de 10 anexos por documento.</p>
+  <div class="callout c-info">
+    <span class="ct">Cotação é especial</span>
+    <p>Quando o tipo escolhido é <strong>Cotação</strong>, ao enviar o arquivo o sistema abre automaticamente uma
+    janela para você informar o fornecedor, o CNPJ, os itens e os valores daquela proposta. Assim a cotação fica
+    pronta para o gestor comparar (ver 5.3).</p>
+  </div>
+</section>
+
+<!-- ==================== 3. INÍCIO / DASHBOARD ==================== -->
+<section class="section" id="c3">
+  <div class="chapter-kicker">Capítulo 3</div>
+  <h1 class="chapter">Início (Painel)</h1>
+  <div class="chapter-rule"></div>
+  <p>A primeira tela após o login é o <strong>Início</strong> — um painel que resume o que depende de você e como
+  andam as compras. O conteúdo muda conforme o seu perfil.</p>
+
+  <h2 class="sec" id="c3-1">3.1 Minhas pendências</h2>
+  <p>No topo, o bloco <strong>Minhas pendências</strong> mostra cartões com atalhos para tudo o que aguarda a sua
+  ação. Cada cartão tem um número; clique para ir direto à lista filtrada.</p>
+  <div class="tbl"><div class="tbl"><table>
+    <thead><tr><th>Cartão</th><th>O que reúne</th></tr></thead>
+    <tbody>
+      <tr><td>Aprovações aguardando você</td><td>Requisições que dependem da sua decisão (gestores).</td></tr>
+      <tr><td>Requisições a converter em pedido</td><td>Já aprovadas, esperando virar pedido de compra.</td></tr>
+      <tr><td>Pedidos PA para aprovar</td><td>Pedidos de Produto Acabado, se você é aprovador da marca.</td></tr>
+      <tr><td>Pendências fiscais</td><td>Itens ou requisições aguardando a parte fiscal.</td></tr>
+      <tr><td>Minhas requisições em rascunho/devolvidas</td><td>Suas requisições que ainda precisam ser concluídas.</td></tr>
+      <tr><td>Minhas requisições em aprovação</td><td>Acompanhamento: suas requisições no fluxo dos gestores.</td></tr>
+    </tbody>
+  </table></div></div>
+  <p>Logo abaixo, <strong>Minhas requisições recentes</strong> lista as últimas que você criou, com status e valor.</p>
+
+  <h2 class="sec" id="c3-2">3.2 Indicadores (KPIs)</h2>
+  <p>A seção <strong>Pedidos</strong> traz três grandes números. Se o seu perfil permitir, há um seletor de escopo
+  (<em>Meus</em>, <em>Da equipe</em>, <em>Empresa</em>) para mudar a abrangência.</p>
+  <div class="tbl"><div class="tbl"><table>
+    <thead><tr><th style="width:28%">Indicador</th><th>O que significa</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Pedidos em aberto</strong></td><td>Quantidade (e valor) de pedidos ainda não concluídos. Clique para ver a lista.</td></tr>
+      <tr><td><strong>Em atraso</strong></td><td>Pedidos cuja entrega já passou da data. Fica em vermelho quando há atrasos.</td></tr>
+      <tr><td><strong>Orçamento (mês)</strong></td><td>Percentual do orçamento já consumido no mês (visão de Administrador). Amarelo entre 90–100%, vermelho acima de 100%.</td></tr>
+    </tbody>
+  </table></div></div>
+  <p>Para o Administrador na visão consolidada, é possível alternar entre <strong>Total</strong>,
+  <strong>Por centro de custo</strong> e <strong>Por equipe</strong>, e abrir a lista de pedidos
+  <strong>Em aberto</strong> ou <strong>Em atraso</strong>.</p>
+
+  <h2 class="sec" id="c3-3">3.3 Análises e gráficos</h2>
+  <p>Para gestores e administradores, a seção <strong>Análises</strong> oferece gráficos que se atualizam a cada
+  poucos minutos:</p>
+  <ul>
+    <li><strong>Pedidos por mês</strong> — evolução dos últimos 6 meses.</li>
+    <li><strong>Top fornecedores</strong> — quem mais recebeu pedidos no mês.</li>
+    <li><strong>Pedidos por status</strong> — distribuição entre os estados (gráfico de rosca).</li>
+  </ul>
+  <p>Você pode ligar e desligar cada gráfico pelo seletor da seção.</p>
+</section>
+
+<!-- ==================== 4. REQUISIÇÕES ==================== -->
+<section class="section" id="c4">
+  <div class="chapter-kicker">Capítulo 4</div>
+  <h1 class="chapter">Requisições</h1>
+  <div class="chapter-rule"></div>
+
+  <h2 class="sec" id="c4-1">4.1 O que é uma requisição</h2>
+  <p>A <strong>requisição</strong> é o ponto de partida de toda compra: é onde você diz <em>o que precisa</em>,
+  <em>de qual fornecedor</em> e <em>por quê</em>. Depois de aprovada, ela vira um pedido de compra.</p>
+  <div class="callout c-info">
+    <span class="ct">Regras de ouro da requisição</span>
+    <p>• Cada requisição tem <strong>um fornecedor</strong> e pode ter <strong>vários itens</strong>.<br>
+    • Toda requisição exige uma <strong>justificativa</strong> (mínimo de 15 caracteres).<br>
+    • Uma requisição aprovada pode gerar <strong>um ou mais</strong> pedidos de compra.<br>
+    • A numeração é automática, no formato <code>REQ-AAAA-NNNNNN</code>.</p>
+  </div>
+
+  <h2 class="sec" id="c4-2">4.2 A lista de requisições</h2>
+  <p>O menu <strong>Requisições</strong> abre a lista de todas as suas requisições (ou da equipe/empresa, conforme
+  o escopo). No topo você tem busca, filtro de status, filtro de escopo e os botões <span class="badge b-neutral">Exportar</span>
+  (baixa um CSV para Excel) e <span class="badge b-blue">Nova requisição</span>.</p>
+  <p>A tabela mostra: <strong>Número</strong>, <strong>Título</strong>, <strong>Fornecedor</strong>,
+  <strong>Adiantamento</strong> (“Sim” quando a NF é futura), <strong>Status</strong>, <strong>Valor</strong> e
+  <strong>Criada em</strong>. Clique em qualquer linha para abrir o detalhe.</p>
+  <div class="callout c-atencao">
+    <span class="ct">Selo “Fiscal” na lista</span>
+    <p>Uma requisição aprovada pode exibir um selo amarelo <span class="badge b-yellow">Fiscal</span>. Significa que
+    falta a <strong>classificação fiscal</strong> antes de ela virar pedido — tarefa do Revisor/Fiscal (ver 4.6 e 10.1).</p>
+  </div>
+
+  <h2 class="sec" id="c4-3">4.3 Criar uma requisição</h2>
+  <p>Clique em <strong>Nova requisição</strong>. O formulário tem três partes: <em>Dados gerais</em>, <em>Itens</em>
+  e <em>Cotações/Anexos</em>.</p>
+  <h3 class="sub">Dados gerais</h3>
+  <div class="tbl"><div class="tbl"><table>
+    <thead><tr><th style="width:30%">Campo</th><th>Como preencher</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Filial</strong> <span class="badge b-red">obrigatório</span></td><td>A unidade que receberá a compra.</td></tr>
+      <tr><td><strong>Fornecedor</strong> <span class="badge b-red">obrigatório</span></td><td>Busque pelo nome ou CNPJ. Pode ser um fornecedor já cadastrado ou um fornecedor externo (informe CNPJ + nome).</td></tr>
+      <tr><td><strong>Título</strong> <span class="badge b-red">obrigatório</span></td><td>Um nome curto que identifique a compra (ex.: “Material de limpeza – maio”).</td></tr>
+      <tr><td><strong>Com adiantamento</strong></td><td>Ligue quando a <strong>nota fiscal ainda não foi emitida</strong> e o pagamento será antecipado. O sistema gerará uma Solicitação de Verba junto do pedido.</td></tr>
+      <tr><td><strong>Condição de pagamento</strong> <span class="badge b-red">obrigatório</span></td><td>À vista, 30 dias etc. (vem do ERP). Pode ser sugerida automaticamente pelo fornecedor.</td></tr>
+      <tr><td><strong>Contrato vinculado</strong></td><td>Opcional — número ou referência de um contrato existente.</td></tr>
+      <tr><td><strong>Recorrência</strong></td><td>Ligue se a compra se repete; informe de quantos em quantos meses.</td></tr>
+      <tr><td><strong>Justificativa</strong> <span class="badge b-red">obrigatório</span></td><td>Por que a compra é necessária (mínimo 15 caracteres).</td></tr>
+    </tbody>
+  </table></div></div>
+  <div class="callout c-dica">
+    <span class="ct">Rascunho salvo sozinho</span>
+    <p>Ao anexar o primeiro arquivo numa requisição nova, o sistema <strong>salva o rascunho automaticamente</strong> —
+    você não perde nada e continua exatamente de onde estava.</p>
+  </div>
+
+  <h2 class="sec" id="c4-4">4.4 Adicionar itens</h2>
+  <p>Com o fornecedor escolhido, clique em <strong>Adicionar item</strong>. Na janela do item:</p>
+  <ul>
+    <li>Escolha entre <strong>Item do fornecedor</strong> (já vinculado, recomendado) ou <strong>Itens não
+    vinculados ao fornecedor</strong> (abre uma pendência fiscal depois).</li>
+    <li>Selecione o item pela busca — isso preenche <strong>unidade</strong>, <strong>conta contábil</strong> e os
+    <strong>rateios</strong> padrão.</li>
+    <li>Informe a <strong>quantidade</strong> (número inteiro) e o <strong>preço estimado</strong>.</li>
+    <li>Confira a <strong>conta contábil</strong>, o <strong>rateio de filial</strong> e o <strong>rateio de centro
+    de custo</strong> (o CC principal da sua equipe já vem pré-selecionado).</li>
+  </ul>
+  <p>Cada item aparece na tabela com Quantidade, Unidade, Preço, Total e botões para <strong>editar</strong>,
+  <strong>duplicar</strong> e <strong>remover</strong>. O rodapé mostra o <strong>Total da requisição</strong>.</p>
+  <div class="callout c-info">
+    <span class="ct">O que é “rateio”</span>
+    <p>O rateio define <em>para qual filial e centro de custo</em> o gasto será distribuído. Você não digita
+    porcentagem: escolhe um modelo de rateio já cadastrado no ERP (a maioria é “100% para um destino”).</p>
+  </div>
+  <div class="callout c-atencao">
+    <span class="ct">Trocou o fornecedor?</span>
+    <p>Se você mudar o fornecedor depois de adicionar itens, a lista de itens é limpa — porque preços e códigos
+    pertenciam ao fornecedor anterior.</p>
+  </div>
+
+  <h2 class="sec" id="c4-5">4.5 Cotações e dispensa</h2>
+  <p>Para compras acima de um valor definido pela empresa, a política exige <strong>3 cotações no mínimo</strong>
+  (a sua proposta conta como uma). Um aviso ao pé da lista de itens mostra quantas faltam.</p>
+  <h3 class="sub">Anexar cotações</h3>
+  <p>Anexe o PDF de cada proposta com o tipo <strong>Cotação</strong>. O sistema pede o fornecedor, CNPJ, itens e
+  valores — e a cotação fica disponível para o gestor comparar.</p>
+  <h3 class="sub">Solicitar dispensa</h3>
+  <p>Quando há um motivo legítimo para não fazer 3 cotações, clique em <strong>Solicitar dispensa</strong> e informe:</p>
+  <div class="tbl"><div class="tbl"><table>
+    <thead><tr><th style="width:32%">Motivo</th><th>Quando usar</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Contrato vigente</strong></td><td>Fornecedor já foi cotado quando o contrato foi assinado.</td></tr>
+      <tr><td><strong>Recorrente</strong></td><td>Compra repetida, com fornecedor de histórico conhecido.</td></tr>
+      <tr><td><strong>Fornecedor único</strong></td><td>Só uma empresa fornece o item.</td></tr>
+      <tr><td><strong>Emergência</strong></td><td>Risco de continuidade que não comporta espera.</td></tr>
+    </tbody>
+  </table></div></div>
+  <p>A justificativa precisa ter <strong>pelo menos 20 caracteres</strong>. O gestor verá o motivo e decide se
+  aceita. Se recusar, a exigência das cotações volta.</p>
+
+  <h2 class="sec" id="c4-6">4.6 Enviar para aprovação</h2>
+  <p>No formulário, você tem dois botões:</p>
+  <ul>
+    <li><strong>Salvar rascunho</strong> — guarda sem enviar, para continuar depois.</li>
+    <li><strong>Salvar e enviar para aprovação</strong> — salva e já submete em um clique.</li>
+  </ul>
+  <p>Após o envio, a requisição segue a cadeia de aprovação da sua equipe (capítulo 5). Se ela for devolvida, o
+  botão passa a ser <strong>Salvar e reenviar para aprovação</strong>.</p>
+  <div class="callout c-import">
+    <span class="ct">Importante</span>
+    <p>Você <strong>não pode aprovar a própria requisição</strong>. Editar uma requisição que está em aprovação
+    <strong>reinicia</strong> o fluxo desde o primeiro nível.</p>
+  </div>
+
+  <h2 class="sec" id="c4-7">4.7 Status e progresso</h2>
+  <p>Cada requisição tem um <strong>status</strong>, mostrado como uma etiqueta colorida:</p>
+  <div class="tbl"><div class="tbl"><table>
+    <thead><tr><th style="width:24%">Status</th><th>Significa</th><th style="width:26%">Próximo passo</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge b-neutral">Rascunho</span></td><td>Em edição, ainda não enviada.</td><td>Enviar para aprovação</td></tr>
+      <tr><td><span class="badge b-blue">Enviada</span></td><td>Aguardando o primeiro aprovador.</td><td>Aprovador decide</td></tr>
+      <tr><td><span class="badge b-yellow">Em aprovação</span></td><td>Passou de um nível, aguarda o próximo.</td><td>Próximo aprovador decide</td></tr>
+      <tr><td><span class="badge b-green">Aprovada</span></td><td>Todos os níveis aprovaram.</td><td>Classificar fiscal e converter</td></tr>
+      <tr><td><span class="badge b-yellow">Em revisão</span></td><td>Devolvida para ajustes.</td><td>Editar e reenviar</td></tr>
+      <tr><td><span class="badge b-blue">Convertida</span></td><td>Virou pedido de compra.</td><td>Acompanhar o pedido</td></tr>
+      <tr><td><span class="badge b-red">Rejeitada</span></td><td>Um aprovador recusou (encerra o fluxo).</td><td>Criar nova, se necessário</td></tr>
+      <tr><td><span class="badge b-red">Cancelada</span></td><td>Cancelada manualmente.</td><td>—</td></tr>
+    </tbody>
+  </table></div></div>
+  <p>No detalhe da requisição, uma <strong>barra de progresso</strong> mostra visualmente as fases (Rascunho →
+  Em aprovação → Aprovada → Pedido de compra → Recebimento), e o <strong>Histórico</strong> registra cada ação:
+  quem criou, quem aprovou, quem devolveu e quando.</p>
+</section>
+
+<!-- ==================== 5. APROVAÇÕES ==================== -->
+<section class="section" id="c5">
+  <div class="chapter-kicker">Capítulo 5</div>
+  <h1 class="chapter">Aprovações</h1>
+  <div class="chapter-rule"></div>
+  <p>O módulo <strong>Aprovações</strong> tem duas faces: para o <strong>gestor</strong>, é a fila do que precisa
+  decidir; para o <strong>solicitante</strong>, é o acompanhamento das suas requisições em andamento.</p>
+
+  <h2 class="sec" id="c5-1">5.1 Cadeia de aprovação e alçada</h2>
+  <p>Cada equipe tem uma <strong>cadeia de aprovação</strong> própria, com níveis em sequência (ex.: Coordenador →
+  Gestor → Diretor). Cada nível tem um <strong>aprovador</strong> e uma <strong>alçada</strong> (valor máximo que
+  pode autorizar).</p>
+  <ul>
+    <li>A requisição gera etapas do nível 1 até o primeiro nível cuja alçada cobre o valor.</li>
+    <li>A aprovação é <strong>sequencial</strong>: só vai ao próximo nível quando o anterior aprova.</li>
+    <li>Uma <strong>rejeição</strong> em qualquer nível encerra o processo.</li>
+    <li>Se a equipe não tem cadeia, a requisição é <strong>aprovada automaticamente</strong> no envio.</li>
+  </ul>
+
+  <h2 class="sec" id="c5-2">5.2 Aprovar, rejeitar ou devolver</h2>
+  <p>Na tela <strong>Aprovações</strong> (visão do gestor), a tabela lista as etapas pendentes com Número, Título,
+  Solicitante, Nível e Valor. Em cada linha há quatro ações:</p>
+  <div class="tbl"><div class="tbl"><table>
+    <thead><tr><th style="width:24%">Ação</th><th>O que faz</th></tr></thead>
+    <tbody>
+      <tr><td>🔎 <strong>Ver</strong></td><td>Abre o detalhe completo da requisição.</td></tr>
+      <tr><td><span class="badge b-yellow">Devolver</span></td><td>Pede ajustes ao solicitante, sem rejeitar. A requisição volta para <em>Em revisão</em>.</td></tr>
+      <tr><td><span class="badge b-red">Rejeitar</span></td><td>Recusa a requisição (motivo obrigatório). Encerra o fluxo.</td></tr>
+      <tr><td><span class="badge b-green">Aprovar</span></td><td>Autoriza o nível atual (comentário opcional).</td></tr>
+    </tbody>
+  </table></div></div>
+  <h3 class="sub">Devolver para revisão</h3>
+  <p>Ao devolver, escreva o que precisa ser corrigido (mínimo 5 caracteres). Se a requisição tinha uma dispensa de
+  cotação, você pode <strong>recusar a dispensa</strong> — aí o solicitante volta a precisar das 3 cotações. Após a
+  correção e o reenvio, o fluxo recomeça do nível 1.</p>
+  <div class="callout c-info">
+    <span class="ct">Decisão como Administrador (override)</span>
+    <p>O Administrador pode decidir no lugar do aprovador titular de uma etapa. Nesse caso, a <strong>justificativa
+    é obrigatória</strong> (mínimo 10 caracteres) e a ação fica registrada na auditoria com o selo
+    <span class="badge b-yellow">override</span>.</p>
+  </div>
+
+  <h2 class="sec" id="c5-3">5.3 Comparar e escolher a cotação vencedora</h2>
+  <p>No detalhe da requisição, o <strong>card de Cotações</strong> reúne todas as propostas no mesmo lugar — a do
+  solicitante (sempre “Cotação 1”) e as alternativas anexadas. Cada cartão mostra fornecedor, CNPJ, condição de
+  pagamento, itens e valor total.</p>
+  <ol class="steps">
+    <li>Compare os valores e condições das cotações lado a lado.</li>
+    <li>Clique em <b>Selecionar vencedora</b> (ou <b>Trocar vencedora</b>) na proposta escolhida.</li>
+    <li>Escreva a <b>justificativa da escolha</b> (mínimo 10 caracteres) — ela fica no histórico.</li>
+    <li>Confirme. O fornecedor, a condição, os itens e o valor da requisição passam a ser os da cotação vencedora.</li>
+  </ol>
+  <p>Para voltar à proposta original, use <strong>Restaurar proposta do solicitante</strong>.</p>
+
+  <h2 class="sec" id="c5-4">5.4 Acompanhar suas requisições (solicitante)</h2>
+  <p>Quem não é aprovador vê, em <strong>Aprovações</strong>, a lista das <em>próprias</em> requisições que estão no
+  fluxo: número, título, status, <strong>quem está decidindo</strong> e em que nível, valor e data de envio. É só
+  acompanhamento — útil para saber “onde está parada” a sua requisição. Clique para abrir o detalhe.</p>
+</section>
+
+<!-- ==================== 6. PEDIDOS DE COMPRA ==================== -->
+<section class="section" id="c6">
+  <div class="chapter-kicker">Capítulo 6</div>
+  <h1 class="chapter">Pedidos de Compra</h1>
+  <div class="chapter-rule"></div>
+  <p>O <strong>Pedido de Compra (OC)</strong> é a requisição aprovada transformada em um documento oficial enviado
+  ao fornecedor e gravado no ERP. A numeração segue o formato <code>OC-AAAA-NNNNNN</code>.</p>
+
+  <h2 class="sec" id="c6-1">6.1 Converter requisição em pedido</h2>
+  <p>Quando a requisição está <span class="badge b-green">Aprovada</span> e <strong>classificada fiscalmente</strong>,
+  o botão <strong>Converter em Pedido de Compra</strong> fica disponível no detalhe. Na janela de conversão:</p>
+  <div class="tbl"><div class="tbl"><table>
+    <thead><tr><th style="width:32%">Campo</th><th>Como preencher</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Condição de pagamento</strong> <span class="badge b-red">obrigatório</span></td><td>Os termos finais (ex.: 30 dias).</td></tr>
+      <tr><td><strong>Entrega prevista</strong> <span class="badge b-red">obrigatório</span></td><td>Data esperada da entrega.</td></tr>
+      <tr><td><strong>Endereço de entrega</strong></td><td>Opcional, se diferente do padrão.</td></tr>
+      <tr><td><strong>Transportadora</strong> <span class="badge b-red">obrigatório</span></td><td>Vem do ERP, já com um padrão pré-selecionado.</td></tr>
+      <tr><td><strong>Vencimento do adiantamento</strong></td><td>Aparece só em compras com adiantamento; vira o vencimento da Solicitação de Verba.</td></tr>
+      <tr><td><strong>Preço negociado</strong> (por item)</td><td>Ajuste o preço final de cada item (começa com o estimado).</td></tr>
+    </tbody>
+  </table></div></div>
+  <p>Confira o total e clique em <strong>Converter</strong>. O pedido é criado e você é levado ao detalhe dele.</p>
+  <div class="callout c-info">
+    <span class="ct">Compra com adiantamento</span>
+    <p>O vencimento do adiantamento deve ser <em>alguns dias antes</em> da entrega, para o fornecedor receber a
+    tempo. Veja mais no capítulo 7.</p>
+  </div>
+
+  <h2 class="sec" id="c6-2">6.2 Lista e detalhe do pedido</h2>
+  <p>O menu <strong>Pedidos de Compra</strong> lista todos os pedidos com Número, Nº Linx, Fornecedor, Filial,
+  Comprador, Status, Valor, Entrega prevista e data de criação. A coluna de entrega é colorida:
+  <span class="badge b-red">atrasado</span>, <span class="badge b-yellow">vence em até 7 dias</span> e
+  <span class="badge b-green">no prazo</span> — e os atrasados sobem para o topo.</p>
+  <p>No <strong>detalhe</strong> você encontra os dados gerais, a tabela de itens (com quantidade pedida, recebida e
+  cancelada), e cards de <strong>Notas Fiscais</strong> e <strong>Financeiro (Linx)</strong>.</p>
+  <h3 class="sub">Status do pedido</h3>
+  <div class="tbl"><div class="tbl"><table>
+    <thead><tr><th style="width:30%">Status</th><th>Significa</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge b-blue">Enviado ao fornecedor</span></td><td>Pedido emitido, aguardando entrega.</td></tr>
+      <tr><td><span class="badge b-yellow">Recebido parcial</span></td><td>Parte da quantidade já foi recebida.</td></tr>
+      <tr><td><span class="badge b-green">Recebido total</span></td><td>Tudo foi recebido.</td></tr>
+      <tr><td><span class="badge b-yellow">Pendente ERP</span></td><td>Aguardando a gravação no Linx.</td></tr>
+      <tr><td><span class="badge b-blue">Integrado</span></td><td>Já gravado no ERP.</td></tr>
+      <tr><td><span class="badge b-red">Cancelado</span></td><td>Pedido cancelado.</td></tr>
+    </tbody>
+  </table></div></div>
+
+  <h2 class="sec" id="c6-3">6.3 Editar e cancelar</h2>
+  <ul>
+    <li><strong>Editar</strong> — muda condição de pagamento, transportadora, endereço, datas e preços. Exige um
+    <strong>motivo</strong> (mín. 5 caracteres) e <strong>reenvia o pedido para aprovação</strong>. Só é possível se
+    nenhum item foi recebido ainda.</li>
+    <li><strong>Cancelar itens em aberto</strong> — cancela apenas o saldo de itens específicos (marque os itens e
+    informe o motivo). Se todo o saldo for cancelado, o pedido inteiro passa a <span class="badge b-red">Cancelado</span>.</li>
+    <li><strong>Cancelar pedido</strong> — cancela tudo (motivo com 10+ caracteres).</li>
+  </ul>
+
+  <h2 class="sec" id="c6-4">6.4 Notas fiscais e financeiro</h2>
+  <p>O card <strong>Notas Fiscais vinculadas</strong> mostra as NFs do fornecedor associadas ao pedido, com botões
+  para abrir o detalhe e baixar o <strong>XML</strong> e o <strong>PDF (DANFe)</strong>.</p>
+  <p>O card <strong>Financeiro (Linx)</strong> lê o ERP em tempo real e indica:</p>
+  <div class="tbl"><div class="tbl"><table>
+    <thead><tr><th style="width:36%">Situação</th><th>Significa</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge b-yellow">Aguardando faturamento</span></td><td>Nenhuma NF foi lançada ainda.</td></tr>
+      <tr><td><span class="badge b-blue">Faturado · aguardando pagamento</span></td><td>A NF entrou, mas há saldo em aberto.</td></tr>
+      <tr><td><span class="badge b-green">Pago</span></td><td>Todos os títulos foram quitados.</td></tr>
+    </tbody>
+  </table></div></div>
+  <p>Use o botão <strong>Atualizar</strong> para consultar o Linx na hora (sem esperar a sincronização automática).</p>
+</section>
+
+<!-- ==================== 7. SOLICITAÇÕES DE VERBA ==================== -->
+<section class="section" id="c7">
+  <div class="chapter-kicker">Capítulo 7</div>
+  <h1 class="chapter">Solicitações de Verba</h1>
+  <div class="chapter-rule"></div>
+
+  <h2 class="sec" id="c7-1">7.1 O que é uma SV (adiantamento)</h2>
+  <p>A <strong>Solicitação de Verba (SV)</strong> representa um <strong>adiantamento</strong> — um pagamento feito
+  antes de existir a nota fiscal. Ela nasce automaticamente quando você marca <strong>Com adiantamento</strong> numa
+  requisição: ao converter em pedido, o sistema cria o pedido <em>e</em> a SV juntos (a SV é o adiantamento daquele
+  pedido).</p>
+  <div class="callout c-info">
+    <span class="ct">Quando cada documento aparece</span>
+    <p>• <strong>Nota fiscal já existe</strong> → só Pedido de Compra.<br>
+    • <strong>Nota fiscal futura</strong> (pré-compra) → Pedido de Compra + Solicitação de Verba.<br>
+    • <strong>Sem nota fiscal</strong> (ex.: condomínio) → apenas Solicitação de Verba.</p>
+  </div>
+
+  <h2 class="sec" id="c7-2">7.2 Lista, detalhe e integração</h2>
+  <p>O menu <strong>Solicitações de Verba</strong> lista as SVs com Número, integração com o Linx, Título, Pedido
+  vinculado, Solicitante, Status, Valor e data. O selo de <strong>Integração Linx</strong> indica:</p>
+  <div class="tbl"><div class="tbl"><table>
+    <thead><tr><th style="width:30%">Selo</th><th>Significa</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge b-green">Linx #…</span></td><td>Integrada com sucesso (número gerado no ERP).</td></tr>
+      <tr><td><span class="badge b-red">Falha</span></td><td>A última tentativa de integração falhou — há o botão <strong>Reintegrar Linx</strong> no detalhe.</td></tr>
+      <tr><td><span class="badge b-yellow">Aguardando</span></td><td>Aprovada, aguardando a próxima tentativa.</td></tr>
+      <tr><td><span class="badge b-neutral">—</span></td><td>Ainda não aprovada.</td></tr>
+    </tbody>
+  </table></div></div>
+  <p>No detalhe, além dos dados gerais e dos itens (descrição, beneficiário, conta, vencimento e valor), há o card
+  <strong>Saldo no Linx</strong> (quando integrada), que mostra quanto foi solicitado e quanto ainda falta realizar
+  ou pagar.</p>
+</section>
+
+<!-- ==================== 8. RECEBIMENTOS ==================== -->
+<section class="section" id="c8">
+  <div class="chapter-kicker">Capítulo 8</div>
+  <h1 class="chapter">Recebimentos</h1>
+  <div class="chapter-rule"></div>
+  <p>O <strong>Recebimento</strong> registra o que efetivamente chegou (ou foi executado, no caso de serviços).
+  Numeração: <code>REC-AAAA-NNNNNN</code>.</p>
+
+  <h2 class="sec" id="c8-1">8.1 Registrar um recebimento</h2>
+  <p>No detalhe de um pedido, clique em <strong>Registrar recebimento</strong>. Para cada item, informe:</p>
+  <div class="tbl"><div class="tbl"><table>
+    <thead><tr><th style="width:24%">Coluna</th><th>O que preencher</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Aceito</strong></td><td>Quantidade recebida em boas condições.</td></tr>
+      <tr><td><strong>Rejeitado</strong></td><td>Quantidade com defeito/avaria.</td></tr>
+      <tr><td><strong>Motivo da rejeição</strong></td><td>Obrigatório quando há quantidade rejeitada.</td></tr>
+    </tbody>
+  </table></div></div>
+  <p>Você pode adicionar <strong>observações</strong> e anexar fotos e comprovantes. Clique em <strong>Salvar
+  rascunho</strong> — o recebimento nasce como <span class="badge b-neutral">Rascunho</span> e o saldo do pedido
+  ainda <em>não</em> é alterado.</p>
+
+  <h2 class="sec" id="c8-2">8.2 Confirmar e divergências</h2>
+  <p>No detalhe do recebimento em rascunho, revise tudo (e anexe as fotos) e clique em <strong>Confirmar
+  recebimento</strong>. Só então o saldo do pedido é atualizado.</p>
+  <div class="tbl"><div class="tbl"><table>
+    <thead><tr><th style="width:24%">Status</th><th>Significa</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge b-neutral">Rascunho</span></td><td>Registrado, ainda não confirmado.</td></tr>
+      <tr><td><span class="badge b-green">Confirmado</span></td><td>Confirmado dentro da tolerância; saldo atualizado.</td></tr>
+      <tr><td><span class="badge b-yellow">Divergente</span></td><td>Quantidade fora da tolerância (excedente ou rejeição alta).</td></tr>
+      <tr><td><span class="badge b-red">Cancelado</span></td><td>Recebimento anulado.</td></tr>
+    </tbody>
+  </table></div></div>
+  <div class="callout c-atencao">
+    <span class="ct">Tolerância de divergência</span>
+    <p>O Administrador define, por empresa, uma <strong>tolerância (%)</strong> para quantidade recebida a mais ou
+    para proporção de itens rejeitados. Dentro da tolerância → <em>Confirmado</em>; acima → <em>Divergente</em>, com
+    uma nota de divergência.</p>
+  </div>
+  <p>O card <strong>Estado no Linx</strong> compara o que você registrou no P2P com o que o ERP enxerga. Uma
+  divergência aqui nem sempre é erro — pode ser apenas que a nota fiscal ainda não foi lançada. Use
+  <strong>Atualizar</strong> para reconsultar.</p>
+
+  <h2 class="sec" id="c8-3">8.3 Medição de serviço</h2>
+  <p>Quando o pedido é de <strong>serviço</strong> (não há entrega física), marque <strong>“Este recebimento é uma
+  medição de serviço”</strong> e informe o <strong>período</strong> (início e fim) e o <strong>percentual
+  concluído</strong> (0 a 100). Isso permite medir contratos por etapas.</p>
+</section>
+
+<!-- ==================== 9. PRODUTO ACABADO ==================== -->
+<section class="section" id="c9">
+  <div class="chapter-kicker">Capítulo 9</div>
+  <h1 class="chapter">Produto Acabado (PA)</h1>
+  <div class="chapter-rule"></div>
+  <p>Os pedidos de <strong>Produto Acabado</strong> (mercadoria para revenda — roupas, bolsas etc.) são diferentes:
+  eles <strong>nascem no ERP (Linx)</strong> e chegam ao P2P apenas para o <strong>diretor da marca aprovar</strong>.
+  O fluxo é, portanto, “de fora para dentro”.</p>
+  <p class="small">Disponível para equipes com o módulo <strong>Produto Acabado</strong> liberado, além de Administradores e Gestores aprovadores.</p>
+
+  <h2 class="sec" id="c9-1">9.1 Aprovar ou reprovar</h2>
+  <p>A lista de <strong>Produto Acabado</strong> mostra Pedido, Fornecedor, Filial, Status, Quantidade, Valor,
+  Emissão, Próxima entrega (colorida por atraso) e Nota fiscal. No detalhe de um pedido que está
+  <em>aguardando aprovação</em>, aparecem os botões:</p>
+  <ul>
+    <li><strong>Aprovar</strong> — autoriza o pedido (com confirmação). Status muda para Aprovado.</li>
+    <li><strong>Reprovar</strong> — recusa, informando um motivo (mínimo 10 caracteres), que é registrado no Linx.</li>
+  </ul>
+  <h3 class="sub">Status do pedido PA</h3>
+  <div class="tbl"><div class="tbl"><table>
+    <thead><tr><th>Status</th><th>Significa</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge b-yellow">Aguardando aprovação</span></td><td>Esperando a decisão do diretor da marca.</td></tr>
+      <tr><td><span class="badge b-green">Aprovado</span></td><td>Liberado para o fornecedor produzir.</td></tr>
+      <tr><td><span class="badge b-red">Reprovado</span></td><td>Recusado.</td></tr>
+      <tr><td><span class="badge b-green">Entregue</span> / <span class="badge b-blue">Entregue parcial</span></td><td>Mercadoria recebida (total ou parte).</td></tr>
+      <tr><td><span class="badge b-neutral">Cancelado</span> / <span class="badge b-yellow">Cancelado parcial</span></td><td>Pedido (ou parte) cancelado.</td></tr>
+    </tbody>
+  </table></div></div>
+
+  <h2 class="sec" id="c9-2">9.2 Reagendar entrega e grade</h2>
+  <p>Quando há saldo em aberto, é possível <strong>Reagendar entrega</strong>: escolha o escopo (pedido inteiro ou um
+  item), a nova data e o motivo (mín. 5 caracteres). A data original é preservada no histórico.</p>
+  <p>Cada item tem um botão <strong>Grade</strong>, que abre a distribuição por <strong>tamanho</strong> (P, M, G…),
+  mostrando o que foi pedido e o que foi entregue em cada tamanho. O card de <strong>Notas Fiscais</strong> permite
+  baixar XML/PDF e <strong>Buscar na Qive</strong> quando o XML ainda não está no P2P.</p>
+</section>
+
+<!-- ==================== 10. FISCAL ==================== -->
+<section class="section" id="c10">
+  <div class="chapter-kicker">Capítulo 10</div>
+  <h1 class="chapter">Fiscal</h1>
+  <div class="chapter-rule"></div>
+  <p>O módulo <strong>Fiscal</strong> é onde o Revisor/Fiscal garante que cada compra está classificada corretamente
+  e que as notas fiscais estão vinculadas aos pedidos.</p>
+
+  <h2 class="sec" id="c10-1">10.1 Pendências fiscais</h2>
+  <p>A tela <strong>Pendências Fiscais</strong> tem duas abas:</p>
+  <h3 class="sub">Requisições a classificar</h3>
+  <p>Lista as requisições aprovadas que ainda <strong>não têm classificação fiscal</strong> (operação contábil e
+  natureza de entrada) e, por isso, não podem virar pedido. Clique numa linha para abrir o detalhe e preencher.</p>
+  <ol class="steps">
+    <li>No detalhe, clique em <b>Classificar fiscalmente</b>.</li>
+    <li>Escolha a <b>Operação contábil</b> e a <b>Natureza de entrada</b> (a lista de naturezas depende da operação).</li>
+    <li>Clique em <b>Salvar</b>. O aviso some e o botão <b>Converter em Pedido de Compra</b> é liberado.</li>
+  </ol>
+  <h3 class="sub">Itens a vincular</h3>
+  <p>Quando um item não estava vinculado ao fornecedor, abre-se uma pendência aqui. O Fiscal pode:</p>
+  <ul>
+    <li><strong>Aprovar e vincular</strong> — confirma (ou troca) o item e grava o vínculo no Linx. Se trocar o item,
+    o solicitante é notificado.</li>
+    <li><strong>Rejeitar</strong> — com motivo (mín. 3 caracteres), por exemplo quando a requisição de origem foi
+    cancelada.</li>
+  </ul>
+  <div class="callout c-info">
+    <span class="ct">A equipe Fiscal corrige, não rejeita a compra</span>
+    <p>O papel do Fiscal é <em>destravar</em> a compra: corrigir o item e seguir. Pendências sem requisição de origem
+    (“órfãs”) podem ser rejeitadas com segurança.</p>
+  </div>
+
+  <h2 class="sec" id="c10-2">10.2 Notas fiscais (Qive)</h2>
+  <p>A tela <strong>Notas Fiscais</strong> lista as NFes baixadas da <strong>Qive</strong> (provedor fiscal) para
+  serem vinculadas aos pedidos. Filtre por status (Pendentes, Vinculadas, Ignoradas, Transferências internas) e
+  busque por número, chave ou fornecedor.</p>
+  <p>O Administrador usa <strong>Sincronizar Qive</strong> para baixar notas novas. No detalhe de uma NF pendente,
+  você pode:</p>
+  <ul>
+    <li><strong>Vincular a PC</strong> — o sistema sugere os pedidos do mesmo fornecedor (do Linx e do P2P); escolha
+    um e confirme.</li>
+    <li><strong>Ignorar</strong> — para notas que não precisam de pedido (ex.: devolução, ajuste), com um motivo opcional.</li>
+    <li><strong>Voltar p/ Pendentes</strong> — reverte uma NF ignorada ou marcada como transferência.</li>
+  </ul>
+  <p>Em qualquer NF é possível baixar o <strong>XML</strong> e a <strong>DANFe (PDF)</strong>.</p>
+</section>
+
+<!-- ==================== 11. FINANCEIRO ==================== -->
+<section class="section" id="c11">
+  <div class="chapter-kicker">Capítulo 11</div>
+  <h1 class="chapter">Financeiro</h1>
+  <div class="chapter-rule"></div>
+  <p>O módulo <strong>Financeiro</strong> é uma <strong>consulta</strong> (somente leitura) ao que está no ERP:
+  títulos a pagar, adiantamentos, boletos e provisões. Todas as telas têm busca, filtro de status e
+  <strong>Filtros avançados</strong> (emissão, vencimento, valor, filial, centro de custo e fornecedor). Clicar numa
+  linha abre uma janela com todos os detalhes.</p>
+  <p class="small">Disponível para Administradores e equipes com o módulo <strong>Financeiro</strong> liberado.</p>
+
+  <h2 class="sec" id="c11-1">11.1 Títulos a pagar (ITP)</h2>
+  <p><strong>Contas a Pagar</strong> mostra os títulos (faturas) importados do Linx, com fornecedor, fatura, emissão,
+  vencimento, valor original, saldo devido e situação. Você pode ver <strong>Por título</strong> (cada parcela) ou
+  <strong>Por documento</strong> (a nota inteira, com principal e retenções). Filtre por <em>A vencer</em>,
+  <em>Vencidos</em>, <em>Pagos</em> ou <em>Todos</em>.</p>
+
+  <h2 class="sec" id="c11-2">11.2 Adiantamentos (IAD)</h2>
+  <p><strong>Adiantamentos</strong> acompanha os avisos de débito (adiantamentos pagos a terceiros) que aguardam
+  contrapartida. Além dos filtros gerais, há um filtro específico para mostrar apenas os que vieram de uma
+  <strong>Solicitação de Verba</strong>, apenas os diretos, ou todos. Cada linha mostra terceiro, descrição,
+  vencimento, valor, saldo aberto e a SV/pedido de origem.</p>
+
+  <h2 class="sec" id="c11-3">11.3 DDAs</h2>
+  <p><strong>DDAs</strong> traz os boletos/débitos enviados pelo banco, agrupados por duplicata, com data de
+  recebimento do arquivo, fornecedor, vencimento, valor e quantidade de retornos do banco. Status:
+  <span class="badge b-yellow">Pendente</span> ou <span class="badge b-green">Baixado</span>.</p>
+
+  <h2 class="sec" id="c11-4">11.4 Provisões</h2>
+  <p><strong>Provisões</strong> reúne Solicitações de Verba e Pedidos de Compra já contabilizados, mas ainda sem
+  realização/entrega. Mostra emitente, beneficiário, descrição, filial/CC, valores e o status de aprovação
+  (<span class="badge b-green">Aprovada</span> ou <span class="badge b-yellow">Em digitação</span>).</p>
+</section>
+
+<!-- ==================== 12. PEDIDOS EXTERNOS ==================== -->
+<section class="section" id="c12">
+  <div class="chapter-kicker">Capítulo 12</div>
+  <h1 class="chapter">Pedidos externos</h1>
+  <div class="chapter-rule"></div>
+  <p>São pedidos de consumível criados <strong>fora do P2P</strong> — direto no Linx (por outros sistemas ou cadastro
+  manual). Eles aparecem no P2P apenas para <strong>consulta</strong> (acesso de Administrador), incluindo pedidos
+  ativos e fechados.</p>
+  <p>A lista permite filtrar por status (Em aberto, Fechados, Cancelados, Todos), por presença de nota fiscal e por
+  filtros avançados (emissão, valor, filial, tipo de compra, status de aprovação, aprovador). No detalhe há os dados
+  do pedido Linx, itens, notas fiscais (com download de XML/PDF e busca na Qive) e a situação financeira.</p>
+  <div class="callout c-info">
+    <span class="ct">Por que existe esta tela</span>
+    <p>Ela dá visibilidade total das compras indiretas — mesmo as que não passaram pelo P2P — para conferência e
+    acompanhamento fiscal/financeiro em um só lugar.</p>
+  </div>
+</section>
+
+<!-- ==================== 13. RELATÓRIOS ==================== -->
+<section class="section" id="c13">
+  <div class="chapter-kicker">Capítulo 13</div>
+  <h1 class="chapter">Relatórios</h1>
+  <div class="chapter-rule"></div>
+  <p>A tela <strong>Relatórios</strong> reúne relatórios prontos, que podem ser vistos na tela ou exportados em
+  <strong>CSV</strong> (abre direto no Excel). Cada relatório é um cartão; clique para abrir e use
+  <strong>Exportar CSV</strong>.</p>
+  <div class="tbl"><div class="tbl"><table>
+    <thead><tr><th style="width:34%">Relatório</th><th>O que mostra</th></tr></thead>
+    <tbody>
+      <tr><td><strong>REL-001 — Fornecedores sem CC</strong></td><td>Fornecedores ativos sem pedidos nos últimos 90 dias.</td></tr>
+      <tr><td><strong>REL-002 — Pedidos em atraso &gt; 30 dias</strong></td><td>Pedidos com entrega vencida há mais de 30 dias e ainda abertos.</td></tr>
+      <tr><td><strong>REL-003 — Orçamento por Filial/CC</strong></td><td>Consumo do mês: orçado, comprometido e consumido.</td></tr>
+    </tbody>
+  </table></div></div>
+  <p class="small">Outros relatórios (REL-004 a REL-007) dependem de módulos das próximas fases e aparecem desabilitados.</p>
+</section>
+
+<!-- ==================== 14. ADMINISTRAÇÃO ==================== -->
+<section class="section" id="c14">
+  <div class="chapter-kicker">Capítulo 14</div>
+  <h1 class="chapter">Administração</h1>
+  <div class="chapter-rule"></div>
+  <p>O menu <strong>Administração</strong> (exclusivo do Administrador) reúne a configuração da plataforma e da
+  integração com o ERP. A página inicial mostra cartões para cada área.</p>
+
+  <h2 class="sec" id="c14-1">14.1 Usuários</h2>
+  <p>Gerencie quem acessa o sistema, o <strong>perfil</strong>, a <strong>equipe</strong>, o <strong>cargo</strong>,
+  as <strong>empresas</strong> e o <strong>status</strong> de cada um. A maioria dos usuários é criada
+  automaticamente no primeiro login pelo AD; mudanças de perfil, equipe e status são salvas na hora.</p>
+  <ul>
+    <li><strong>Adicionar usuário local</strong> — cria um usuário manual (ex.: supervisor de filial), informando
+    nome, e-mail corporativo, username, perfil, cargo e empresas. O sistema envia um e-mail com o link para definir
+    a senha (válido 24h).</li>
+    <li>Botões por usuário: definir <strong>Empresas</strong> com acesso, definir <strong>Filiais</strong> que ele
+    cobre (usado pela cadeia de aprovação por cargo), <strong>reenviar</strong> o link de senha e
+    <strong>desativar</strong>.</li>
+    <li>A chave <strong>HML</strong> permite que o usuário alterne entre Produção e Homologação.</li>
+  </ul>
+
+  <h2 class="sec" id="c14-2">14.2 Equipes e cadeias de aprovação</h2>
+  <p>As <strong>equipes</strong> agrupam usuários e definem a cadeia de aprovação, os módulos liberados e os rateios
+  permitidos. Na tabela, cada equipe permite:</p>
+  <ul>
+    <li><strong>Módulos extras</strong> — liberar Produto Acabado, Pendências Fiscais, Relatórios, Recebimentos e
+    Financeiro para os membros da equipe.</li>
+    <li><strong>Cadeia de aprovação</strong> — definir os níveis em ordem, cada um com um cargo, um aprovador (uma
+    pessoa fixa <em>ou</em> “por cargo”, opcionalmente filtrado pela filial da requisição) e uma <strong>alçada</strong>
+    (valor máximo). As alçadas devem ser crescentes do nível 1 ao último.</li>
+    <li><strong>Rateios da equipe</strong> — quais filiais e centros de custo os membros podem usar; marque com a
+    estrela o(s) CC principal(is).</li>
+  </ul>
+  <div class="callout c-info">
+    <span class="ct">Aprovador “por cargo”</span>
+    <p>Em vez de fixar uma pessoa, você pode dizer que “o Supervisor da filial da requisição” aprova. Assim, cada
+    filial tem seu próprio aprovador automaticamente, sem reconfigurar a cadeia.</p>
+  </div>
+
+  <h2 class="sec" id="c14-3">14.3 Cargos</h2>
+  <p>Os <strong>cargos</strong> ligam pessoas a níveis na cadeia de aprovação “por cargo”. Cada cargo tem um
+  <strong>código</strong> técnico (ex.: <code>SUPERVISOR</code>) e um <strong>nome</strong> exibido nas telas, e pode
+  ser ativado/desativado.</p>
+
+  <h2 class="sec" id="c14-4">14.4 Filiais</h2>
+  <p>Os dados das <strong>filiais</strong> (código, nome, CNPJ, endereço) vêm do ERP e são somente leitura no P2P.
+  O que o Administrador edita aqui é o <strong>e-mail da filial</strong>, usado para recuperação de senha do vendedor
+  de loja e para notificações da filial.</p>
+
+  <h2 class="sec" id="c14-5">14.5 Delegações</h2>
+  <p>A <strong>delegação</strong> permite transferir temporariamente a sua autoridade de aprovação para outra pessoa
+  (férias, ausência). Em <strong>Nova delegação</strong>, informe a pessoa, o período (início e fim) e o motivo.
+  Durante o período, o delegado aprova no seu lugar. Há duas abas: <strong>Concedidas por mim</strong> e
+  <strong>Recebidas</strong>. Delegações ativas podem ser canceladas a qualquer momento.</p>
+
+  <h2 class="sec" id="c14-6">14.6 Sincronização com o AD</h2>
+  <p>A tela <strong>Sincronizar com Active Directory</strong> lê os usuários ativos do AD, agrupados por unidade
+  organizacional, e deixa você escolher o que trazer para o P2P. Equipes e usuários inexistentes são criados; nada é
+  apagado. Clique em <strong>Buscar usuários do AD</strong>, marque equipes/usuários e clique em
+  <strong>Aplicar</strong>.</p>
+
+  <h2 class="sec" id="c14-7">14.7 Parâmetros da plataforma</h2>
+  <p><strong>Parâmetros</strong> controla regras configuráveis <em>por empresa</em>, como o valor a partir do qual as
+  cotações passam a ser exigidas e a tolerância de divergência no recebimento. Cada parâmetro mostra o valor atual e
+  a origem (Padrão ou Personalizado); clique no valor para editar.</p>
+
+  <h2 class="sec" id="c14-8">14.8 Integração com o ERP</h2>
+  <p><strong>Integração com o ERP</strong> define, por empresa, os <strong>padrões de gravação</strong> (tipo de
+  compra, operação contábil, natureza, moeda e transportadora padrão), o <strong>aprovador e o time de reagendamento
+  de Produto Acabado</strong>, e os dados de <strong>e-mail (SMTP)</strong> para enviar o pedido ao fornecedor —
+  incluindo modelos de assunto e corpo com variáveis como <code>{{numero}}</code>, <code>{{fornecedor}}</code> e
+  <code>{{total}}</code>.</p>
+  <div class="callout c-atencao">
+    <span class="ct">Transportadora padrão é obrigatória</span>
+    <p>Sem uma transportadora padrão configurada, a gravação do pedido no ERP é recusada. Configure-a antes de
+    colocar a empresa em operação.</p>
+  </div>
+</section>
+
+<!-- ==================== 15. GLOSSÁRIO ==================== -->
+<section class="section" id="c15">
+  <div class="chapter-kicker">Capítulo 15</div>
+  <h1 class="chapter">Glossário</h1>
+  <div class="chapter-rule"></div>
+  <div class="tbl"><div class="tbl"><table>
+    <thead><tr><th style="width:26%">Termo</th><th>Significado</th></tr></thead>
+    <tbody>
+      <tr><td><strong>P2P</strong></td><td>Procure-to-Pay — o ciclo de compras, do pedido ao pagamento.</td></tr>
+      <tr><td><strong>ERP / Linx</strong></td><td>Sistema de contabilidade, fiscal e pagamentos com que o P2P se integra.</td></tr>
+      <tr><td><strong>Requisição (REQ)</strong></td><td>Pedido interno de compra, ponto de partida do fluxo.</td></tr>
+      <tr><td><strong>Pedido de Compra (OC)</strong></td><td>Requisição aprovada e enviada ao fornecedor.</td></tr>
+      <tr><td><strong>Solicitação de Verba (SV)</strong></td><td>Adiantamento — pagamento antes da nota fiscal.</td></tr>
+      <tr><td><strong>Recebimento (REC)</strong></td><td>Registro do que chegou ou foi executado.</td></tr>
+      <tr><td><strong>Alçada</strong></td><td>Valor máximo que um nível de aprovação pode autorizar.</td></tr>
+      <tr><td><strong>Cadeia de aprovação</strong></td><td>Sequência de níveis pelos quais a requisição passa.</td></tr>
+      <tr><td><strong>Delegação</strong></td><td>Transferência temporária da autoridade de aprovação.</td></tr>
+      <tr><td><strong>Rateio</strong></td><td>Modelo que distribui o gasto entre filiais e centros de custo.</td></tr>
+      <tr><td><strong>Centro de custo (CC)</strong></td><td>Unidade contábil que “paga” pela despesa.</td></tr>
+      <tr><td><strong>Cotação</strong></td><td>Proposta de preço de um fornecedor.</td></tr>
+      <tr><td><strong>Dispensa de cotação</strong></td><td>Autorização para não fazer as 3 cotações, com motivo.</td></tr>
+      <tr><td><strong>Classificação fiscal</strong></td><td>Operação contábil + natureza, exigidas antes de virar pedido.</td></tr>
+      <tr><td><strong>Produto Acabado (PA)</strong></td><td>Mercadoria para revenda; pedido nasce no Linx.</td></tr>
+      <tr><td><strong>NF-e / DANFe</strong></td><td>Nota fiscal eletrônica (XML) e seu documento impresso (PDF).</td></tr>
+      <tr><td><strong>Qive</strong></td><td>Provedor que fornece as notas fiscais ao P2P.</td></tr>
+      <tr><td><strong>DDA</strong></td><td>Débito Direto Autorizado — boletos enviados pelo banco.</td></tr>
+      <tr><td><strong>ITP / IAD</strong></td><td>Título a pagar / Aviso de débito (adiantamento) no ERP.</td></tr>
+      <tr><td><strong>PROD / HML</strong></td><td>Ambiente de Produção (dados reais) / Homologação (testes).</td></tr>
+      <tr><td><strong>AD / LDAP</strong></td><td>Active Directory — diretório corporativo usado no login.</td></tr>
+    </tbody>
+  </table></div></div>
+</section>
+
+<!-- ==================== 16. FAQ ==================== -->
+<section class="section" id="c16">
+  <div class="chapter-kicker">Capítulo 16</div>
+  <h1 class="chapter">Perguntas frequentes</h1>
+  <div class="chapter-rule"></div>
+
+  <h3 class="sub">Não consigo entrar. O que faço?</h3>
+  <p>Confira se está na aba certa (<em>Corporativo</em> ou <em>Loja</em>) e se o Caps Lock está desligado. Se for
+  usuário local e esqueceu a senha, peça ao Administrador para reenviar o link de definição de senha. Vendedores sem
+  cadastro devem procurar o RH.</p>
+
+  <h3 class="sub">Por que não vejo um menu que meu colega vê?</h3>
+  <p>O menu depende do seu <strong>perfil</strong> e dos <strong>módulos liberados para a sua equipe</strong>. Se
+  precisa de um módulo, fale com o Administrador.</p>
+
+  <h3 class="sub">Não consigo enviar a requisição para aprovação.</h3>
+  <p>Verifique o aviso de cotações: para valores acima do limite, são exigidas 3 cotações <em>ou</em> uma dispensa
+  com motivo. Confira também se há item adicionado e se a justificativa tem ao menos 15 caracteres.</p>
+
+  <h3 class="sub">Editei minha requisição e ela voltou para o nível 1. É normal?</h3>
+  <p>Sim. Editar uma requisição em aprovação <strong>reinicia</strong> o fluxo, por segurança, para que todos os
+  níveis avaliem a versão atualizada.</p>
+
+  <h3 class="sub">Qual a diferença entre “Devolver” e “Rejeitar”?</h3>
+  <p><strong>Devolver</strong> pede ajustes e dá ao solicitante a chance de corrigir e reenviar.
+  <strong>Rejeitar</strong> encerra a requisição definitivamente.</p>
+
+  <h3 class="sub">O recebimento ficou “Divergente”. E agora?</h3>
+  <p>Significa que a quantidade ficou fora da tolerância configurada (recebido a mais ou muitas rejeições). Revise as
+  quantidades e a nota de divergência. Uma divergência com o Linx pode ser apenas atraso no lançamento da NF — use
+  <strong>Atualizar</strong> para reconsultar.</p>
+
+  <h3 class="sub">Confirmei um recebimento por engano. Posso desfazer?</h3>
+  <p>O recebimento confirmado atualiza o saldo do pedido. Procure o Administrador ou a equipe responsável para
+  orientar a correção — não tente “forçar” por outra tela.</p>
+
+  <h3 class="sub">A SV/pedido aparece com “Falha” na integração com o Linx.</h3>
+  <p>Use o botão <strong>Reintegrar Linx</strong> no detalhe. Se persistir, passe o mouse sobre o erro para ver o
+  motivo e acione o suporte/TI.</p>
+
+  <h3 class="sub">Vou sair de férias. Como minhas aprovações continuam?</h3>
+  <p>Crie uma <strong>delegação</strong> (Administração → Delegações) para outra pessoa, com data de início e fim.
+  Durante o período, ela aprova no seu lugar.</p>
+
+  <div class="callout c-dica">
+    <span class="ct">Ainda com dúvidas?</span>
+    <p>Consulte o capítulo do módulo correspondente neste manual ou acione o time de suporte interno. O
+    <strong>Histórico</strong> de cada documento ajuda a entender o que aconteceu e quando.</p>
+  </div>
+
+  <hr class="soft">
+  <p class="center small">Manual do Usuário · Sistema P2P — HRG3 / Guess Brasil · Versão 1.0 — junho de 2026</p>
+</section>
+
+  </main>
+</div>
+
+<script>
+(function(){
+  var body = document.body;
+  var menuBtn = document.getElementById('menuBtn');
+  var backdrop = document.getElementById('backdrop');
+  var sidenav = document.getElementById('sidenav');
+
+  function closeNav(){ body.classList.remove('nav-open'); }
+  function toggleNav(){ body.classList.toggle('nav-open'); }
+  if(menuBtn) menuBtn.addEventListener('click', toggleNav);
+  if(backdrop) backdrop.addEventListener('click', closeNav);
+
+  var links = Array.prototype.slice.call(sidenav.querySelectorAll('a[href^="#"]'));
+  // Fecha o menu (mobile) ao escolher um item
+  links.forEach(function(a){ a.addEventListener('click', function(){ if(window.innerWidth <= 960) closeNav(); }); });
+
+  // Scrollspy: destaca o item visível
+  var byId = {};
+  links.forEach(function(a){ byId[a.getAttribute('href').slice(1)] = a; });
+  var targets = Object.keys(byId).map(function(id){ return document.getElementById(id); }).filter(Boolean);
+  var current = null;
+  function setActive(id){
+    if(current === id) return; current = id;
+    links.forEach(function(a){ a.classList.remove('active'); });
+    var a = byId[id]; if(!a) return;
+    a.classList.add('active');
+    // destaca também o capítulo (nav-grp) pai
+    if(a.classList.contains('nav-sub')){
+      var p = a.previousElementSibling;
+      while(p && !p.classList.contains('nav-grp')) p = p.previousElementSibling;
+      if(p) p.classList.add('active');
+    }
+    // mantém o item visível no painel
+    if(a.scrollIntoView) { var r=a.getBoundingClientRect(); if(r.top<80||r.bottom>window.innerHeight-20) a.scrollIntoView({block:'nearest'}); }
+  }
+  var observer = new IntersectionObserver(function(entries){
+    // escolhe o alvo mais próximo do topo entre os visíveis
+    var visible = entries.filter(function(e){ return e.isIntersecting; });
+    if(visible.length){
+      visible.sort(function(a,b){ return a.boundingClientRect.top - b.boundingClientRect.top; });
+      setActive(visible[0].target.id);
+    }
+  }, { rootMargin:'-72px 0px -70% 0px', threshold:0 });
+  targets.forEach(function(t){ observer.observe(t); });
+})();
+</script>
+
+  </main>
+</div>
+
+<script>
+(function(){
+  var body = document.body;
+  var menuBtn = document.getElementById('menuBtn');
+  var backdrop = document.getElementById('backdrop');
+  var sidenav = document.getElementById('sidenav');
+
+  function closeNav(){ body.classList.remove('nav-open'); }
+  function toggleNav(){ body.classList.toggle('nav-open'); }
+  if(menuBtn) menuBtn.addEventListener('click', toggleNav);
+  if(backdrop) backdrop.addEventListener('click', closeNav);
+
+  var links = Array.prototype.slice.call(sidenav.querySelectorAll('a[href^="#"]'));
+  // Fecha o menu (mobile) ao escolher um item
+  links.forEach(function(a){ a.addEventListener('click', function(){ if(window.innerWidth <= 960) closeNav(); }); });
+
+  // Scrollspy: destaca o item visível
+  var byId = {};
+  links.forEach(function(a){ byId[a.getAttribute('href').slice(1)] = a; });
+  var targets = Object.keys(byId).map(function(id){ return document.getElementById(id); }).filter(Boolean);
+  var current = null;
+  function setActive(id){
+    if(current === id) return; current = id;
+    links.forEach(function(a){ a.classList.remove('active'); });
+    var a = byId[id]; if(!a) return;
+    a.classList.add('active');
+    // destaca também o capítulo (nav-grp) pai
+    if(a.classList.contains('nav-sub')){
+      var p = a.previousElementSibling;
+      while(p && !p.classList.contains('nav-grp')) p = p.previousElementSibling;
+      if(p) p.classList.add('active');
+    }
+    // mantém o item visível no painel
+    if(a.scrollIntoView) { var r=a.getBoundingClientRect(); if(r.top<80||r.bottom>window.innerHeight-20) a.scrollIntoView({block:'nearest'}); }
+  }
+  var observer = new IntersectionObserver(function(entries){
+    // escolhe o alvo mais próximo do topo entre os visíveis
+    var visible = entries.filter(function(e){ return e.isIntersecting; });
+    if(visible.length){
+      visible.sort(function(a,b){ return a.boundingClientRect.top - b.boundingClientRect.top; });
+      setActive(visible[0].target.id);
+    }
+  }, { rootMargin:'-72px 0px -70% 0px', threshold:0 });
+  targets.forEach(function(t){ observer.observe(t); });
+})();
+</script>
+</body>
+</html>

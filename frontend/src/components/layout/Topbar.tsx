@@ -1,5 +1,6 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
+  BookOpen,
   Building2,
   ChevronDown,
   FlaskConical,
@@ -100,6 +101,19 @@ export function Topbar({ onMenuClick }: TopbarProps) {
       </div>
 
       <div className="flex items-center gap-2 md:gap-3">
+        {/* Manual do usuário — HTML estático em /public, abre em nova aba.
+            Disponível em qualquer tela, independente de perfil. */}
+        <a
+          href="/manual.html"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+          aria-label="Abrir manual do usuário"
+          title="Manual do usuário"
+        >
+          <BookOpen className="size-5" />
+        </a>
+
         <NotificationsBell />
         <EnvironmentBadge />
 

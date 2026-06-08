@@ -1,0 +1,51 @@
+  </main>
+</div>
+
+<script>
+(function(){
+  var body = document.body;
+  var menuBtn = document.getElementById('menuBtn');
+  var backdrop = document.getElementById('backdrop');
+  var sidenav = document.getElementById('sidenav');
+
+  function closeNav(){ body.classList.remove('nav-open'); }
+  function toggleNav(){ body.classList.toggle('nav-open'); }
+  if(menuBtn) menuBtn.addEventListener('click', toggleNav);
+  if(backdrop) backdrop.addEventListener('click', closeNav);
+
+  var links = Array.prototype.slice.call(sidenav.querySelectorAll('a[href^="#"]'));
+  // Fecha o menu (mobile) ao escolher um item
+  links.forEach(function(a){ a.addEventListener('click', function(){ if(window.innerWidth <= 960) closeNav(); }); });
+
+  // Scrollspy: destaca o item visível
+  var byId = {};
+  links.forEach(function(a){ byId[a.getAttribute('href').slice(1)] = a; });
+  var targets = Object.keys(byId).map(function(id){ return document.getElementById(id); }).filter(Boolean);
+  var current = null;
+  function setActive(id){
+    if(current === id) return; current = id;
+    links.forEach(function(a){ a.classList.remove('active'); });
+    var a = byId[id]; if(!a) return;
+    a.classList.add('active');
+    // destaca também o capítulo (nav-grp) pai
+    if(a.classList.contains('nav-sub')){
+      var p = a.previousElementSibling;
+      while(p && !p.classList.contains('nav-grp')) p = p.previousElementSibling;
+      if(p) p.classList.add('active');
+    }
+    // mantém o item visível no painel
+    if(a.scrollIntoView) { var r=a.getBoundingClientRect(); if(r.top<80||r.bottom>window.innerHeight-20) a.scrollIntoView({block:'nearest'}); }
+  }
+  var observer = new IntersectionObserver(function(entries){
+    // escolhe o alvo mais próximo do topo entre os visíveis
+    var visible = entries.filter(function(e){ return e.isIntersecting; });
+    if(visible.length){
+      visible.sort(function(a,b){ return a.boundingClientRect.top - b.boundingClientRect.top; });
+      setActive(visible[0].target.id);
+    }
+  }, { rootMargin:'-72px 0px -70% 0px', threshold:0 });
+  targets.forEach(function(t){ observer.observe(t); });
+})();
+</script>
+</body>
+</html>
