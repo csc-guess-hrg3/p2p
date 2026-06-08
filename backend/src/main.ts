@@ -4,6 +4,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
+import { createProxyMiddleware } from 'http-proxy-middleware';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import type { Request, Response, NextFunction } from 'express';
@@ -34,7 +35,11 @@ function initSentry() {
 async function bootstrap() {
   initSentry();
 
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // bodyParser:false aqui pra controlar a ordem — o proxy do HML (abaixo)
+  // precisa receber o corpo CRU da requisição, antes de qualquer parser.
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bodyParser: false,
+  });
 
   // Atrás do Cloudflare Tunnel (cloudflared roda em loopback): confia só no
   // proxy local pra ler o IP real do cliente (X-Forwarded-For) e o protocolo
@@ -61,6 +66,31 @@ async function bootstrap() {
 
   // Cookie parser — usado pelo fluxo de JWT em cookie httpOnly.
   app.use(cookieParser());
+
+  // ─── Proxy do ambiente HML ───
+  // O backend de PRODUÇÃO encaminha /api-hml/* para o backend de homologação
+  // (HML_PROXY_TARGET, ex.: http://127.0.0.1:3001), reescrevendo /api-hml ->
+  // /api. Assim o toggle PROD/HML do front funciona no site publicado
+  // (single-origin atrás do Cloudflare), sem CORS e sem risco de uma sessão
+  // "HML" gravar no banco de PRODUÇÃO. Só o PROD define HML_PROXY_TARGET — o
+  // próprio HML não, pra não criar laço. Registrado ANTES do body parser pra
+  // repassar o corpo cru (senão o POST de login chegaria sem body).
+  const hmlTarget = process.env.HML_PROXY_TARGET;
+  if (hmlTarget) {
+    app.use(
+      createProxyMiddleware({
+        pathFilter: (path) => path.startsWith('/api-hml'),
+        target: hmlTarget,
+        changeOrigin: false,
+        pathRewrite: { '^/api-hml': '/api' },
+      }),
+    );
+  }
+
+  // Body parser — re-habilitado aqui (ver bodyParser:false no create), depois
+  // do proxy do HML, pra que as rotas de /api recebam o corpo já parseado.
+  app.useBodyParser('json', { limit: '5mb' });
+  app.useBodyParser('urlencoded', { extended: true, limit: '5mb' });
 
   app.useGlobalPipes(
     new ValidationPipe({
