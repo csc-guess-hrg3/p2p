@@ -263,8 +263,12 @@ export class QiveClientService {
         `Qive getDanfe(${accessKey}) HTTP ${res.status}: ${body.slice(0, 200)}`,
       );
     }
-    const json = (await res.json()) as { data?: { pdf?: string } };
-    const pdf = json.data?.pdf;
+    // A Qive devolve o PDF base64 em `data.encoded_pdf` (campo atual);
+    // versões antigas usavam `data.pdf`. Aceita os dois por robustez.
+    const json = (await res.json()) as {
+      data?: { encoded_pdf?: string; pdf?: string };
+    };
+    const pdf = json.data?.encoded_pdf ?? json.data?.pdf;
     if (!pdf) {
       throw new Error(`Qive getDanfe: resposta sem PDF (chave ${accessKey})`);
     }
