@@ -98,6 +98,15 @@ export function ItemDialog({
     }
   }, [open, initial]);
 
+  // Pré-seleciona o CC principal da equipe quando o campo está vazio (item
+  // novo sem padrão próprio). Não sobrescreve edição nem o padrão vindo do
+  // item do catálogo — o usuário pode trocar (ex.: TI lançando no CC de Loja).
+  useEffect(() => {
+    if (!open || costCenterRateioCode) return;
+    const primary = (ccRateios.data ?? []).find((r) => r.isPrimary);
+    if (primary) setCostCenterRateioCode(primary.codigo);
+  }, [open, costCenterRateioCode, ccRateios.data]);
+
   // Fornecedor sem itens vinculados.
   const noSupplierItems =
     !supplierItems.isLoading && (supplierItems.data ?? []).length === 0;

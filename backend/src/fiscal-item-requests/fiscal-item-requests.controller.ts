@@ -10,7 +10,10 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FiscalItemRequestsService } from './fiscal-item-requests.service';
 import { CreateFiscalItemRequestDto } from './dto/create-fiscal-item-request.dto';
-import { ApproveFiscalItemRequestDto } from './dto/resolve-fiscal-item-request.dto';
+import {
+  ApproveFiscalItemRequestDto,
+  RejectFiscalItemRequestDto,
+} from './dto/resolve-fiscal-item-request.dto';
 import { QueryFiscalItemRequestsDto } from './dto/query-fiscal-item-requests.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -57,5 +60,17 @@ export class FiscalItemRequestsController {
     @Body() dto: ApproveFiscalItemRequestDto,
   ) {
     return this.service.approve(user, id, dto);
+  }
+
+  @Post(':id/reject')
+  @ApiOperation({
+    summary: 'Rejeita/descarta a pendência (ex.: órfã de requisição cancelada)',
+  })
+  reject(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: RejectFiscalItemRequestDto,
+  ) {
+    return this.service.reject(user, id, dto);
   }
 }

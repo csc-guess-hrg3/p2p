@@ -103,4 +103,6 @@ export interface ErpRateio {
   descricao: string;
   inativo: boolean;
   linhas: ErpRateioLine[];
+  /** Só CC, escopo de equipe: é o CC principal da equipe (foco padrão). */
+  isPrimary?: boolean;
 }

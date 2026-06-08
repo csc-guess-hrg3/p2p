@@ -10,7 +10,10 @@ import { IntegrationService } from '../integration/integration.service';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { UserProfile } from '../common/enums';
 import { CreateFiscalItemRequestDto } from './dto/create-fiscal-item-request.dto';
-import { ApproveFiscalItemRequestDto } from './dto/resolve-fiscal-item-request.dto';
+import {
+  ApproveFiscalItemRequestDto,
+  RejectFiscalItemRequestDto,
+} from './dto/resolve-fiscal-item-request.dto';
 import { QueryFiscalItemRequestsDto } from './dto/query-fiscal-item-requests.dto';
 
 const REQUESTER = { select: { id: true, name: true } };
@@ -124,7 +127,28 @@ export class FiscalItemRequestsService {
     if (!user.companyIds.includes(req.companyId)) {
       throw new ForbiddenException('Sem acesso a esta pendência.');
     }
-    return req;
+    // Rastro reverso: como o modelo é por (fornecedor+item) e não tem FK
+    // pra requisição, listamos aqui as requisições que casam (mesma empresa,
+    // fornecedor e descrição do item) — incluindo as deletadas, pra explicar
+    // pendências órfãs (ex.: a req de origem foi cancelada).
+    const relatedRequisitions = await this.prisma.requisition.findMany({
+      where: {
+        companyId: req.companyId,
+        supplierErpCode: req.supplierErpCode,
+        items: { some: { itemDescription: req.itemDescription } },
+      },
+      select: {
+        id: true,
+        number: true,
+        status: true,
+        deletedAt: true,
+        createdAt: true,
+        requester: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    });
+    return { ...req, relatedRequisitions };
   }
 
   /**
@@ -198,6 +222,46 @@ export class FiscalItemRequestsService {
         },
       });
     }
+    return updated;
+  }
+
+  /**
+   * Rejeita/descarta uma pendência (ex.: órfã — a requisição de origem foi
+   * cancelada). Vira REJECTED e sai da fila. Só equipe Fiscal.
+   */
+  async reject(
+    user: AuthenticatedUser,
+    id: string,
+    dto: RejectFiscalItemRequestDto,
+  ) {
+    await this.assertFiscalUser(user);
+    const req = await this.findOne(user, id);
+    if (req.status !== 'PENDING') {
+      throw new BadRequestException('Esta pendência já foi resolvida.');
+    }
+    const updated = await this.prisma.fiscalItemRequest.update({
+      where: { id },
+      data: {
+        status: 'REJECTED',
+        rejectionReason: dto.rejectionReason,
+        resolvedById: user.id,
+        resolvedAt: new Date(),
+      },
+      include: { requestedBy: REQUESTER, resolvedBy: REQUESTER },
+    });
+    await this.prisma.notification.create({
+      data: {
+        companyId: req.companyId,
+        userId: req.requestedById,
+        type: 'GENERAL',
+        title: 'Pendência fiscal rejeitada',
+        body:
+          `A pendência "${req.itemDescription}" foi rejeitada pela equipe ` +
+          `Fiscal. Motivo: ${dto.rejectionReason}`,
+        entityType: 'FISCAL_ITEM_REQUEST',
+        entityId: req.id,
+      },
+    });
     return updated;
   }
 }

@@ -11,6 +11,7 @@ import {
   type NavEntry,
 } from './nav';
 import { useAuth } from '@/lib/auth';
+import { useCompany } from '@/lib/company';
 import { useFiscalItemRequests } from '@/lib/fiscal';
 
 interface SidebarProps {
@@ -247,7 +248,11 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
   // "Pendências Fiscais" tem badge. O hook é chamado incondicionalmente
   // (regra de hooks); pra usuários sem permissão o backend devolve 403
   // e o `data` fica undefined — o badge simplesmente não aparece.
-  const fiscalPendingQ = useFiscalItemRequests({ status: 'PENDING' });
+  const { activeCompany } = useCompany();
+  const fiscalPendingQ = useFiscalItemRequests({
+    status: 'PENDING',
+    companyId: activeCompany?.id,
+  });
   const badges: Record<string, number | undefined> = {
     'fiscal-pending': fiscalPendingQ.data?.total,
   };

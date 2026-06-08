@@ -12,7 +12,9 @@ import { useCompany } from '@/lib/company';
 import { useItems } from '@/lib/integration';
 import {
   useFiscalItemRequests,
+  useFiscalItemRequest,
   useApproveFiscalItemRequest,
+  useRejectFiscalItemRequest,
   type FiscalItemRequest,
 } from '@/lib/fiscal';
 import { useRequisitions } from '@/lib/requisitions';
@@ -70,9 +72,13 @@ function ApproveDialog({
   onClose: () => void;
 }) {
   const catalog = useItems(company);
+  const detail = useFiscalItemRequest(request.id);
   const approve = useApproveFiscalItemRequest();
+  const reject = useRejectFiscalItemRequest();
   const { toast } = useToast();
   const [itemCode, setItemCode] = useState(request.itemErpCode ?? '');
+  const [rejecting, setRejecting] = useState(false);
+  const [reason, setReason] = useState('');
 
   async function handleApprove() {
     try {
@@ -81,10 +87,7 @@ function ApproveDialog({
         itemErpCode:
           itemCode && itemCode !== request.itemErpCode ? itemCode : undefined,
       });
-      toast({
-        title: 'Pendência aprovada',
-        variant: 'success',
-      });
+      toast({ title: 'Pendência aprovada', variant: 'success' });
       onClose();
     } catch (err) {
       toast({
@@ -95,16 +98,34 @@ function ApproveDialog({
     }
   }
 
+  async function handleReject() {
+    try {
+      await reject.mutateAsync({
+        id: request.id,
+        rejectionReason: reason.trim(),
+      });
+      toast({ title: 'Pendência rejeitada', variant: 'success' });
+      onClose();
+    } catch (err) {
+      toast({
+        title: 'Não foi possível rejeitar a pendência',
+        description: extractApiMessage(err),
+        variant: 'destructive',
+      });
+    }
+  }
+
   const changed = itemCode !== request.itemErpCode;
+  const related = detail.data?.relatedRequisitions ?? [];
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Aprovar vínculo de item</DialogTitle>
+          <DialogTitle>Resolver vínculo de item</DialogTitle>
           <DialogDescription>
-            Fornecedor {request.supplierName}. Confirme o item ou selecione o
-            item correto — o vínculo será gravado no Linx.
+            Fornecedor {request.supplierName}. Aprove (grava o vínculo no Linx)
+            ou rejeite, se for uma pendência obsoleta.
           </DialogDescription>
         </DialogHeader>
 
@@ -113,31 +134,89 @@ function ApproveDialog({
             <span className="text-muted-foreground">Item solicitado: </span>
             {request.itemErpCode} — {request.itemDescription}
           </div>
-          <div className="space-y-1.5">
-            <Label>Item a vincular</Label>
-            <ItemCombobox
-              items={catalog.data ?? []}
-              value={itemCode}
-              loading={catalog.isLoading}
-              showCode
-              placeholder="Selecione o item"
-              onSelect={(i) => setItemCode(i.codigo)}
-            />
-            {changed && (
-              <p className="text-xs text-warning">
-                Item diferente do solicitado — o solicitante será notificado.
-              </p>
+
+          {/* Rastro reverso — quais requisições usam este item+fornecedor. */}
+          <div className="rounded-md border p-3 text-xs">
+            <p className="mb-1 font-medium text-foreground">
+              Requisições que usam este item
+            </p>
+            {detail.isLoading ? (
+              <span className="text-muted-foreground">Carregando…</span>
+            ) : related.length === 0 ? (
+              <span className="text-muted-foreground">
+                Nenhuma — pendência órfã (a requisição de origem não existe
+                mais). Pode rejeitar com segurança.
+              </span>
+            ) : (
+              <ul className="space-y-0.5">
+                {related.map((r) => (
+                  <li key={r.id} className="text-muted-foreground">
+                    <span className="font-medium text-foreground">
+                      {r.number}
+                    </span>{' '}
+                    · {r.status}
+                    {r.deletedAt ? ' · deletada' : ''} ·{' '}
+                    {r.requester?.name ?? '—'} · {formatDate(r.createdAt)}
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
+
+          {!rejecting ? (
+            <div className="space-y-1.5">
+              <Label>Item a vincular</Label>
+              <ItemCombobox
+                items={catalog.data ?? []}
+                value={itemCode}
+                loading={catalog.isLoading}
+                showCode
+                placeholder="Selecione o item"
+                onSelect={(i) => setItemCode(i.codigo)}
+              />
+              {changed && (
+                <p className="text-xs text-warning">
+                  Item diferente do solicitado — o solicitante será notificado.
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label>Motivo da rejeição</Label>
+              <textarea
+                className="min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Ex.: requisição de origem cancelada; pendência obsoleta."
+              />
+            </div>
+          )}
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancelar
-          </Button>
-          <Button onClick={handleApprove} disabled={approve.isPending}>
-            {approve.isPending ? 'Gravando…' : 'Aprovar e vincular'}
-          </Button>
+          {!rejecting ? (
+            <>
+              <Button variant="outline" onClick={() => setRejecting(true)}>
+                Rejeitar…
+              </Button>
+              <Button onClick={handleApprove} disabled={approve.isPending}>
+                {approve.isPending ? 'Gravando…' : 'Aprovar e vincular'}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" onClick={() => setRejecting(false)}>
+                Voltar
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleReject}
+                disabled={reject.isPending || reason.trim().length < 3}
+              >
+                {reject.isPending ? 'Rejeitando…' : 'Confirmar rejeição'}
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -145,10 +224,16 @@ function ApproveDialog({
 }
 
 /** Aba "Itens" — pendências de vínculo de item (modelo antigo). */
-function ItensTab({ companyCode }: { companyCode?: string }) {
+function ItensTab({
+  companyCode,
+  companyId,
+}: {
+  companyCode?: string;
+  companyId?: string;
+}) {
   const [status, setStatus] = useState('PENDING');
   const [approving, setApproving] = useState<FiscalItemRequest | null>(null);
-  const { data, isLoading } = useFiscalItemRequests({ status });
+  const { data, isLoading } = useFiscalItemRequests({ status, companyId });
   const rows = data?.data ?? [];
   const isFiscal = data?.isFiscalUser ?? false;
   const pag = usePagination(rows);
@@ -409,7 +494,10 @@ export function FiscalQueuePage() {
       (r.ctbTipoOperacao == null || !r.naturezaEntrada),
   ).length;
 
-  const itemsQ = useFiscalItemRequests({ status: 'PENDING' });
+  const itemsQ = useFiscalItemRequests({
+    status: 'PENDING',
+    companyId: activeCompany?.id,
+  });
   const pendingItemsCount = itemsQ.data?.data?.length ?? 0;
 
   return (
@@ -438,7 +526,10 @@ export function FiscalQueuePage() {
         <RequisicoesTab />
       </TabsContent>
       <TabsContent value="itens">
-        <ItensTab companyCode={activeCompany?.code} />
+        <ItensTab
+          companyCode={activeCompany?.code}
+          companyId={activeCompany?.id}
+        />
       </TabsContent>
     </Tabs>
   );

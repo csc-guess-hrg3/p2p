@@ -71,6 +71,8 @@ export interface ErpRateio {
   descricao: string;
   inativo: boolean;
   linhas: ErpRateioLine[];
+  /** Só CC, escopo de equipe: CC principal (pré-selecionado no form). */
+  isPrimary?: boolean;
 }
 
 /** Hooks de leitura dos dados de referência do ERP por código de empresa. */

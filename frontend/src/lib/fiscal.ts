@@ -34,7 +34,23 @@ interface FiscalListResult extends Paginated<FiscalItemRequest> {
   isFiscalUser: boolean;
 }
 
-export function useFiscalItemRequests(params: { status?: string } = {}) {
+/** Requisição que casa com a pendência (mesma empresa+fornecedor+item). */
+export interface RelatedRequisition {
+  id: string;
+  number: string;
+  status: string;
+  deletedAt: string | null;
+  createdAt: string;
+  requester?: { id: string; name: string } | null;
+}
+
+export interface FiscalItemRequestDetail extends FiscalItemRequest {
+  relatedRequisitions: RelatedRequisition[];
+}
+
+export function useFiscalItemRequests(
+  params: { status?: string; companyId?: string } = {},
+) {
   return useQuery({
     queryKey: ['fiscal-item-requests', params],
     queryFn: async () =>
@@ -43,11 +59,44 @@ export function useFiscalItemRequests(params: { status?: string } = {}) {
   });
 }
 
+/** Detalhe de uma pendência, com as requisições relacionadas (rastro reverso). */
+export function useFiscalItemRequest(id: string | undefined) {
+  return useQuery({
+    queryKey: ['fiscal-item-request', id],
+    queryFn: async () =>
+      (await api.get<FiscalItemRequestDetail>(`/fiscal-item-requests/${id}`))
+        .data,
+    enabled: !!id,
+  });
+}
+
 export function useCreateFiscalItemRequest() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (dto: FiscalItemRequestInput) =>
       (await api.post<FiscalItemRequest>('/fiscal-item-requests', dto)).data,
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ['fiscal-item-requests'] }),
+  });
+}
+
+/** Rejeita/descarta uma pendência obsoleta (órfã). Exige motivo. */
+export function useRejectFiscalItemRequest() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      rejectionReason,
+    }: {
+      id: string;
+      rejectionReason: string;
+    }) =>
+      (
+        await api.post<FiscalItemRequest>(
+          `/fiscal-item-requests/${id}/reject`,
+          { rejectionReason },
+        )
+      ).data,
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ['fiscal-item-requests'] }),
   });

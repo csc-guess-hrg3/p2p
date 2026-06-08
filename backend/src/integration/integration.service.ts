@@ -262,10 +262,15 @@ export class IntegrationService {
     if (!teamId) return all;
     const allowed = await this.prisma.teamCostCenterRateio.findMany({
       where: { teamId },
-      select: { costCenterRateioCode: true },
+      select: { costCenterRateioCode: true, isPrimary: true },
     });
     const allowedSet = new Set(allowed.map((r) => r.costCenterRateioCode));
-    return all.filter((r) => allowedSet.has(r.codigo));
+    const primarySet = new Set(
+      allowed.filter((r) => r.isPrimary).map((r) => r.costCenterRateioCode),
+    );
+    return all
+      .filter((r) => allowedSet.has(r.codigo))
+      .map((r) => ({ ...r, isPrimary: primarySet.has(r.codigo) }));
   }
 
   // ----------------------------------------------------------------
