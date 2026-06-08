@@ -10,7 +10,10 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { useMyActions } from '@/lib/dashboard';
+import { useRequisitions } from '@/lib/requisitions';
 import { useAuth } from '@/lib/auth';
+import { formatCurrency, formatDate } from '@/lib/format';
+import { StatusBadge } from '@/components/StatusBadge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -142,6 +145,81 @@ export function PendingTasksPanel({ companyId }: { companyId?: string }) {
           ))}
         </div>
       )}
+    </section>
+  );
+}
+
+/**
+ * "Minhas requisições recentes" — lista enxuta (até 6) das requisições do
+ * próprio usuário, mais novas primeiro. É o que o operador/revisor vê no
+ * lugar do panorama gerencial da empresa: dá corpo à home com algo que é
+ * dele, sem expor KPI/orçamento da companhia.
+ */
+export function MyRecentRequisitions({ companyId }: { companyId?: string }) {
+  const { data, isLoading } = useRequisitions({ companyId, mine: 'true' });
+  const rows = (data?.data ?? []).slice(0, 6);
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-base font-semibold text-foreground">
+          Minhas requisições recentes
+        </h2>
+        <Link
+          to="/requisicoes"
+          className="text-sm text-primary hover:underline"
+        >
+          Ver todas
+        </Link>
+      </div>
+
+      <Card>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="space-y-2 p-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full rounded-lg" />
+              ))}
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="flex flex-col items-start gap-2 p-5 text-sm text-muted-foreground">
+              <span>Você ainda não criou nenhuma requisição.</span>
+              <Link
+                to="/requisicoes/nova"
+                className="font-medium text-primary hover:underline"
+              >
+                Criar a primeira requisição
+              </Link>
+            </div>
+          ) : (
+            <ul>
+              {rows.map((r) => (
+                <li key={r.id}>
+                  <Link
+                    to={`/requisicoes/${r.id}`}
+                    className="flex items-center justify-between gap-3 border-b px-4 py-3 transition-colors last:border-0 hover:bg-accent"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {r.number} — {r.title}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {r.supplierName} · {formatDate(r.createdAt)}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <StatusBadge status={r.status} />
+                      <span className="text-sm tabular-nums text-foreground">
+                        {formatCurrency(Number(r.totalAmount))}
+                      </span>
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
     </section>
   );
 }

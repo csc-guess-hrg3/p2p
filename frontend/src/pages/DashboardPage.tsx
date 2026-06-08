@@ -38,7 +38,8 @@ import {
   OrdersByStatusChart,
   TopSuppliersChart,
 } from './dashboard/widgets';
-import { PendingTasksPanel } from './PendingTasksPage';
+import { PendingTasksPanel, MyRecentRequisitions } from './PendingTasksPage';
+import { useAuth } from '@/lib/auth';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -132,13 +133,24 @@ function loadVisible(): Set<WidgetId> {
 
 export function DashboardPage() {
   const { activeCompany } = useCompany();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const companyId = activeCompany?.id;
 
-  const summaryQ = useDashboardSummary(companyId);
-  const openQ = useOpenOrders(companyId);
-  const overdueQ = useOverdueOrders(companyId);
-  const budgetQ = useBudgetConsumption(companyId);
+  // Panorama gerencial (KPIs, gráficos e tabelas da empresa) é só para
+  // gestão — Admin e Manager. Operador/revisor recebe uma home centrada
+  // nas próprias tarefas e requisições, sem métricas da companhia.
+  const isManagement =
+    user?.profile === 'ADMIN' || user?.profile === 'MANAGER';
+
+  // Só dispara as queries da empresa quando há audiência pra elas — passar
+  // companyId=undefined desliga os hooks (enabled: !!companyId) e evita
+  // chamadas (e 403) para quem não vê o panorama.
+  const dashCompanyId = isManagement ? companyId : undefined;
+  const summaryQ = useDashboardSummary(dashCompanyId);
+  const openQ = useOpenOrders(dashCompanyId);
+  const overdueQ = useOverdueOrders(dashCompanyId);
+  const budgetQ = useBudgetConsumption(dashCompanyId);
 
   const [tab, setTab] = useState<'open' | 'overdue' | 'budget'>('open');
   const [visible, setVisible] = useState<Set<WidgetId>>(() => loadVisible());
@@ -158,9 +170,34 @@ export function DashboardPage() {
 
   const summary = summaryQ.data;
 
+  // Operador / revisor: home enxuta, só o que é dele.
+  if (!isManagement) {
+    return (
+      <div className="space-y-6 pb-10">
+        <PendingTasksPanel companyId={companyId} />
+        <MyRecentRequisitions companyId={companyId} />
+      </div>
+    );
+  }
+
+  // Gestão (Admin/Manager): pendências pessoais + panorama da empresa.
   return (
     <div className="space-y-6 pb-10">
-      {/* 1) KPIs no topo — visada rápida do panorama. */}
+      {/* 1) O que é meu pra fazer — ação primeiro, igual para todos. */}
+      <PendingTasksPanel companyId={companyId} />
+
+      {/* 2) Visão da empresa — panorama gerencial, claramente demarcado. */}
+      <div className="border-t pt-6">
+        <h2 className="text-base font-semibold text-foreground">
+          Visão da empresa
+        </h2>
+        <p className="text-xs text-muted-foreground">
+          {activeCompany?.name ?? 'Selecione uma empresa'} — panorama de gestão,
+          não suas pendências.
+        </p>
+      </div>
+
+      {/* KPIs — visada rápida do panorama. */}
       <div className="grid gap-4 md:grid-cols-3">
         <KpiCard
           icon={ShoppingCart}
@@ -223,16 +260,12 @@ export function DashboardPage() {
         />
       </div>
 
-      {/* 2) Ação: minhas pendências. */}
-      <PendingTasksPanel companyId={companyId} />
-
-      {/* 3) Análises — cabeçalho enxuto + gráficos atrás de um menu discreto. */}
+      {/* Análises — cabeçalho enxuto + gráficos atrás de um menu discreto. */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-base font-semibold text-foreground">Análises</h2>
           <p className="text-xs text-muted-foreground">
-            {activeCompany?.name ?? 'Selecione uma empresa'} — atualizado a cada
-            5 minutos.
+            Atualizado a cada 5 minutos.
           </p>
         </div>
         <DropdownMenu>
