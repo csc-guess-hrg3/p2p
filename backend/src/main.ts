@@ -36,6 +36,12 @@ async function bootstrap() {
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
+  // Atrás do Cloudflare Tunnel (cloudflared roda em loopback): confia só no
+  // proxy local pra ler o IP real do cliente (X-Forwarded-For) e o protocolo
+  // (X-Forwarded-Proto=https). Sem isso, todo request pareceria vir de
+  // 127.0.0.1 — quebrando o rate-limit por IP e o remoteip do Turnstile. (P1-4)
+  app.set('trust proxy', 'loopback');
+
   app.setGlobalPrefix('api');
 
   // Segurança HTTP — cabeçalhos defensivos (XSS, clickjacking, sniffing).
