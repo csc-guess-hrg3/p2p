@@ -19,17 +19,7 @@ interface SidebarProps {
 }
 
 /** Marca HRG3 — "HRG" em branco + "3" em quadrado azul (eco do logo). */
-function Wordmark({ compact }: { compact?: boolean }) {
-  if (compact) {
-    // Modo rail: só o quadrado "3" centralizado.
-    return (
-      <div className="flex items-center justify-center py-5">
-        <span className="flex h-7 w-7 items-center justify-center rounded-sm bg-primary text-xl font-extrabold text-white">
-          3
-        </span>
-      </div>
-    );
-  }
+function Wordmark() {
   return (
     <div className="flex items-center gap-1 px-6 py-5">
       <span className="text-2xl font-extrabold tracking-tight text-white">
@@ -297,7 +287,8 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
         )}
       >
         <div className="flex items-center justify-between pr-2 lg:pr-0">
-          <Wordmark compact={railMode} />
+          {/* No modo rail a logo some (ficava cortada na largura estreita). */}
+          {railMode ? <div className="py-4" aria-hidden="true" /> : <Wordmark />}
           <button
             onClick={onClose}
             className="rounded p-2 text-sidebar-foreground hover:bg-sidebar-accent lg:hidden"

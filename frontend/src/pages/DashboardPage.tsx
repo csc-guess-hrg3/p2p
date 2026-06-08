@@ -304,6 +304,14 @@ export function DashboardPage() {
         </Card>
       )}
 
+      {/* O que é MEU — logo abaixo da visão da empresa e acima dos gráficos.
+          Um gestor/admin que também opera (ex.: diretor-dono) precisa do
+          panorama E do espaço dele: suas aprovações, suas requisições. */}
+      <div className="border-t pt-6">
+        <PendingTasksPanel companyId={companyId} />
+      </div>
+      <MyRecentRequisitions companyId={companyId} />
+
       {/* Análises — cabeçalho enxuto + gráficos atrás de um menu discreto. */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
@@ -390,12 +398,6 @@ export function DashboardPage() {
         </TabsContent>
 
       </Tabs>
-
-      {/* Minhas pendências — por último (gestor age sobre o que é dele
-          depois de ver o panorama da empresa). */}
-      <div className="border-t pt-6">
-        <PendingTasksPanel companyId={companyId} />
-      </div>
     </div>
   );
 }

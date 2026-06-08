@@ -75,7 +75,7 @@ const PIE_COLORS = [
 // amarelo = em andamento, azul = informação.
 const STATUS_COLORS: Record<string, string> = {
   APPROVED: '#16a34a',           // verde
-  FULLY_RECEIVED: '#16a34a',     // verde
+  FULLY_RECEIVED: '#0d9488',     // teal — distinto do verde de APPROVED
   INTEGRATED: '#2563eb',         // azul — não confundir com APPROVED
   CONFIRMED: '#16a34a',          // verde
   CANCELLED: '#dc2626',          // vermelho
