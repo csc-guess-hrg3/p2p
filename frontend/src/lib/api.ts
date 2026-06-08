@@ -58,8 +58,18 @@ export function setEnvironment(env: AppEnv) {
   localStorage.setItem(ENV_KEY, env);
 }
 
-/** baseURL conforme o ambiente: HML usa o proxy /api-hml -> backend :3001. */
+/**
+ * baseURL conforme o ambiente.
+ *
+ * IMPORTANTE: o seletor PROD/HML (`/api` vs `/api-hml`) só faz sentido no
+ * servidor de DEV do Vite, que tem um proxy reescrevendo `/api-hml` -> backend
+ * de homologação (:3001). No BUILD DE PRODUÇÃO o front é servido pelo próprio
+ * backend (single-origin, atrás do Cloudflare Tunnel) e só existe `/api` —
+ * não há proxy. Forçar `/api` aqui evita chamadas a `/api-hml/...` que cairiam
+ * num 404 ("Cannot POST /api-hml/...") se alguém tivesse `p2p_env=HML` salvo.
+ */
 function apiBase(): string {
+  if (import.meta.env.PROD) return '/api';
   return getEnvironment() === 'HML' ? '/api-hml' : '/api';
 }
 
