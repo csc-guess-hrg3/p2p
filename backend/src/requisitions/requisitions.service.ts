@@ -489,15 +489,25 @@ export class RequisitionsService {
       throw new ForbiddenException('Sem acesso a esta empresa.');
     }
 
+    const isAdmin = user.profile === UserProfile.ADMIN;
+    // `mine=true` (legado, ex.: home) tem prioridade; senão usa scope
+    // (padrão 'mine' — a tela abre no que é do usuário). 'all' só admin.
+    const scope = mine === 'true' ? 'mine' : (query.scope ?? 'mine');
+    if (scope === 'all' && !isAdmin) {
+      throw new ForbiddenException(
+        'Apenas administradores podem ver todas as requisições.',
+      );
+    }
+
     const where: Prisma.RequisitionWhereInput = {
       deletedAt: null,
       companyId: companyId ? companyId : { in: user.companyIds },
-      // Escopo de visibilidade: não-admin vê só a própria equipe.
-      ...(user.profile !== UserProfile.ADMIN
-        ? { teamId: user.teamId }
-        : {}),
+      // Visibilidade base: não-admin nunca sai da própria equipe.
+      ...(isAdmin ? {} : { teamId: user.teamId }),
+      // Escopo escolhido sobre a visibilidade base.
+      ...(scope === 'mine' ? { requesterId: user.id } : {}),
+      ...(scope === 'team' ? { teamId: user.teamId } : {}),
       ...(status ? { status } : {}),
-      ...(mine === 'true' ? { requesterId: user.id } : {}),
       ...(search
         ? {
             OR: [

@@ -204,6 +204,7 @@ export interface RequisitionListParams {
   status?: string;
   search?: string;
   mine?: string;
+  scope?: 'mine' | 'team' | 'all';
 }
 
 export function useRequisitions(params: RequisitionListParams) {

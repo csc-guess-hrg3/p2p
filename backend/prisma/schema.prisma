@@ -457,6 +457,8 @@ model TeamCostCenterRateio {
   teamId               String @db.UniqueIdentifier
   companyId            String @db.UniqueIdentifier
   costCenterRateioCode String @db.NVarChar(20)
+  // CC principal da equipe — define o foco padrão das telas (1+ por equipe).
+  isPrimary            Boolean @default(false)
 
   team    Team    @relation(fields: [teamId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   company Company @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)

@@ -29,9 +29,23 @@ export class PurchaseOrdersService {
     if (companyId && !user.companyIds.includes(companyId)) {
       throw new ForbiddenException('Sem acesso a esta empresa.');
     }
+    const isAdmin = user.profile === UserProfile.ADMIN;
+    // Padrão 'mine' (a tela abre nos pedidos do próprio comprador). 'all' só
+    // admin. PO não tem teamId — o escopo de equipe vai pela requisição.
+    const scope = query.scope ?? 'mine';
+    if (scope === 'all' && !isAdmin) {
+      throw new ForbiddenException(
+        'Apenas administradores podem ver todos os pedidos.',
+      );
+    }
     const where: Prisma.PurchaseOrderWhereInput = {
       deletedAt: null,
       companyId: companyId ? companyId : { in: user.companyIds },
+      // Visibilidade base: não-admin só a própria equipe (via requisição).
+      ...(isAdmin ? {} : { requisition: { teamId: user.teamId } }),
+      // Escopo escolhido.
+      ...(scope === 'mine' ? { buyerId: user.id } : {}),
+      ...(scope === 'team' ? { requisition: { teamId: user.teamId } } : {}),
       ...(status ? { status } : {}),
       ...(search ? { number: { contains: search } } : {}),
     };

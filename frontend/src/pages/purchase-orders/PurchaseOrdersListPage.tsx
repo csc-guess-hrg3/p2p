@@ -3,8 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, Download, Search } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { usePurchaseOrders } from '@/lib/purchase-orders';
+import { useAuth } from '@/lib/auth';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
+import { ScopeSelect, useScope } from '@/components/ScopeSelect';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -41,14 +43,18 @@ const STATUS_OPTIONS = [
 
 export function PurchaseOrdersListPage() {
   const { activeCompany } = useCompany();
+  const { user } = useAuth();
   const navigate = useNavigate();
+  const isAdmin = user?.profile === 'ADMIN';
   const [status, setStatus] = useState('ALL');
   const [search, setSearch] = useState('');
+  const [scope, setScope] = useScope('p2p:scope:pedidos', isAdmin);
 
   const { data, isLoading } = usePurchaseOrders({
     companyId: activeCompany?.id,
     status: status === 'ALL' ? undefined : status,
     search: search || undefined,
+    scope,
   });
 
   // Sinalização visual (PRD § 8.5): atrasados em vermelho, vencimento ≤ 7d
@@ -145,6 +151,12 @@ export function PurchaseOrdersListPage() {
             ))}
           </SelectContent>
         </Select>
+        <ScopeSelect
+          value={scope}
+          onChange={setScope}
+          canSeeAll={isAdmin}
+          showTeam={!!user?.teamId}
+        />
       </div>
 
       <div className="rounded-lg border bg-card">

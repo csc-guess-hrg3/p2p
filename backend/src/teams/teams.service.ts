@@ -266,6 +266,7 @@ export class TeamsService {
           teamId: id,
           companyId: e.companyId,
           costCenterRateioCode: e.code,
+          isPrimary: e.isPrimary ?? false,
         })),
       }),
     ]);

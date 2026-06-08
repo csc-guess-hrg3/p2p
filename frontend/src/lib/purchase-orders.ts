@@ -95,6 +95,7 @@ export interface PurchaseOrderListParams {
   companyId?: string;
   status?: string;
   search?: string;
+  scope?: 'mine' | 'team' | 'all';
 }
 
 export function usePurchaseOrders(params: PurchaseOrderListParams) {

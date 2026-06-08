@@ -24,6 +24,16 @@ export class QueryRequisitionsDto {
   @IsIn(['true', 'false'])
   mine?: string;
 
+  @ApiPropertyOptional({
+    enum: ['mine', 'team', 'all'],
+    default: 'mine',
+    description:
+      'Escopo: mine (minhas) | team (da equipe) | all (todas, só admin).',
+  })
+  @IsOptional()
+  @IsIn(['mine', 'team', 'all'])
+  scope?: 'mine' | 'team' | 'all';
+
   @ApiPropertyOptional({ default: 0 })
   @IsOptional()
   @Type(() => Number)

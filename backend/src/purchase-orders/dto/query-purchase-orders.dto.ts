@@ -19,6 +19,16 @@ export class QueryPurchaseOrdersDto {
   @IsString()
   search?: string;
 
+  @ApiPropertyOptional({
+    enum: ['mine', 'team', 'all'],
+    default: 'mine',
+    description:
+      'Escopo: mine (meus, por comprador) | team (da equipe) | all (todos, só admin).',
+  })
+  @IsOptional()
+  @IsIn(['mine', 'team', 'all'])
+  scope?: 'mine' | 'team' | 'all';
+
   @ApiPropertyOptional({ default: 0 })
   @IsOptional()
   @Type(() => Number)
