@@ -161,20 +161,53 @@ export class TeamsService {
       }
     }
 
-    await this.prisma.$transaction([
-      this.prisma.teamApprovalLevel.deleteMany({ where: { teamId: id } }),
-      this.prisma.teamApprovalLevel.createMany({
-        data: levels.map((l) => ({
-          teamId: id,
-          level: l.level,
+    // Persistência por DIFF (não apaga-e-recria). Apagar todos os níveis
+    // quebra quando algum já foi usado numa requisição: o ApprovalStep tem
+    // FK (onDelete: NoAction) pro nível e o banco bloqueia o delete (P2003 —
+    // que a UI mostrava como "referência a um registro que não existe").
+    // Aqui: atualiza níveis existentes IN-PLACE (preserva o id → os steps
+    // históricos continuam apontando válido), cria os novos e remove só os
+    // que saíram — desvinculando antes os steps que os referenciam (o step
+    // guarda snapshot de level/levelName, então não perde rastreio).
+    await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.teamApprovalLevel.findMany({
+        where: { teamId: id },
+        select: { id: true, level: true },
+      });
+      const existingIdByLevel = new Map(existing.map((e) => [e.level, e.id]));
+      const incomingLevels = new Set(levels.map((l) => l.level));
+
+      const removedIds = existing
+        .filter((e) => !incomingLevels.has(e.level))
+        .map((e) => e.id);
+      if (removedIds.length > 0) {
+        await tx.approvalStep.updateMany({
+          where: { teamApprovalLevelId: { in: removedIds } },
+          data: { teamApprovalLevelId: null },
+        });
+        await tx.teamApprovalLevel.deleteMany({
+          where: { id: { in: removedIds } },
+        });
+      }
+
+      for (const l of levels) {
+        const data = {
           name: l.name,
           approverId: l.approverId ?? null,
           requiredPositionId: l.requiredPositionId ?? null,
           scopeByBranch: l.scopeByBranch ?? false,
           maxAmount: l.maxAmount ?? null,
-        })),
-      }),
-    ]);
+        };
+        const existingId = existingIdByLevel.get(l.level);
+        if (existingId) {
+          await tx.teamApprovalLevel.update({ where: { id: existingId }, data });
+        } else {
+          await tx.teamApprovalLevel.create({
+            data: { teamId: id, level: l.level, ...data },
+          });
+        }
+      }
+    });
     return this.findOne(id);
   }
 
