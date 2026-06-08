@@ -153,8 +153,8 @@ export function AddLocalUserDialog({ open, onOpenChange }: Props) {
               placeholder="usuario@hrg3.com.br"
             />
             <p className="text-[11px] text-muted-foreground">
-              Aceitos: @hrg3.com.br ou @guess.com.br. Usado pra entrega
-              do link de definição de senha.
+              Aceitos: @hrg3.com.br, @guessbrasil.com.br ou @guess-br.com.br.
+              Usado pra entrega do link de definição de senha.
             </p>
           </div>
           <div className="space-y-1.5">

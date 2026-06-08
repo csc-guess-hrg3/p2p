@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { ChevronDown, X } from 'lucide-react';
+import { ChevronDown, X, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   NAV_SECTIONS,
@@ -8,6 +8,7 @@ import {
   isNavGroup,
   type NavItem,
   type NavGroup,
+  type NavEntry,
 } from './nav';
 import { useAuth } from '@/lib/auth';
 import { useFiscalItemRequests } from '@/lib/fiscal';
@@ -18,7 +19,17 @@ interface SidebarProps {
 }
 
 /** Marca HRG3 — "HRG" em branco + "3" em quadrado azul (eco do logo). */
-function Wordmark() {
+function Wordmark({ compact }: { compact?: boolean }) {
+  if (compact) {
+    // Modo rail: só o quadrado "3" centralizado.
+    return (
+      <div className="flex items-center justify-center py-5">
+        <span className="flex h-7 w-7 items-center justify-center rounded-sm bg-primary text-xl font-extrabold text-white">
+          3
+        </span>
+      </div>
+    );
+  }
   return (
     <div className="flex items-center gap-1 px-6 py-5">
       <span className="text-2xl font-extrabold tracking-tight text-white">
@@ -42,12 +53,30 @@ function Wordmark() {
 // aberto=true" no formato anterior).
 const STORAGE_KEY = 'p2p:nav:expanded';
 
+// Colapso do menu inteiro (rail só-ícones). Nasce ABERTO; o usuário pode
+// recolher pra ganhar espaço e o estado fica memorizado.
+const RAIL_KEY = 'p2p:nav:rail';
+
 function loadExpanded(): Record<string, boolean> {
   try {
     return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}');
   } catch {
     return {};
   }
+}
+
+function loadRail(): boolean {
+  return localStorage.getItem(RAIL_KEY) === '1';
+}
+
+/** Achata grupos/sub-grupos numa lista linear de folhas (usado no modo rail). */
+function flattenLeaves(entries: NavEntry[]): NavItem[] {
+  const out: NavItem[] = [];
+  for (const e of entries) {
+    if (isNavGroup(e)) out.push(...flattenLeaves(e.children));
+    else out.push(e);
+  }
+  return out;
 }
 
 function NavLeaf({
@@ -76,6 +105,40 @@ function NavLeaf({
       {typeof count === 'number' && count > 0 && (
         <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-5 text-white">
           {count > 99 ? '99+' : count}
+        </span>
+      )}
+    </NavLink>
+  );
+}
+
+/** Folha no modo rail: só ícone, centralizado, com tooltip nativo (title). */
+function RailLeaf({
+  item,
+  badges,
+}: {
+  item: NavItem;
+  badges: Record<string, number | undefined>;
+}) {
+  const count = item.badgeKey ? badges[item.badgeKey] : undefined;
+  return (
+    <NavLink
+      to={item.to}
+      end={item.end}
+      title={item.label}
+      aria-label={item.label}
+      className={({ isActive }) =>
+        cn(
+          'relative flex items-center justify-center rounded-md py-2.5 transition-colors',
+          isActive
+            ? 'bg-sidebar-primary text-sidebar-primary-foreground'
+            : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+        )
+      }
+    >
+      <item.icon className="size-5" />
+      {typeof count === 'number' && count > 0 && (
+        <span className="absolute right-1 top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold leading-4 text-white">
+          {count > 9 ? '9+' : count}
         </span>
       )}
     </NavLink>
@@ -183,6 +246,12 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() =>
     loadExpanded(),
   );
+  const [rail, setRail] = useState<boolean>(() => loadRail());
+
+  // Modo rail (só ícones) vale só no desktop estático. No drawer mobile
+  // (mobileOpen) sempre mostramos o menu completo — recolher é um conceito
+  // de tela grande.
+  const railMode = rail && !mobileOpen;
 
   // Contadores exibidos como badge ao lado do label. Hoje só
   // "Pendências Fiscais" tem badge. O hook é chamado incondicionalmente
@@ -196,6 +265,10 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(expanded));
   }, [expanded]);
+
+  useEffect(() => {
+    localStorage.setItem(RAIL_KEY, rail ? '1' : '0');
+  }, [rail]);
 
   function toggle(key: string) {
     setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -214,7 +287,9 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
 
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-40 flex h-screen w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground transition-transform duration-200',
+          'fixed inset-y-0 left-0 z-40 flex h-screen shrink-0 flex-col bg-sidebar text-sidebar-foreground transition-[transform,width] duration-200',
+          // Largura: w-64 normal; no desktop vira w-16 quando recolhido.
+          rail ? 'w-64 lg:w-16' : 'w-64',
           // ≥ lg: vira parte do flow normal, sem transform.
           'lg:static lg:transform-none',
           // < lg: drawer — fechado fora da tela, aberto desliza.
@@ -222,7 +297,7 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
         )}
       >
         <div className="flex items-center justify-between pr-2 lg:pr-0">
-          <Wordmark />
+          <Wordmark compact={railMode} />
           <button
             onClick={onClose}
             className="rounded p-2 text-sidebar-foreground hover:bg-sidebar-accent lg:hidden"
@@ -231,41 +306,77 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
             <X className="size-5" />
           </button>
         </div>
+
         <nav className="sidebar-scroll flex-1 overflow-y-auto px-3 py-2">
           {sections.map((section, idx) => (
             <div
               key={section.heading ?? `sec-${idx}`}
               className={cn(
                 'space-y-1',
-                idx > 0 &&
-                  'mt-3 border-t border-sidebar-border/60 pt-3',
+                idx > 0 && 'mt-3 border-t border-sidebar-border/60 pt-3',
               )}
             >
-              {section.heading && (
-                <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">
-                  {section.heading}
-                </p>
-              )}
-              {section.entries.map((entry) =>
-                isNavGroup(entry) ? (
-                  <NavGroupBlock
-                    key={entry.key}
-                    group={entry}
-                    depth={0}
-                    expandedMap={expanded}
-                    onToggle={toggle}
-                    badges={badges}
-                  />
-                ) : (
-                  <NavLeaf key={entry.to} item={entry} badges={badges} />
-                ),
+              {railMode ? (
+                // Modo rail: lista plana de folhas (grupos achatados), só
+                // ícones com tooltip. A divisória entre seções permanece.
+                flattenLeaves(section.entries).map((leaf) => (
+                  <RailLeaf key={leaf.to} item={leaf} badges={badges} />
+                ))
+              ) : (
+                <>
+                  {section.heading && (
+                    <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">
+                      {section.heading}
+                    </p>
+                  )}
+                  {section.entries.map((entry) =>
+                    isNavGroup(entry) ? (
+                      <NavGroupBlock
+                        key={entry.key}
+                        group={entry}
+                        depth={0}
+                        expandedMap={expanded}
+                        onToggle={toggle}
+                        badges={badges}
+                      />
+                    ) : (
+                      <NavLeaf key={entry.to} item={entry} badges={badges} />
+                    ),
+                  )}
+                </>
               )}
             </div>
           ))}
         </nav>
-        <div className="border-t border-sidebar-border px-6 py-4 text-xs text-sidebar-foreground/60">
-          Procure-to-Pay · MVP
-        </div>
+
+        {/* Recolher/expandir — só desktop (no mobile o menu é drawer cheio). */}
+        <button
+          type="button"
+          onClick={() => setRail((v) => !v)}
+          title={railMode ? 'Expandir menu' : 'Recolher menu'}
+          aria-label={railMode ? 'Expandir menu' : 'Recolher menu'}
+          className={cn(
+            'hidden border-t border-sidebar-border text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground lg:flex',
+            railMode
+              ? 'items-center justify-center py-3'
+              : 'items-center gap-2 px-6 py-3 text-xs',
+          )}
+        >
+          {railMode ? (
+            <PanelLeftOpen className="size-5" />
+          ) : (
+            <>
+              <PanelLeftClose className="size-4" />
+              <span>Recolher menu</span>
+            </>
+          )}
+        </button>
+
+        {!railMode && (
+          <div className="border-t border-sidebar-border px-6 py-4 text-xs text-sidebar-foreground/60">
+            Procure-to-Pay · MVP
+          </div>
+        )}
       </aside>
     </>
   );

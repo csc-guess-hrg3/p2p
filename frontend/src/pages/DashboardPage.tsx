@@ -142,6 +142,7 @@ export function DashboardPage() {
   // nas próprias tarefas e requisições, sem métricas da companhia.
   const isManagement =
     user?.profile === 'ADMIN' || user?.profile === 'MANAGER';
+  const isAdmin = user?.profile === 'ADMIN';
 
   // Só dispara as queries da empresa quando há audiência pra elas — passar
   // companyId=undefined desliga os hooks (enabled: !!companyId) e evita
@@ -152,8 +153,12 @@ export function DashboardPage() {
   const overdueQ = useOverdueOrders(dashCompanyId);
   const budgetQ = useBudgetConsumption(dashCompanyId);
 
-  const [tab, setTab] = useState<'open' | 'overdue' | 'budget'>('open');
+  const [tab, setTab] = useState<'open' | 'overdue'>('open');
   const [visible, setVisible] = useState<Set<WidgetId>>(() => loadVisible());
+  // Visão da empresa: por centro de custo (padrão) ou total consolidado
+  // (opção só do admin). Não-admin sempre vê por CC.
+  const [companyView, setCompanyView] = useState<'cc' | 'total'>('cc');
+  const showTotal = isAdmin && companyView === 'total';
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify([...visible]));
@@ -183,82 +188,121 @@ export function DashboardPage() {
   // Gestão (Admin/Manager): pendências pessoais + panorama da empresa.
   return (
     <div className="space-y-6 pb-10">
-      {/* 1) O que é meu pra fazer — ação primeiro, igual para todos. */}
-      <PendingTasksPanel companyId={companyId} />
-
-      {/* 2) Visão da empresa — panorama gerencial, claramente demarcado. */}
-      <div className="border-t pt-6">
-        <h2 className="text-base font-semibold text-foreground">
-          Visão da empresa
-        </h2>
-        <p className="text-xs text-muted-foreground">
-          {activeCompany?.name ?? 'Selecione uma empresa'} — panorama de gestão,
-          não suas pendências.
-        </p>
+      {/* Visão da empresa — primeiro bloco. Por centro de custo por padrão;
+          o admin tem a opção de ver o total consolidado. */}
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">
+            Visão da empresa
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            {activeCompany?.name ?? 'Selecione uma empresa'} —{' '}
+            {showTotal
+              ? 'total consolidado da empresa.'
+              : 'por centro de custo (orçado · comprometido · consumido).'}
+          </p>
+        </div>
+        {isAdmin && (
+          <div className="inline-flex rounded-lg border border-border bg-card p-0.5 text-xs font-medium">
+            <button
+              type="button"
+              onClick={() => setCompanyView('cc')}
+              className={`rounded-md px-3 py-1.5 transition ${
+                !showTotal
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Por centro de custo
+            </button>
+            <button
+              type="button"
+              onClick={() => setCompanyView('total')}
+              className={`rounded-md px-3 py-1.5 transition ${
+                showTotal
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Total
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* KPIs — visada rápida do panorama. */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <KpiCard
-          icon={ShoppingCart}
-          label="Pedidos em aberto"
-          value={
-            summary
-              ? String(summary.openOrders.count).padStart(2, '0')
-              : '—'
-          }
-          hint={
-            summary
-              ? formatCurrency(summary.openOrders.totalAmount)
-              : 'Aguardando dados…'
-          }
-          onClick={() => setTab('open')}
-          active={tab === 'open'}
-          loading={summaryQ.isLoading}
-        />
-        <KpiCard
-          icon={CalendarClock}
-          label="Em atraso"
-          value={
-            summary
-              ? String(summary.overdueOrders.count).padStart(2, '0')
-              : '—'
-          }
-          hint={
-            summary
-              ? `${formatCurrency(summary.overdueOrders.totalAmount)} · ${fmtPct(summary.overdueOrders.pctOfOpenVolume)} do volume aberto`
-              : 'Aguardando dados…'
-          }
-          variant={
-            summary && summary.overdueOrders.count > 0 ? 'destructive' : 'default'
-          }
-          onClick={() => setTab('overdue')}
-          active={tab === 'overdue'}
-          loading={summaryQ.isLoading}
-        />
-        <KpiCard
-          icon={PieIcon}
-          label="Orçamento (mês)"
-          value={
-            summary
-              ? fmtPct(summary.budgetConsumption.pctConsumed)
-              : '—'
-          }
-          hint={
-            summary
-              ? `Consumido ${formatCurrency(summary.budgetConsumption.consumed)} de ${formatCurrency(summary.budgetConsumption.budgeted)}`
-              : 'Aguardando dados…'
-          }
-          variant={
-            summary && summary.budgetConsumption.pctConsumed > 90
-              ? 'warning'
-              : 'default'
-          }
-          onClick={() => setTab('budget')}
-          active={tab === 'budget'}
-          loading={summaryQ.isLoading}
-        />
-      </div>
+      {showTotal ? (
+        /* Visão TOTAL (admin) — KPIs consolidados da empresa. */
+        <div className="grid gap-4 md:grid-cols-3">
+          <KpiCard
+            icon={ShoppingCart}
+            label="Pedidos em aberto"
+            value={
+              summary ? String(summary.openOrders.count).padStart(2, '0') : '—'
+            }
+            hint={
+              summary
+                ? formatCurrency(summary.openOrders.totalAmount)
+                : 'Aguardando dados…'
+            }
+            onClick={() => setTab('open')}
+            active={tab === 'open'}
+            loading={summaryQ.isLoading}
+          />
+          <KpiCard
+            icon={CalendarClock}
+            label="Em atraso"
+            value={
+              summary
+                ? String(summary.overdueOrders.count).padStart(2, '0')
+                : '—'
+            }
+            hint={
+              summary
+                ? `${formatCurrency(summary.overdueOrders.totalAmount)} · ${fmtPct(summary.overdueOrders.pctOfOpenVolume)} do volume aberto`
+                : 'Aguardando dados…'
+            }
+            variant={
+              summary && summary.overdueOrders.count > 0
+                ? 'destructive'
+                : 'default'
+            }
+            onClick={() => setTab('overdue')}
+            active={tab === 'overdue'}
+            loading={summaryQ.isLoading}
+          />
+          <KpiCard
+            icon={PieIcon}
+            label="Orçamento (mês)"
+            value={
+              summary ? fmtPct(summary.budgetConsumption.pctConsumed) : '—'
+            }
+            hint={
+              summary
+                ? `Consumido ${formatCurrency(summary.budgetConsumption.consumed)} de ${formatCurrency(summary.budgetConsumption.budgeted)}`
+                : 'Aguardando dados…'
+            }
+            variant={
+              summary && summary.budgetConsumption.pctConsumed > 90
+                ? 'warning'
+                : 'default'
+            }
+            onClick={() => setCompanyView('cc')}
+            loading={summaryQ.isLoading}
+          />
+        </div>
+      ) : (
+        /* Visão POR CENTRO DE CUSTO (padrão) — orçado/comprometido/consumido
+           por CC, do mês corrente. "Em atraso" só aparece na visão Total
+           (admin), pois não é rastreado por CC. */
+        <Card>
+          <CardContent className="pt-6">
+            <BudgetTable
+              rows={budgetQ.data?.byCostCenter ?? []}
+              loading={budgetQ.isLoading}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Análises — cabeçalho enxuto + gráficos atrás de um menu discreto. */}
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -307,7 +351,6 @@ export function DashboardPage() {
         <TabsList>
           <TabsTrigger value="open">Em aberto</TabsTrigger>
           <TabsTrigger value="overdue">Em atraso</TabsTrigger>
-          <TabsTrigger value="budget">Orçamento</TabsTrigger>
         </TabsList>
 
         <TabsContent value="open">
@@ -346,20 +389,13 @@ export function DashboardPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="budget">
-          <Card>
-            <CardHeader>
-              <CardTitle>Orçamento por centro de custo</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <BudgetTable
-                rows={budgetQ.data?.byCostCenter ?? []}
-                loading={budgetQ.isLoading}
-              />
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
+
+      {/* Minhas pendências — por último (gestor age sobre o que é dele
+          depois de ver o panorama da empresa). */}
+      <div className="border-t pt-6">
+        <PendingTasksPanel companyId={companyId} />
+      </div>
     </div>
   );
 }

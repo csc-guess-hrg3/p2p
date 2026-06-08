@@ -18,7 +18,11 @@ const BCRYPT_ROUNDS = 10;
 
 // Allowlist de domínios de e-mail corporativo para usuários LOCAL.
 // Bloqueia o Admin de cadastrar com gmail/hotmail por engano.
-const ALLOWED_EMAIL_DOMAINS = ['hrg3.com.br', 'guess.com.br'];
+const ALLOWED_EMAIL_DOMAINS = [
+  'hrg3.com.br',
+  'guessbrasil.com.br',
+  'guess-br.com.br',
+];
 
 /**
  * Política de complexidade da senha local:
