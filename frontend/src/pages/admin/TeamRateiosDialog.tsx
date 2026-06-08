@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { isAxiosError } from 'axios';
+import { Star } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { useBranchRateios, useCcRateios } from '@/lib/integration';
 import {
@@ -71,6 +72,9 @@ export function TeamRateiosDialog({ teamId, open, onOpenChange }: Props) {
   // Conjuntos atuais — convertidos pro estado local pra marcar/desmarcar.
   const [branchSelected, setBranchSelected] = useState<Set<string>>(new Set());
   const [ccSelected, setCcSelected] = useState<Set<string>>(new Set());
+  // CCs marcados como principal (foco padrão das telas). Subconjunto dos
+  // selecionados — só vale na aba Centro de custo.
+  const [ccPrimary, setCcPrimary] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
 
   // Sincroniza quando o team chega ou a empresa muda.
@@ -87,6 +91,13 @@ export function TeamRateiosDialog({ teamId, open, onOpenChange }: Props) {
       new Set(
         (team.costCenterRateios ?? [])
           .filter((r) => r.companyId === companyId)
+          .map((r) => r.costCenterRateioCode),
+      ),
+    );
+    setCcPrimary(
+      new Set(
+        (team.costCenterRateios ?? [])
+          .filter((r) => r.companyId === companyId && r.isPrimary)
           .map((r) => r.costCenterRateioCode),
       ),
     );
@@ -119,9 +130,26 @@ export function TeamRateiosDialog({ teamId, open, onOpenChange }: Props) {
       else next.delete(code);
       return next;
     });
+    // Desmarcou um CC → não pode seguir como principal.
+    if (!isBranch && !checked) {
+      setCcPrimary((prev) => {
+        const next = new Set(prev);
+        next.delete(code);
+        return next;
+      });
+    }
+  }
+  function togglePrimary(code: string) {
+    setCcPrimary((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
   }
   function selectAll(checked: boolean) {
     setSelected(checked ? new Set(filtered.map((r) => r.codigo)) : new Set());
+    if (!isBranch && !checked) setCcPrimary(new Set());
   }
 
   async function save() {
@@ -150,8 +178,13 @@ export function TeamRateiosDialog({ teamId, open, onOpenChange }: Props) {
           ...otherCc.map((r) => ({
             companyId: r.companyId,
             code: r.costCenterRateioCode,
+            isPrimary: r.isPrimary ?? false,
           })),
-          ...Array.from(ccSelected).map((code) => ({ companyId, code })),
+          ...Array.from(ccSelected).map((code) => ({
+            companyId,
+            code,
+            isPrimary: ccPrimary.has(code),
+          })),
         ];
         await setCcMut.mutateAsync({ id: teamId, rateios: merged });
       }
@@ -258,6 +291,30 @@ export function TeamRateiosDialog({ teamId, open, onOpenChange }: Props) {
                         {r.codigo}
                       </span>
                       <span className="flex-1 truncate">{r.descricao}</span>
+                      {!isBranch && selected.has(r.codigo) && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            togglePrimary(r.codigo);
+                          }}
+                          title={
+                            ccPrimary.has(r.codigo)
+                              ? 'CC principal — clique para remover'
+                              : 'Marcar como CC principal'
+                          }
+                          className="shrink-0 rounded p-0.5 hover:bg-muted"
+                        >
+                          <Star
+                            className={
+                              ccPrimary.has(r.codigo)
+                                ? 'size-4 fill-amber-400 text-amber-400'
+                                : 'size-4 text-muted-foreground/50'
+                            }
+                          />
+                        </button>
+                      )}
                       {r.inativo && (
                         <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
                           inativo
@@ -271,6 +328,14 @@ export function TeamRateiosDialog({ teamId, open, onOpenChange }: Props) {
           </div>
           <p className="text-xs text-muted-foreground">
             {selected.size} de {allItems.length} marcados.
+            {!isBranch && (
+              <>
+                {' '}
+                Use a <Star className="inline size-3 -translate-y-px" /> para
+                marcar o(s) CC <strong>principal(is)</strong> — o foco padrão
+                das telas da equipe.
+              </>
+            )}
           </p>
         </div>
 

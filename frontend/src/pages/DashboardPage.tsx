@@ -160,6 +160,16 @@ export function DashboardPage() {
   const [companyView, setCompanyView] = useState<'cc' | 'total'>('cc');
   const showTotal = isAdmin && companyView === 'total';
 
+  // Abas da home de gestão: "Minha área" (padrão — o que é do usuário) e
+  // "Empresa" (panorama). Um gestor/admin que também opera (ex.: diretor-
+  // dono) tem o espaço dele E o da empresa, sem misturar. Memorizado.
+  const [homeTab, setHomeTab] = useState<'minha' | 'empresa'>(() =>
+    localStorage.getItem('p2p:home:tab') === 'empresa' ? 'empresa' : 'minha',
+  );
+  useEffect(() => {
+    localStorage.setItem('p2p:home:tab', homeTab);
+  }, [homeTab]);
+
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify([...visible]));
   }, [visible]);
@@ -188,8 +198,43 @@ export function DashboardPage() {
   // Gestão (Admin/Manager): pendências pessoais + panorama da empresa.
   return (
     <div className="space-y-6 pb-10">
-      {/* Visão da empresa — primeiro bloco. Por centro de custo por padrão;
-          o admin tem a opção de ver o total consolidado. */}
+      {/* Abas: Minha área (o que é do usuário) × Empresa (panorama). */}
+      <div className="inline-flex rounded-lg border border-border bg-card p-0.5 text-sm font-medium">
+        <button
+          type="button"
+          onClick={() => setHomeTab('minha')}
+          className={`rounded-md px-4 py-1.5 transition ${
+            homeTab === 'minha'
+              ? 'bg-primary text-primary-foreground'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          Minha área
+        </button>
+        <button
+          type="button"
+          onClick={() => setHomeTab('empresa')}
+          className={`rounded-md px-4 py-1.5 transition ${
+            homeTab === 'empresa'
+              ? 'bg-primary text-primary-foreground'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          Empresa
+        </button>
+      </div>
+
+      {homeTab === 'minha' ? (
+        /* MINHA ÁREA — o que é do usuário (até diretor-dono tem o espaço dele). */
+        <>
+          <PendingTasksPanel companyId={companyId} />
+          <MyRecentRequisitions companyId={companyId} />
+        </>
+      ) : (
+        /* EMPRESA — panorama gerencial. */
+        <>
+      {/* Visão da empresa — por centro de custo por padrão; o admin tem a
+          opção de ver o total consolidado. */}
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <h2 className="text-base font-semibold text-foreground">
@@ -304,14 +349,6 @@ export function DashboardPage() {
         </Card>
       )}
 
-      {/* O que é MEU — logo abaixo da visão da empresa e acima dos gráficos.
-          Um gestor/admin que também opera (ex.: diretor-dono) precisa do
-          panorama E do espaço dele: suas aprovações, suas requisições. */}
-      <div className="border-t pt-6">
-        <PendingTasksPanel companyId={companyId} />
-      </div>
-      <MyRecentRequisitions companyId={companyId} />
-
       {/* Análises — cabeçalho enxuto + gráficos atrás de um menu discreto. */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
@@ -398,6 +435,8 @@ export function DashboardPage() {
         </TabsContent>
 
       </Tabs>
+        </>
+      )}
     </div>
   );
 }

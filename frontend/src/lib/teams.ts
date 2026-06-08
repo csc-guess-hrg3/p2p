@@ -33,7 +33,11 @@ export interface AdminTeam {
   /** Rateios de filial liberados por (companyId, code) — só no findOne. */
   branchRateios?: Array<{ companyId: string; branchRateioCode: string }>;
   /** Rateios de centro de custo liberados por (companyId, code). */
-  costCenterRateios?: Array<{ companyId: string; costCenterRateioCode: string }>;
+  costCenterRateios?: Array<{
+    companyId: string;
+    costCenterRateioCode: string;
+    isPrimary?: boolean;
+  }>;
   createdAt: string;
   updatedAt: string;
   approvalLevels?: ApprovalLevel[];
@@ -134,6 +138,8 @@ export function useSetApprovalLevels() {
 export interface TeamRateioEntry {
   companyId: string;
   code: string;
+  /** Só centro de custo: marca o CC como principal (foco padrão das telas). */
+  isPrimary?: boolean;
 }
 
 export function useSetTeamBranchRateios() {
