@@ -75,6 +75,29 @@ export class LegacyOrdersController {
     return this.legacyOrders.listFacets(user, companyId);
   }
 
+  // IMPORTANTE: rota literal ANTES das paramétricas `:companyId/:pedido`,
+  // senão `/legacy-orders/danfe/<chave>` casa com `:companyId/:pedido`
+  // (companyId='danfe') e quebra no resolveCompany (P2023).
+  @Get('danfe/:chave')
+  @ApiOperation({
+    summary: 'Baixa DANFe (PDF) por chave NFe — read-through Qive',
+  })
+  async downloadDanfeByChave(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('chave') chave: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const { pdf, filename } = await this.legacyOrders.getDanfeByChave(
+      user,
+      chave,
+    );
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    });
+    return new StreamableFile(pdf);
+  }
+
   @Get(':companyId/:pedido')
   @ApiOperation({ summary: 'Detalhe do pedido + itens + NFs vinculadas' })
   detail(
@@ -109,23 +132,4 @@ export class LegacyOrdersController {
     return this.legacyOrders.listNfes(user, companyId, pedido);
   }
 
-  @Get('danfe/:chave')
-  @ApiOperation({
-    summary: 'Baixa DANFe (PDF) por chave NFe — read-through Qive',
-  })
-  async downloadDanfeByChave(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('chave') chave: string,
-    @Res({ passthrough: true }) res: Response,
-  ): Promise<StreamableFile> {
-    const { pdf, filename } = await this.legacyOrders.getDanfeByChave(
-      user,
-      chave,
-    );
-    res.set({
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="${filename}"`,
-    });
-    return new StreamableFile(pdf);
-  }
 }
