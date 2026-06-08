@@ -379,7 +379,7 @@ export class LinxErpService {
               FILIAL_A_FATURAR, CONDICAO_PGTO, TRANSPORTADORA, MOEDA,
               COD_TRANSACAO, EMISSAO, CADASTRAMENTO, APROVADO_POR,
               PEDIDO_FORNECEDOR, TOT_QTDE_ORIGINAL, TOT_QTDE_ENTREGAR,
-              TOT_VALOR_ORIGINAL,
+              TOT_VALOR_ORIGINAL, TOT_VALOR_ENTREGAR,
               TABELA_FILHA, OBS, REQUERIDO_POR, TIPO_COMPRA,
               STATUS_APROVACAO, DATA_APROVACAO, STATUS_COMPRA,
               NATUREZA_ENTRADA, APROVADOR_POR, LX_STATUS_COMPRA,
@@ -388,7 +388,7 @@ export class LinxErpService {
            VALUES
              (@P1, @P2, @P3, @P3, @P3, @P4, @P15, @P17,
               @P5, GETDATE(), GETDATE(), @P6,
-              N' ', @P7, @P7, @P8,
+              N' ', @P7, @P7, @P8, @P8,
               @P9, @P10, @P11, @P12,
               N'A', GETDATE(), N'A ',
               @P13, @P6, 1,
