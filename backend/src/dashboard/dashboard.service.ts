@@ -412,6 +412,9 @@ export class DashboardService {
 
     return {
       approvalsPending,
+      // Só é o aprovador PA quem está configurado em companyErpConfig.
+      // O front usa isso pra mostrar "Pedidos PA para aprovar" apenas a ele.
+      isPaApprover: !!cfg,
       paPending,
       fiscalPending,
       myDraftRequisitions,

@@ -42,7 +42,10 @@ export function PendingTasksPanel({ companyId }: { companyId?: string }) {
   const isApprover = profile === 'ADMIN' || profile === 'MANAGER';
   const isFiscal = profile === 'ADMIN' || profile === 'REVIEWER';
   const extras = user?.extraModules ?? [];
-  const canSeePa = isApprover || extras.includes('PA');
+  // "Pedidos PA para aprovar" é uma pendência do aprovador PA específico
+  // (configurado em companyErpConfig), não de todo gestor. O backend sinaliza
+  // isso em isPaApprover. Quem só tem o módulo PA acessa os pedidos pelo menu.
+  const isPaApprover = data?.isPaApprover ?? false;
   const canSeeFiscal = isFiscal || extras.includes('FISCAL_QUEUE');
 
   const items: TaskItem[] = (
@@ -63,9 +66,9 @@ export function PendingTasksPanel({ companyId }: { companyId?: string }) {
         to: '/requisicoes?status=APPROVED',
         kind: 'act' as const,
       },
-      canSeePa && {
-        label: isApprover ? 'Pedidos PA para aprovar' : 'Pedidos PA em andamento',
-        hint: 'Produto acabado aguardando tratamento.',
+      isPaApprover && {
+        label: 'Pedidos PA para aprovar',
+        hint: 'Produto acabado aguardando sua aprovação.',
         count: data?.paPending ?? 0,
         icon: Shirt,
         to: '/pedidos-pa?status=E',

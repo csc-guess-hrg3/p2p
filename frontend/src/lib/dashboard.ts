@@ -155,6 +155,8 @@ export interface OrdersByStatus {
 
 export interface MyActions {
   approvalsPending: number;
+  /** True só pro aprovador PA configurado (companyErpConfig.paApproverUserId). */
+  isPaApprover?: boolean;
   paPending: number;
   fiscalPending: number;
   myDraftRequisitions: number;
