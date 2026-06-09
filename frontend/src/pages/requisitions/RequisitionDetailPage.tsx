@@ -115,6 +115,12 @@ export function RequisitionDetailPage() {
   // de devolução pelo aprovador. Validação de cotações roda no resubmit
   // e no save da edição.
   const canEdit = isDraft || isRevision;
+  // Estados TERMINAIS — pedido finalizado: NADA editável (campos, seleção de
+  // cotação, anexos). Tudo vira leitura. APPROVED já é o fim da alçada;
+  // REJECTED/CANCELLED/CONVERTED encerram o ciclo.
+  const isFinalized = ['APPROVED', 'REJECTED', 'CANCELLED', 'CONVERTED'].includes(
+    req.status,
+  );
 
   // Política de cotações — espelha a mesma checagem que o backend faz
   // no submit/resubmit. Se a req atinge o threshold e não tem nem o
@@ -503,9 +509,8 @@ export function RequisitionDetailPage() {
             // solicitante. Aprovador da etapa pendente OU Admin (override).
             // Antes operador via o botão e levava 403 ao clicar.
             canSelect={
+              !isFinalized &&
               !isDraft &&
-              req.status !== 'CONVERTED' &&
-              req.status !== 'CANCELLED' &&
               (!!myPendingStep || user?.profile === 'ADMIN')
             }
             canEdit={canEdit}
@@ -685,14 +690,11 @@ export function RequisitionDetailPage() {
           <AttachmentsSection
             kind="requisition"
             parentId={req.id}
-            // Só o solicitante adiciona/exclui anexos. Aprovador,
-            // revisor e admin vêem mas não mexem — quem precisar
-            // anexar pede pro solicitante editar a requisição.
-            // Também trava em status terminal (já tinha).
-            readOnly={
-              ['CONVERTED', 'CANCELLED'].includes(req.status) ||
-              user?.id !== req.requester?.id
-            }
+            // Só o solicitante adiciona/exclui anexos. Aprovador, revisor e
+            // admin vêem mas não mexem. E em QUALQUER estado finalizado
+            // (aprovado/rejeitado/cancelado/convertido) ninguém mexe — tudo
+            // leitura.
+            readOnly={isFinalized || user?.id !== req.requester?.id}
             hint="Contratos, faturas e documentos de apoio (PDF/DOCX/XLSX/imagens — até 10 MB cada, máx. 10). O PDF da cotação é anexado no próprio cadastro da cotação."
             allowedDocKinds={['CONTRACT', 'INVOICE', 'OTHER']}
             // Os anexos QUE JÁ VIRARAM cotação aparecem dentro do card da
@@ -724,6 +726,10 @@ export function RequisitionDetailPage() {
                   // Pendente: mostra o aprovador esperado (cargo). Decidido:
                   // mostra quem de fato decidiu (pode ser delegado).
                   const isPending = s.status === 'PENDING';
+                  // Processo já encerrado e este passo ficou pendente = NÃO
+                  // foi avaliado (o fluxo morreu antes de chegar nele — ex.:
+                  // gestor reprovou, então o diretor nunca decidiu).
+                  const notReached = isFinalized && isPending;
                   const who = isPending
                     ? s.assignedApproverName
                     : s.decidedByName;
@@ -739,7 +745,7 @@ export function RequisitionDetailPage() {
                             }
                           >
                             {who}
-                            {isPending && ' (aguardando)'}
+                            {isPending && !notReached && ' (aguardando)'}
                           </span>
                         ) : (
                           <span className="text-muted-foreground italic">
@@ -748,7 +754,13 @@ export function RequisitionDetailPage() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <StatusBadge status={s.status} />
+                        {notReached ? (
+                          <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                            Não avaliado
+                          </span>
+                        ) : (
+                          <StatusBadge status={s.status} />
+                        )}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {formatDate(s.decidedAt)}

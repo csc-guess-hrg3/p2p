@@ -295,9 +295,9 @@ export function QuotationDialog({
             {existing ? 'Editar cotação' : 'Cadastrar cotação'}
           </DialogTitle>
           <DialogDescription>
-            Identifique o fornecedor pelo CNPJ e informe os itens cotados.
-            Se você selecionar esta cotação como vencedora na aprovação,
-            estes dados substituem os originais da requisição.
+            Identifique o fornecedor pelo CNPJ e informe os itens conforme a
+            proposta. Caso esta cotação seja escolhida como vencedora durante
+            a aprovação, estes dados passam a valer no lugar dos originais.
           </DialogDescription>
         </DialogHeader>
 
