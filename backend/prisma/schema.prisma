@@ -271,6 +271,13 @@ model FiscalDocumentSyncState {
   lastCursor  Int       @default(0)
   /** Paginator da v2 — string opaca devolvida pela API a cada página. */
   lastPaginator String? @db.NVarChar(1000)
+  /**
+   * Marca d'água de CreatedAt (criação na Qive). Ao DRENAR a janela atual,
+   * gravamos aqui o instante em que o walk começou; as próximas execuções
+   * pedem só CreatedAt.From = watermark - folga. NULL = ainda não fez o
+   * backfill completo → roda em modo janela ampla.
+   */
+  createdAtWatermark DateTime?
   lastSyncAt  DateTime?
   lastError   String?   @db.NVarChar(Max)
   createdAt   DateTime  @default(now())

@@ -1,16 +1,25 @@
 import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Download, RefreshCw, Search } from 'lucide-react';
+import { CalendarClock, Download, RefreshCw, Search } from 'lucide-react';
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 import {
   useFiscalDocuments,
   useFiscalSyncStatus,
   useTriggerFiscalSync,
+  useTriggerFiscalPeriodSync,
   downloadFiscalXml,
   downloadFiscalDanfe,
   statusLabel,
   type FiscalDocStatus,
 } from '@/lib/fiscal-documents';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useAuth } from '@/lib/auth';
 import { useCompany } from '@/lib/company';
 import { formatCurrency, formatDate } from '@/lib/format';
@@ -55,10 +64,17 @@ export function FiscalDocumentsListPage() {
   const [status, setStatus] = useState<typeof ALL | FiscalDocStatus>('PENDING');
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
+  // Filtro por data de EMISSÃO da NF (sobre o nosso banco — não é o sync).
+  const [emFrom, setEmFrom] = useState('');
+  const [emTo, setEmTo] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [sortBy, setSortBy] = useState<string>('emissao');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  // Diálogo de sync por período (data de CRIAÇÃO na Qive).
+  const [periodOpen, setPeriodOpen] = useState(false);
+  const [pFrom, setPFrom] = useState('');
+  const [pTo, setPTo] = useState('');
 
   function toggleSort(col: string) {
     if (sortBy === col) {
@@ -76,6 +92,9 @@ export function FiscalDocumentsListPage() {
     companyId: activeCompany?.id,
     status: status === ALL ? undefined : status,
     search: search || undefined,
+    // Emissão: torna o fim inclusivo (até 23:59:59 do dia escolhido).
+    from: emFrom || undefined,
+    to: emTo ? `${emTo}T23:59:59` : undefined,
     sortBy,
     sortDir,
     page,
@@ -83,6 +102,29 @@ export function FiscalDocumentsListPage() {
   });
 
   const triggerSync = useTriggerFiscalSync();
+  const triggerPeriodSync = useTriggerFiscalPeriodSync();
+
+  async function handlePeriodSync() {
+    if (!activeCompany?.id || !pFrom || !pTo) return;
+    try {
+      await triggerPeriodSync.mutateAsync({
+        companyId: activeCompany.id,
+        from: pFrom,
+        to: pTo,
+      });
+      setPeriodOpen(false);
+      toast({
+        title: 'Sincronização do período iniciada',
+        description: 'Acompanhe o progresso no banner abaixo.',
+      });
+    } catch (err) {
+      toast({
+        title: 'Falha no sync por período',
+        description: extractApiMessage(err),
+        variant: 'destructive',
+      });
+    }
+  }
 
   async function handleSync() {
     if (!activeCompany?.id) return;
@@ -140,22 +182,34 @@ export function FiscalDocumentsListPage() {
         </div>
         <div className="flex gap-2">
           {user?.profile === 'ADMIN' && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSync}
-              disabled={triggerSync.isPending || syncStatus?.running}
-              title="Sincroniza com a Qive — traz NFs de todas as empresas da conta"
-            >
-              <RefreshCw
-                className={`mr-2 h-4 w-4 ${
-                  syncStatus?.running ? 'animate-spin' : ''
-                }`}
-              />
-              {syncStatus?.running
-                ? 'Sincronizando…'
-                : `Sincronizar Qive (${activeCompany?.code ?? ''})`}
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPeriodOpen(true)}
+                disabled={syncStatus?.running}
+                title="Sincroniza apenas um período (por data de criação na Qive)"
+              >
+                <CalendarClock className="mr-2 h-4 w-4" />
+                Sincronizar período
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSync}
+                disabled={triggerSync.isPending || syncStatus?.running}
+                title="Sincroniza com a Qive — incremental (só o que entrou desde a última vez)"
+              >
+                <RefreshCw
+                  className={`mr-2 h-4 w-4 ${
+                    syncStatus?.running ? 'animate-spin' : ''
+                  }`}
+                />
+                {syncStatus?.running
+                  ? 'Sincronizando…'
+                  : `Sincronizar Qive (${activeCompany?.code ?? ''})`}
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -260,6 +314,41 @@ export function FiscalDocumentsListPage() {
             </Button>
           </div>
         </div>
+        <div className="w-40">
+          <Label className="text-xs">Emissão — de</Label>
+          <Input
+            type="date"
+            value={emFrom}
+            onChange={(e) => {
+              setEmFrom(e.target.value);
+              setPage(1);
+            }}
+          />
+        </div>
+        <div className="w-40">
+          <Label className="text-xs">Emissão — até</Label>
+          <Input
+            type="date"
+            value={emTo}
+            onChange={(e) => {
+              setEmTo(e.target.value);
+              setPage(1);
+            }}
+          />
+        </div>
+        {(emFrom || emTo) && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setEmFrom('');
+              setEmTo('');
+              setPage(1);
+            }}
+          >
+            Limpar datas
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="sm"
@@ -406,6 +495,60 @@ export function FiscalDocumentsListPage() {
           }}
         />
       )}
+
+      <Dialog open={periodOpen} onOpenChange={setPeriodOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Sincronizar período — {activeCompany?.code}</DialogTitle>
+            <DialogDescription>
+              Traz da Qive apenas as NFs de um intervalo. Útil para um
+              backfill pontual sem reprocessar a conta inteira.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+              <strong>Atenção:</strong> o intervalo é pela data de{' '}
+              <strong>criação na Qive</strong> (quando a nota entrou na
+              conta), <strong>não</strong> pela data de emissão da NF.
+            </div>
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <Label className="text-xs">De</Label>
+                <Input
+                  type="date"
+                  value={pFrom}
+                  onChange={(e) => setPFrom(e.target.value)}
+                />
+              </div>
+              <div className="flex-1">
+                <Label className="text-xs">Até</Label>
+                <Input
+                  type="date"
+                  value={pTo}
+                  onChange={(e) => setPTo(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setPeriodOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handlePeriodSync}
+              disabled={
+                !pFrom ||
+                !pTo ||
+                pFrom > pTo ||
+                triggerPeriodSync.isPending ||
+                syncStatus?.running
+              }
+            >
+              {triggerPeriodSync.isPending ? 'Iniciando…' : 'Sincronizar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

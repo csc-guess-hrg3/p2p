@@ -81,6 +81,18 @@ export class FiscalDocumentsService {
   private readonly SLEEP_BETWEEN_PAGES_MS = 300;
 
   /**
+   * Folga aplicada à marca d'água no sync incremental — re-pede alguns
+   * dias pra trás pra pegar NF que a Qive registra com atraso (ou em fuso
+   * diferente). Re-baixa um punhado que volta 'existed' — barato.
+   */
+  private readonly WATERMARK_OVERLAP_MS = 3 * 24 * 60 * 60 * 1000;
+  /** Janela ampla do backfill (quando ainda não há marca d'água). */
+  private readonly BACKFILL_FROM = '2010-01-01';
+  private readonly OPEN_TO = '2099-12-31';
+  /** Teto alto de páginas do sync manual por período (proteção anti-loop). */
+  private readonly MAX_PAGES_PER_PERIOD = 200;
+
+  /**
    * Estado do sync em background, mapeado por companyId.
    * Cada empresa tem seu próprio paginator na Qive (filtra por cnpj[]
    * da empresa) — assim sincronizar Guess não afeta HRG3 e vice-versa.
@@ -401,24 +413,7 @@ export class FiscalDocumentsService {
     let totalIgnored = 0;
 
     // Carrega CNPJs (14 chars) da empresa pra filtrar a chamada Qive.
-    // Fallback se FILIAIS não acessível: usa raiz da Company.cnpjRaizes.
-    let cnpjFilter: string[] = [];
-    const anchorDb = safeDbName(anchorCompany.erpDbName);
-    try {
-      const rows = await this.prisma.$queryRawUnsafe<Array<{ cnpj: string }>>(`
-        SELECT REPLACE(REPLACE(REPLACE(ISNULL(CGC_CPF,''),'.',''),'/',''),'-','') AS cnpj
-          FROM [${anchorDb}].dbo.FILIAIS WITH (NOLOCK)
-         WHERE LEN(REPLACE(REPLACE(REPLACE(ISNULL(CGC_CPF,''),'.',''),'/',''),'-','')) = 14
-      `);
-      cnpjFilter = rows.map((r) => r.cnpj);
-    } catch (err) {
-      this.logger.warn(
-        `syncOneCompany(${anchorCompany.code}): FILIAIS indisponível (${(err as Error).message.slice(0, 80)}), sem filtro de CNPJ`,
-      );
-    }
-    this.logger.log(
-      `syncOneCompany(${anchorCompany.code}): ${cnpjFilter.length} CNPJs no filtro`,
-    );
+    const cnpjFilter = await this.loadCnpjFilter(anchorCompany);
 
     const state = await this.prisma.fiscalDocumentSyncState.upsert({
       where: {
@@ -428,21 +423,41 @@ export class FiscalDocumentsService {
       update: {},
     });
 
+    // Janela de CreatedAt (criação na Qive): incremental por marca d'água.
+    // Sem watermark (1ª vez) → backfill em janela ampla. Com watermark →
+    // só o que entrou desde a última drenagem, com folga de alguns dias.
+    const watermark = state.createdAtWatermark;
+    const isBackfill = watermark == null;
+    const windowFrom = watermark
+      ? this.toDateOnly(
+          new Date(watermark.getTime() - this.WATERMARK_OVERLAP_MS),
+        )
+      : this.BACKFILL_FROM;
+    // Instante do início do walk — vira a nova marca d'água SE drenarmos a
+    // janela. Usar o início (não o fim) garante que não perdemos NF criada
+    // durante o próprio walk.
+    const windowStartedAt = new Date();
+
     let paginator: string | null = state.lastPaginator ?? null;
     let pages = 0;
     let lastError: string | null = null;
     let totalSeen = 0;
+    let drained = false;
+
+    this.logger.log(
+      `syncOneCompany(${anchorCompany.code}): janela CreatedAt ${windowFrom}..hoje (${isBackfill ? 'backfill' : 'incremental'}), paginator ${paginator ? 'retoma' : 'novo'}`,
+    );
 
     try {
       while (pages < this.MAX_PAGES_PER_RUN) {
         const res = await this.qive.listNfesV2({
           paginator,
           limit: this.PAGE_SIZE,
-          // Filtra por CNPJs da empresa — assim cada company só puxa
-          // as NFes que são dela. A v2 também exige Filters.CreatedAt
-          // pra não responder 500, então enviamos janela ampla.
-          createdAtFrom: '2010-01-01',
-          createdAtTo: '2099-12-31',
+          // Filtra por CNPJs da empresa — assim cada company só puxa as
+          // NFes que são dela. A v2 também exige Filters.CreatedAt pra
+          // não responder 500.
+          createdAtFrom: windowFrom,
+          createdAtTo: this.OPEN_TO,
           accessKeys: undefined,
           // cnpjs é o filtro de "owner" — quem é dono da NF na conta Qive.
           // Quando vazio (ex.: HRG3 em HML sem FILIAIS), não filtra.
@@ -490,9 +505,10 @@ export class FiscalDocumentsService {
           data: { lastPaginator: res.paginator ?? null },
         });
 
-        // Próximo paginator — null/empty = fim do walk.
+        // Próximo paginator — null/empty = fim do walk (janela drenada).
         if (!res.paginator) {
           paginator = null;
+          drained = true;
           break;
         }
         paginator = res.paginator;
@@ -515,6 +531,10 @@ export class FiscalDocumentsService {
         lastPaginator: paginator,
         lastSyncAt: new Date(),
         lastError: lastError?.slice(0, 1900) ?? null,
+        // Só avança a marca d'água quando a janela foi totalmente drenada.
+        // Se parou no teto de páginas (paginator != null), mantém o
+        // watermark atual e retoma pelo paginator na próxima execução.
+        ...(drained ? { createdAtWatermark: windowStartedAt } : {}),
       },
     });
 
@@ -541,6 +561,245 @@ export class FiscalDocumentsService {
       existed: totalExisted,
       ignored: totalIgnored,
     };
+  }
+
+  /** Formata uma Date como 'YYYY-MM-DD' (a Qive aceita date ou datetime). */
+  private toDateOnly(d: Date): string {
+    return d.toISOString().slice(0, 10);
+  }
+
+  /**
+   * CNPJs (14 dígitos) das FILIAIS da empresa, pra filtrar a chamada Qive
+   * por `cnpjs` (owner) — assim cada company só puxa as NFes que são dela.
+   * Devolve [] se FILIAIS não estiver acessível (a chamada não filtra).
+   */
+  private async loadCnpjFilter(anchorCompany: {
+    code: string;
+    erpDbName: string;
+  }): Promise<string[]> {
+    let anchorDb: string;
+    try {
+      anchorDb = safeDbName(anchorCompany.erpDbName);
+    } catch {
+      this.logger.warn(
+        `loadCnpjFilter(${anchorCompany.code}): erpDbName fora da allow-list, sem filtro`,
+      );
+      return [];
+    }
+    try {
+      const rows = await this.prisma.$queryRawUnsafe<Array<{ cnpj: string }>>(`
+        SELECT REPLACE(REPLACE(REPLACE(ISNULL(CGC_CPF,''),'.',''),'/',''),'-','') AS cnpj
+          FROM [${anchorDb}].dbo.FILIAIS WITH (NOLOCK)
+         WHERE LEN(REPLACE(REPLACE(REPLACE(ISNULL(CGC_CPF,''),'.',''),'/',''),'-','')) = 14
+      `);
+      const cnpjFilter = rows.map((r) => r.cnpj);
+      this.logger.log(
+        `loadCnpjFilter(${anchorCompany.code}): ${cnpjFilter.length} CNPJs no filtro`,
+      );
+      return cnpjFilter;
+    } catch (err) {
+      this.logger.warn(
+        `loadCnpjFilter(${anchorCompany.code}): FILIAIS indisponível (${(err as Error).message.slice(0, 80)}), sem filtro de CNPJ`,
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Sync MANUAL por período. O filtro é de CreatedAt = data de CRIAÇÃO na
+   * Qive, NÃO de emissão da NF (a API da Qive não filtra por emissão).
+   *
+   * Diferente do cron, NÃO mexe na marca d'água nem no paginator persistido
+   * — é um walk ad-hoc da janela [from, to] (formato 'YYYY-MM-DD'), pra
+   * backfill pontual ou reprocessamento. Drena a janela inteira até o teto
+   * de segurança. Atualiza o progresso em memória pro banner da UI.
+   */
+  async syncByPeriod(
+    companyId: string,
+    from: string,
+    to: string,
+  ): Promise<{
+    inserted: number;
+    existed: number;
+    ignored: number;
+    totalSeen: number;
+  }> {
+    const started = Date.now();
+    const allCompanies = await this.prisma.company.findMany({
+      where: { active: true, deletedAt: null },
+      select: {
+        id: true,
+        code: true,
+        cnpj: true,
+        cnpjRaizes: true,
+        name: true,
+        erpDbName: true,
+      },
+    });
+    const anchorCompany = allCompanies.find((c) => c.id === companyId);
+    if (!anchorCompany) {
+      throw new BadRequestException('Empresa não encontrada ou inativa.');
+    }
+
+    const st = this.getOrInitSyncState(companyId);
+    const cnpjFilter = await this.loadCnpjFilter(anchorCompany);
+
+    let totalInserted = 0;
+    let totalExisted = 0;
+    let totalIgnored = 0;
+    let totalSeen = 0;
+    let paginator: string | null = null;
+    let pages = 0;
+    let lastError: string | null = null;
+
+    this.logger.log(
+      `syncByPeriod(${anchorCompany.code}): janela CreatedAt ${from}..${to}`,
+    );
+
+    try {
+      while (pages < this.MAX_PAGES_PER_PERIOD) {
+        const res = await this.qive.listNfesV2({
+          paginator,
+          limit: this.PAGE_SIZE,
+          createdAtFrom: from,
+          createdAtTo: to,
+          ...(cnpjFilter.length > 0 ? { cnpjs: cnpjFilter } : {}),
+        });
+        const items = res.data ?? [];
+        if (items.length === 0) break;
+        totalSeen = res.total;
+        st.totalOnQive = totalSeen;
+
+        for (const item of items) {
+          const parsed = parseNfeBase64(item.xml);
+          if (!parsed) {
+            totalIgnored++;
+            st.nfesIgnored = totalIgnored;
+            continue;
+          }
+          const outcome = await this.upsertParsedV2(
+            parsed,
+            item.xml,
+            allCompanies,
+          );
+          if (outcome === 'created') {
+            totalInserted++;
+            st.nfesInserted = totalInserted;
+          } else if (outcome === 'existed') {
+            totalExisted++;
+            st.nfesAlreadyExisted = totalExisted;
+          } else {
+            totalIgnored++;
+            st.nfesIgnored = totalIgnored;
+          }
+        }
+
+        if (!res.paginator) break;
+        paginator = res.paginator;
+        pages++;
+        st.pagesProcessed = pages;
+        await this.sleep(this.SLEEP_BETWEEN_PAGES_MS);
+      }
+    } catch (err) {
+      lastError = (err as Error).message;
+      this.logger.error(`syncByPeriod(${anchorCompany.code}): ${lastError}`);
+      st.lastError = lastError;
+    }
+    st.running = false;
+
+    await this.prisma.integrationLog.create({
+      data: {
+        companyId,
+        source: 'QIVE',
+        jobType: 'QIVE_NFE_SYNC',
+        status: lastError
+          ? IntegrationLogStatus.FAILED
+          : IntegrationLogStatus.SUCCESS,
+        recordsProcessed: totalInserted + totalExisted + totalIgnored,
+        durationMs: Date.now() - started,
+        errorDetails: lastError?.slice(0, 1900) ?? null,
+      },
+    });
+
+    this.logger.log(
+      `syncByPeriod(${anchorCompany.code}) [${from}..${to}]: ${totalInserted} novas, ${totalExisted} existiam, ${totalIgnored} ignoradas (Qive total=${totalSeen}), em ${Date.now() - started}ms`,
+    );
+
+    return {
+      inserted: totalInserted,
+      existed: totalExisted,
+      ignored: totalIgnored,
+      totalSeen,
+    };
+  }
+
+  /**
+   * Dispara o sync por período em background (fire-and-forget), igual ao
+   * startBackgroundSync. Idempotente por empresa — se já tem sync rodando,
+   * devolve started:false.
+   */
+  startBackgroundPeriodSync(
+    companyId: string,
+    from: string,
+    to: string,
+  ): { started: boolean; running: boolean } {
+    const st = this.getOrInitSyncState(companyId);
+    if (st.running) {
+      return { started: false, running: true };
+    }
+    st.running = true;
+    st.startedAt = new Date();
+    st.totalOnQive = null;
+    st.pagesProcessed = 0;
+    st.nfesInserted = 0;
+    st.nfesAlreadyExisted = 0;
+    st.nfesIgnored = 0;
+    st.lastError = null;
+    this.syncByPeriod(companyId, from, to).catch((err) => {
+      this.logger.error(
+        `startBackgroundPeriodSync(${companyId}): ${(err as Error).message}`,
+      );
+      st.lastError = (err as Error).message;
+      st.running = false;
+    });
+    return { started: true, running: true };
+  }
+
+  /**
+   * Carga total controlada — usada pelo script `qive:backfill`. Reseta a
+   * marca d'água + paginator, drena a janela ampla de forma SÍNCRONA, e
+   * grava a marca d'água pro cron seguir incremental daí pra frente.
+   * Roda em contexto de script (não no request HTTP).
+   */
+  async runFullBackfill(companyId: string): Promise<{
+    inserted: number;
+    existed: number;
+    ignored: number;
+    totalSeen: number;
+  }> {
+    const startedAt = new Date();
+    // Estado limpo da janela antes do walk completo.
+    await this.prisma.fiscalDocumentSyncState.updateMany({
+      where: { companyId, role: 'received' },
+      data: { lastPaginator: null, createdAtWatermark: null },
+    });
+    const out = await this.syncByPeriod(
+      companyId,
+      this.BACKFILL_FROM,
+      this.OPEN_TO,
+    );
+    // Marca a posição: a partir daqui o cron vai incremental.
+    await this.prisma.fiscalDocumentSyncState.upsert({
+      where: { companyId_role: { companyId, role: 'received' } },
+      create: {
+        companyId,
+        role: 'received',
+        lastCursor: 0,
+        createdAtWatermark: startedAt,
+      },
+      update: { createdAtWatermark: startedAt, lastPaginator: null },
+    });
+    return out;
   }
 
   /**
@@ -741,12 +1000,7 @@ export class FiscalDocumentsService {
     const orderBy: Prisma.FiscalDocumentOrderByWithRelationInput[] =
       sortBy === 'emissao'
         ? [{ emissao: sortDir }, { createdAt: 'desc' }]
-        : [
-            {
-              [sortBy]: sortDir,
-            } as Prisma.FiscalDocumentOrderByWithRelationInput,
-            { emissao: 'desc' },
-          ];
+        : [{ [sortBy]: sortDir }, { emissao: 'desc' }];
 
     const [total, rows] = await Promise.all([
       this.prisma.fiscalDocument.count({ where }),

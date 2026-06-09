@@ -211,4 +211,41 @@ export class FiscalDocumentsController {
     }
     return this.fiscalDocuments.startBackgroundSync(companyId);
   }
+
+  @Post('admin/sync/period')
+  @ApiOperation({
+    summary:
+      'Sync da Qive por período (background). from/to = data de CRIAÇÃO na Qive (YYYY-MM-DD), NÃO emissão.',
+  })
+  triggerPeriodSync(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('companyId') companyId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    if (user.profile !== 'ADMIN') {
+      return { ok: false, error: 'Apenas ADMIN pode disparar sync manual' };
+    }
+    if (!companyId) {
+      return { ok: false, error: 'companyId é obrigatório.' };
+    }
+    const isYmd = (s?: string) => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
+    if (!isYmd(from) || !isYmd(to)) {
+      return {
+        ok: false,
+        error: 'from e to são obrigatórios no formato YYYY-MM-DD.',
+      };
+    }
+    if (from! > to!) {
+      return {
+        ok: false,
+        error: 'A data inicial não pode ser maior que a final.',
+      };
+    }
+    return this.fiscalDocuments.startBackgroundPeriodSync(
+      companyId,
+      from!,
+      to!,
+    );
+  }
 }

@@ -303,6 +303,26 @@ export function useTriggerFiscalSync() {
   });
 }
 
+/**
+ * Sync MANUAL por período. `from`/`to` no formato YYYY-MM-DD referem-se à
+ * data de CRIAÇÃO na Qive (não emissão da NF) — limitação da API da Qive.
+ */
+export function useTriggerFiscalPeriodSync() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: { companyId: string; from: string; to: string }) =>
+      (
+        await api.post('/fiscal-documents/admin/sync/period', null, {
+          params: { companyId: vars.companyId, from: vars.from, to: vars.to },
+        })
+      ).data,
+    onSuccess: () => {
+      invalidateFiscalQueries(qc);
+      qc.invalidateQueries({ queryKey: ['fiscal-sync-status'] });
+    },
+  });
+}
+
 /** Dispara download do XML cru. */
 export async function downloadFiscalXml(doc: {
   id: string;
