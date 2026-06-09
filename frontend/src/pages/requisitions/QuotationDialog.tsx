@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Paperclip, Plus, Trash2 } from 'lucide-react';
 import {
   useCreateQuotation,
   useUpdateQuotation,
@@ -9,7 +9,7 @@ import {
 import { usePaymentConditions } from '@/lib/integration';
 import { extractApiMessage } from '@/lib/api-errors';
 import { useCompany } from '@/lib/company';
-import { useDeleteAttachment } from '@/lib/attachments';
+import { useDeleteAttachment, useUploadAttachment } from '@/lib/attachments';
 import type { Requisition } from '@/lib/requisitions';
 import { SupplierPicker, type SupplierPickerValue } from './SupplierPicker';
 import { Button } from '@/components/ui/button';
@@ -46,8 +46,6 @@ interface Props {
   requisition: Pick<Requisition, 'id' | 'items'>;
   /** Quando preenchida, é edição; senão, novo cadastro. */
   existing?: Quotation | null;
-  /** Anexo (PDF) que esta cotação representa. Obrigatório no create. */
-  attachmentId?: string;
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }
@@ -68,7 +66,6 @@ interface Props {
 export function QuotationDialog({
   requisition,
   existing,
-  attachmentId,
   open,
   onOpenChange,
 }: Props) {
@@ -76,11 +73,12 @@ export function QuotationDialog({
   const { activeCompany } = useCompany();
   const createMut = useCreateQuotation(requisition.id);
   const updateMut = useUpdateQuotation(requisition.id);
+  const uploadAttachment = useUploadAttachment('requisition', requisition.id);
   const deleteAttachment = useDeleteAttachment('requisition', requisition.id);
-  // Marca quando salvou com sucesso pra não apagar o anexo no `onOpenChange`
-  // ao fechar (Radix dispara onOpenChange(false) tanto pelo cancel quanto
-  // pelo fechar-após-save).
-  const [savedOk, setSavedOk] = useState(false);
+  // PDF da proposta — obrigatório no cadastro. O upload acontece no
+  // momento do "Cadastrar" (não antes), então não há anexo órfão se o
+  // usuário cancelar.
+  const [file, setFile] = useState<File | null>(null);
   const paymentConditions = usePaymentConditions(activeCompany?.code);
 
   const EMPTY_SUPPLIER: SupplierPickerValue = {
@@ -104,10 +102,8 @@ export function QuotationDialog({
   // Inicializa o form ao abrir.
   useEffect(() => {
     if (!open) return;
-    // Reseta o marker de "salvou" a cada abertura — assim, se a mesma
-    // instância do dialog for reaproveitada, o cancel/fechar não pula
-    // a limpeza do anexo.
-    setSavedOk(false);
+    // Limpa o PDF selecionado a cada abertura (instância pode ser reusada).
+    setFile(null);
     if (existing) {
       setSupplier({
         supplierErpCode: existing.supplierErpCode ?? '',
@@ -214,8 +210,17 @@ export function QuotationDialog({
       }
     }
 
+    // No cadastro, o PDF da proposta é obrigatório.
+    if (!existing && !file) {
+      toast({
+        title: 'Anexe o PDF da proposta',
+        description: 'Toda cotação precisa do documento (PDF) enviado pelo fornecedor.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     const dto: QuotationInput = {
-      attachmentId: existing ? undefined : attachmentId,
       supplierCnpj: cnpjDigits,
       // Quando veio do ERP (não-externo) o backend resolve o nome pelo
       // cadastro; só mandamos override quando é fornecedor externo.
@@ -237,14 +242,30 @@ export function QuotationDialog({
       if (existing) {
         await updateMut.mutateAsync({ id: existing.id, dto });
       } else {
-        await createMut.mutateAsync(dto);
+        // Cadastro: sobe o PDF primeiro (tipo QUOTATION) e vincula a cotação
+        // a ele. Se a criação falhar, remove o anexo órfão pra não sobrar
+        // PDF sem cotação.
+        const uploaded = await uploadAttachment.mutateAsync({
+          file: file!,
+          docKind: 'QUOTATION',
+          parentIdOverride: requisition.id,
+        });
+        try {
+          await createMut.mutateAsync({ ...dto, attachmentId: uploaded.id });
+        } catch (createErr) {
+          try {
+            await deleteAttachment.mutateAsync(uploaded.id);
+          } catch {
+            /* anexo órfão será limpo depois — não bloqueia o erro real */
+          }
+          throw createErr;
+        }
       }
       toast({
         title: existing ? 'Cotação atualizada' : 'Cotação cadastrada',
         description: `${supplier.supplierName} — ${formatCurrency(total)}`,
         variant: 'success',
       });
-      setSavedOk(true);
       onOpenChange(false);
     } catch (err) {
       toast({
@@ -258,29 +279,11 @@ export function QuotationDialog({
   }
 
   /**
-   * Fecha o dialog. No fluxo de CRIAÇÃO, se o anexo (PDF) já foi enviado
-   * mas a cotação ainda não foi cadastrada (`!savedOk`), apaga o anexo
-   * órfão. Garantia: nunca existe um `QUOTATION` na lista de anexos sem
-   * cotação correspondente — preserva a regra de que cotação é obrigatória.
-   *
-   * Em modo edição (`existing != null`), o anexo já tem cotação vinculada,
-   * então só fecha sem deletar nada.
+   * Fecha o dialog. Como o PDF só é enviado no momento do "Cadastrar"
+   * (e não na abertura), cancelar não deixa anexo órfão — basta fechar.
    */
-  async function handleClose() {
+  function handleClose() {
     if (submitting) return; // não fecha durante o save
-    if (savedOk || existing || !attachmentId) {
-      onOpenChange(false);
-      return;
-    }
-    // Fluxo de criação fechado sem salvar: apaga o anexo órfão
-    // silenciosamente (a regra de "cotação completa" continua valendo,
-    // mas o aviso interrompia o solicitante de propósito quando ele
-    // simplesmente queria cancelar).
-    try {
-      await deleteAttachment.mutateAsync(attachmentId);
-    } catch {
-      /* falha silenciosa — anexo eventualmente fica órfão sem cotação. */
-    }
     onOpenChange(false);
   }
 
@@ -299,6 +302,43 @@ export function QuotationDialog({
         </DialogHeader>
 
         <div className="space-y-4">
+          {/* PDF da proposta — obrigatório no cadastro. Substitui o fluxo
+              antigo (subir anexo → abrir modal); agora a cotação nasce aqui
+              e o PDF é parte do formulário. */}
+          {!existing && (
+            <div className="space-y-1.5">
+              <Label>
+                PDF da proposta <span className="text-destructive">*</span>
+              </Label>
+              <label className="flex cursor-pointer items-center gap-3 rounded-md border border-dashed p-3 text-sm hover:bg-accent/40">
+                <Paperclip className="size-4 text-muted-foreground" />
+                <span className="flex-1 truncate">
+                  {file ? (
+                    <span className="font-medium text-foreground">
+                      {file.name}{' '}
+                      <span className="text-muted-foreground">
+                        ({(file.size / 1024).toFixed(0)} KB)
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      Selecione o PDF enviado pelo fornecedor…
+                    </span>
+                  )}
+                </span>
+                <span className="rounded-md border px-2 py-1 text-xs font-medium">
+                  Escolher arquivo
+                </span>
+                <input
+                  type="file"
+                  accept=".pdf"
+                  className="hidden"
+                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                />
+              </label>
+            </div>
+          )}
+
           {/* Fornecedor — mesmo seletor da requisição: busca no banco
               (ERP) por nome/CNPJ e, quando não há cadastro, identifica
               por CNPJ caindo na Receita Federal. */}
@@ -454,7 +494,11 @@ export function QuotationDialog({
           <Button type="button" variant="outline" onClick={handleClose}>
             Cancelar
           </Button>
-          <Button type="button" onClick={handleSave} disabled={submitting}>
+          <Button
+            type="button"
+            onClick={handleSave}
+            disabled={submitting || (!existing && !file)}
+          >
             {submitting ? 'Salvando…' : existing ? 'Salvar' : 'Cadastrar cotação'}
           </Button>
         </DialogFooter>

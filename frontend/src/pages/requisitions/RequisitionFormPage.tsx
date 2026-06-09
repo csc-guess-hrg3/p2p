@@ -1026,8 +1026,8 @@ export function RequisitionFormPage() {
           <CardContent className="pt-6">
             <AttachmentsSection
               kind="requisition"
-              hint="Cotações, contratos e documentos de apoio. Ao adicionar o primeiro anexo, o rascunho é salvo automaticamente."
-              allowedDocKinds={['QUOTATION', 'CONTRACT', 'INVOICE', 'OTHER']}
+              hint="Contratos, faturas e documentos de apoio. Ao adicionar o primeiro anexo, o rascunho é salvo automaticamente. (Cotações são cadastradas no card de Cotações, com o PDF da proposta.)"
+              allowedDocKinds={['CONTRACT', 'INVOICE', 'OTHER']}
               // Sem defaultDocKind → usuário escolhe tipo conscientemente.
               onBeforeUpload={ensureDraftSaved}
             />

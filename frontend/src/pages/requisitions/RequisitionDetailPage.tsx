@@ -36,9 +36,8 @@ import { RequestRevisionDialog } from '@/pages/approvals/RequestRevisionDialog';
 import { AttachmentsSection } from '@/components/AttachmentsSection';
 import { QuotationsWarning } from '@/components/QuotationsWarning';
 import { QuotationWaiverDialog } from './QuotationWaiverDialog';
-import { QuotationDialog } from './QuotationDialog';
 import { QuotationsCard } from './QuotationsCard';
-import { useAttachments, type Attachment } from '@/lib/attachments';
+import { useAttachments } from '@/lib/attachments';
 import { useClearQuotationWaiver } from '@/lib/requisitions';
 import { useQuotations } from '@/lib/quotations';
 import { useQuotationsPolicy } from '@/lib/admin';
@@ -93,8 +92,6 @@ export function RequisitionDetailPage() {
   const [confirmSubmit, setConfirmSubmit] = useState(false);
   const [confirmResubmit, setConfirmResubmit] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [quotationAttachment, setQuotationAttachment] =
-    useState<Attachment | null>(null);
   const { data: quotations = [] } = useQuotations(id);
   const clearWaiverMut = useClearQuotationWaiver(id);
   const [decision, setDecision] = useState<{
@@ -696,31 +693,15 @@ export function RequisitionDetailPage() {
               ['CONVERTED', 'CANCELLED'].includes(req.status) ||
               user?.id !== req.requester?.id
             }
-            hint="Cotações, contratos e documentos de apoio (PDF/DOCX/XLSX/imagens — até 10 MB cada, máx. 10)."
-            allowedDocKinds={['QUOTATION', 'CONTRACT', 'INVOICE', 'OTHER']}
-            // Sem defaultDocKind → mostra "Selecione o tipo…" obrigatório.
-            // O upload exige escolha consciente entre cotação/contrato/etc.
-            onQuotationUploaded={(att) => setQuotationAttachment(att)}
-            // Os anexos QUE JÁ VIRARAM cotação aparecem dentro do
-            // card da cotação correspondente (com o nome do
-            // fornecedor) — não polui a lista geral aqui.
+            hint="Contratos, faturas e documentos de apoio (PDF/DOCX/XLSX/imagens — até 10 MB cada, máx. 10). O PDF da cotação é anexado no próprio cadastro da cotação."
+            allowedDocKinds={['CONTRACT', 'INVOICE', 'OTHER']}
+            // Os anexos QUE JÁ VIRARAM cotação aparecem dentro do card da
+            // cotação correspondente (com o nome do fornecedor) — não
+            // poluem a lista geral aqui.
             hideLinkedQuotations
           />
         </CardContent>
       </Card>
-
-      {/* QuotationsCard agora renderiza ANTES da capa (com callout pro
-          aprovador). Mantida apenas a referência ao QuotationDialog
-          para upload de cotação a partir de anexo. */}
-
-      {quotationAttachment && (
-        <QuotationDialog
-          requisition={req}
-          attachmentId={quotationAttachment.id}
-          open={!!quotationAttachment}
-          onOpenChange={(o) => !o && setQuotationAttachment(null)}
-        />
-      )}
 
       {req.approvalSteps && req.approvalSteps.length > 0 && (
         <Card>
