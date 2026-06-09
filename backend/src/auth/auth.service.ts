@@ -17,7 +17,7 @@ function ldapAttr(
 ): string | undefined {
   const v = entry[key];
   if (Array.isArray(v)) return v[0] != null ? String(v[0]) : undefined;
-  return v != null ? String(v as string) : undefined;
+  return v != null ? String((v as string | null) ?? '') : undefined;
 }
 
 @Injectable()
