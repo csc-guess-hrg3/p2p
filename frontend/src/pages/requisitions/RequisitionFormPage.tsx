@@ -1068,7 +1068,7 @@ export function RequisitionFormPage() {
               onClick={handleAddQuotation}
               className={
                 quotationsInsufficient
-                  ? 'ring-2 ring-amber-400 ring-offset-1'
+                  ? 'ring-2 ring-red-400 ring-offset-1'
                   : undefined
               }
             >
