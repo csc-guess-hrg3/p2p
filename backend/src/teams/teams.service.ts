@@ -200,7 +200,10 @@ export class TeamsService {
         };
         const existingId = existingIdByLevel.get(l.level);
         if (existingId) {
-          await tx.teamApprovalLevel.update({ where: { id: existingId }, data });
+          await tx.teamApprovalLevel.update({
+            where: { id: existingId },
+            data,
+          });
         } else {
           await tx.teamApprovalLevel.create({
             data: { teamId: id, level: l.level, ...data },
@@ -226,10 +229,7 @@ export class TeamsService {
       const found =
         kind === 'branch'
           ? await this.integration.findBranchRateio(company.code, e.code)
-          : await this.integration.findCostCenterRateio(
-              company.code,
-              e.code,
-            );
+          : await this.integration.findCostCenterRateio(company.code, e.code);
       if (!found) {
         throw new BadRequestException(
           `Rateio inválido para ${company.code}: ${e.code}`,

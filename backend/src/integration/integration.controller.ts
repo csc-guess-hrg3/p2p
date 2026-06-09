@@ -69,7 +69,10 @@ export class IntegrationController {
     @Param('company') company: string,
     @Query('cnpj') cnpj: string,
   ) {
-    const found = await this.integration.findSupplierByCnpj(company, cnpj ?? '');
+    const found = await this.integration.findSupplierByCnpj(
+      company,
+      cnpj ?? '',
+    );
     return found ?? { found: false };
   }
 
@@ -145,7 +148,9 @@ export class IntegrationController {
     @Query('scope') scope?: 'all' | 'mine',
   ) {
     if (scope === 'all' && user.profile !== UserProfile.ADMIN) {
-      throw new ForbiddenException('Apenas administradores podem usar scope=all.');
+      throw new ForbiddenException(
+        'Apenas administradores podem usar scope=all.',
+      );
     }
     return this.integration.getBranchRateios(
       company,
@@ -167,7 +172,9 @@ export class IntegrationController {
     @Query('scope') scope?: 'all' | 'mine',
   ) {
     if (scope === 'all' && user.profile !== UserProfile.ADMIN) {
-      throw new ForbiddenException('Apenas administradores podem usar scope=all.');
+      throw new ForbiddenException(
+        'Apenas administradores podem usar scope=all.',
+      );
     }
     return this.integration.getCostCenterRateios(
       company,

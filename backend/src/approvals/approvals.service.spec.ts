@@ -8,8 +8,15 @@
  */
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ApprovalsService } from './approvals.service';
+import { ApprovalEngineService } from './approval-engine.service';
+import type { LinxErpService } from '../integration/linx-erp.service';
+import type { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { createPrismaMock, TEST_USER, type PrismaMock } from '../test-utils/prisma-mock';
+import {
+  createPrismaMock,
+  TEST_USER,
+  type PrismaMock,
+} from '../test-utils/prisma-mock';
 
 function makeStep(over: Partial<any> = {}) {
   return {
@@ -33,6 +40,19 @@ function makeStep(over: Partial<any> = {}) {
   };
 }
 
+/** Forma mínima dos args de `requisition.update` que os testes inspecionam. */
+interface RequisitionUpdateArg {
+  where?: { id?: string };
+  data?: { status?: string; rejectionReason?: string };
+}
+
+/** Extrai (tipado) o 1º argumento de cada chamada de `requisition.update`. */
+function requisitionUpdateArgs(prisma: PrismaMock): RequisitionUpdateArg[] {
+  const calls = prisma.requisition.update.mock
+    .calls as RequisitionUpdateArg[][];
+  return calls.map((c) => c[0]);
+}
+
 describe('ApprovalsService.decide', () => {
   let prisma: PrismaMock;
   let service: ApprovalsService;
@@ -41,9 +61,13 @@ describe('ApprovalsService.decide', () => {
   beforeEach(() => {
     prisma = createPrismaMock();
     notifCreate = jest.fn();
-    const linxStub = { markPedidoAprovado: jest.fn() } as unknown as import('../integration/linx-erp.service').LinxErpService;
-    const notifStub = { create: notifCreate } as unknown as import('../notifications/notifications.service').NotificationsService;
-    const engine = new (require('./approval-engine.service').ApprovalEngineService)(
+    const linxStub = {
+      markPedidoAprovado: jest.fn(),
+    } as unknown as LinxErpService;
+    const notifStub = {
+      create: notifCreate,
+    } as unknown as NotificationsService;
+    const engine = new ApprovalEngineService(
       prisma as unknown as PrismaService,
     );
     service = new ApprovalsService(
@@ -53,7 +77,9 @@ describe('ApprovalsService.decide', () => {
       engine,
     );
     // Solicitante diferente do aprovador por padrão.
-    prisma.requisition.findUnique.mockResolvedValue({ requesterId: 'someone-else' });
+    prisma.requisition.findUnique.mockResolvedValue({
+      requesterId: 'someone-else',
+    });
   });
 
   it('lança Forbidden quando o usuário não é o aprovador atribuído', async () => {
@@ -63,19 +89,21 @@ describe('ApprovalsService.decide', () => {
     // sem delegações
     prisma.delegation.findMany.mockResolvedValue([]);
 
-    await expect(service.decide(TEST_USER, 'step-1', true)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
+    await expect(
+      service.decide(TEST_USER, 'step-1', true),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('lança Forbidden quando o solicitante tenta aprovar a própria requisição (RN-ALC-03)', async () => {
     prisma.approvalStep.findUnique.mockResolvedValue(makeStep());
     prisma.delegation.findMany.mockResolvedValue([]);
-    prisma.requisition.findUnique.mockResolvedValue({ requesterId: TEST_USER.id });
+    prisma.requisition.findUnique.mockResolvedValue({
+      requesterId: TEST_USER.id,
+    });
 
-    await expect(service.decide(TEST_USER, 'step-1', true)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
+    await expect(
+      service.decide(TEST_USER, 'step-1', true),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('lança BadRequest quando há nível anterior pendente', async () => {
@@ -83,9 +111,9 @@ describe('ApprovalsService.decide', () => {
     prisma.delegation.findMany.mockResolvedValue([]);
     prisma.approvalStep.count.mockResolvedValue(1); // há 1 pendente em level<2
 
-    await expect(service.decide(TEST_USER, 'step-1', true)).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(
+      service.decide(TEST_USER, 'step-1', true),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('aprovação com próximo nível pendente devolve PENDING e notifica o próximo', async () => {
@@ -102,10 +130,14 @@ describe('ApprovalsService.decide', () => {
     const out = await service.decide(TEST_USER, 'step-1', true);
 
     expect(out).toEqual({ result: 'PENDING', nextLevel: 2 });
+    const dataMatcher: unknown = expect.objectContaining({
+      status: 'APPROVED',
+      decidedById: TEST_USER.id,
+    });
     expect(prisma.approvalStep.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'step-1' },
-        data: expect.objectContaining({ status: 'APPROVED', decidedById: TEST_USER.id }),
+        data: dataMatcher,
       }),
     );
     expect(notifCreate).toHaveBeenCalled();
@@ -121,7 +153,7 @@ describe('ApprovalsService.decide', () => {
 
     expect(out).toEqual({ result: 'APPROVED' });
     // Verifica update do documento (requisition) para APPROVED via algum updateMany/update
-    const reqUpdates = prisma.requisition.update.mock.calls.map((c: any[]) => c[0]);
+    const reqUpdates = requisitionUpdateArgs(prisma);
     const matched = reqUpdates.find(
       (u) => u?.where?.id === 'req-1' && u?.data?.status === 'APPROVED',
     );
@@ -136,7 +168,7 @@ describe('ApprovalsService.decide', () => {
     const out = await service.decide(TEST_USER, 'step-1', false, 'Sem verba.');
 
     expect(out).toEqual({ result: 'REJECTED' });
-    const reqUpdates = prisma.requisition.update.mock.calls.map((c: any[]) => c[0]);
+    const reqUpdates = requisitionUpdateArgs(prisma);
     const matched = reqUpdates.find(
       (u) =>
         u?.where?.id === 'req-1' &&

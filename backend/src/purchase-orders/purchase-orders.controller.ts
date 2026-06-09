@@ -128,7 +128,7 @@ export class PurchaseOrdersController {
       'Dispara manualmente o cron de back-sync (mão de volta do Linx → P2P). ' +
       'Útil pra testar/forçar atualização sem esperar o cron de 30min. Admin only.',
   })
-  async triggerBackSync(@CurrentUser() user: AuthenticatedUser) {
+  triggerBackSync(@CurrentUser() user: AuthenticatedUser) {
     if (user.profile !== 'ADMIN') {
       throw new ForbiddenException('Só Admin pode disparar o back-sync.');
     }
@@ -139,7 +139,10 @@ export class PurchaseOrdersController {
         `Falha no back-sync disparado manualmente: ${(err as Error)?.message ?? err}`,
       );
     });
-    return { ok: true, message: 'Back-sync disparado. Veja o log do servidor.' };
+    return {
+      ok: true,
+      message: 'Back-sync disparado. Veja o log do servidor.',
+    };
   }
 
   // Rotas /send-to-supplier e /resend foram removidas — para consumíveis
@@ -173,10 +176,7 @@ export class PurchaseOrdersController {
 
   @Get(':id/history')
   @ApiOperation({ summary: 'Histórico de alterações do pedido (timeline)' })
-  history(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id') id: string,
-  ) {
+  history(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.historyService.getEvents(user, id);
   }
 

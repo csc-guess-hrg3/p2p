@@ -130,7 +130,7 @@ export class PurchaseOrderConverterService {
         quantity: { toString: () => string } | number | string;
       }>;
     },
-    company: { code: string; erpConfig: unknown | null },
+    company: { code: string; erpConfig: unknown },
     expectedDelivery: Date | null,
   ): void {
     const problems: string[] = [];
@@ -152,7 +152,8 @@ export class PurchaseOrderConverterService {
     for (const it of req.items) {
       const tag = `item "${it.itemDescription}"`;
       if (!it.itemErpCode) problems.push(`${tag}: código do item ausente.`);
-      if (!it.accountingAccount) problems.push(`${tag}: conta contábil ausente.`);
+      if (!it.accountingAccount)
+        problems.push(`${tag}: conta contábil ausente.`);
       if (!it.branchRateioCode)
         problems.push(`${tag}: rateio de filial ausente.`);
       if (!it.costCenterRateioCode)
@@ -383,7 +384,7 @@ export class PurchaseOrderConverterService {
     const isAdvance = req.tipoNotaFiscal === RequisitionNfType.NF_FUTURA;
     const svDueDate = dto.fundRequestDueDate
       ? new Date(dto.fundRequestDueDate)
-      : expectedDelivery ?? new Date();
+      : (expectedDelivery ?? new Date());
     const now = new Date();
     const created: Array<{ id: string; number: string; status: string }> = [];
 
@@ -506,7 +507,7 @@ export class PurchaseOrderConverterService {
             include: { items: true },
           });
           try {
-            await this.linx.gravarSolicitacaoVerba(svFull, user);
+            await this.linx.gravarSolicitacaoVerba(svFull);
             await this.prisma.fundRequest.update({
               where: { id: svFull.id },
               data: { status: FundRequestStatus.INTEGRATED },

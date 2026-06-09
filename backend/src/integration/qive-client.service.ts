@@ -79,12 +79,14 @@ export class QiveClientService {
    * Pra paginar, vai chamando com o cursor devolvido em page.next até
    * a resposta vir vazia.
    */
-  async listNfes(opts: {
-    role?: 'received' | 'emitted' | 'transporter' | 'authorized';
-    cursor?: number;
-    limit?: number;
-    cnpj?: string[];
-  } = {}): Promise<QiveListNfesResponse> {
+  async listNfes(
+    opts: {
+      role?: 'received' | 'emitted' | 'transporter' | 'authorized';
+      cursor?: number;
+      limit?: number;
+      cnpj?: string[];
+    } = {},
+  ): Promise<QiveListNfesResponse> {
     const role = opts.role ?? 'received';
     const params = new URLSearchParams();
     params.set('limit', String(Math.min(opts.limit ?? 50, 50)));
@@ -116,15 +118,17 @@ export class QiveClientService {
    * Retorna `{ data, paginator, total }`. Quando `paginator` é null,
    * o walk terminou.
    */
-  async listNfesV2(opts: {
-    paginator?: string | null;
-    limit?: number;
-    createdAtFrom?: string; // formato YYYY-MM-DD aceito
-    createdAtTo?: string;
-    accessKeys?: string[];
-    /** CNPJs do "owner" — filtra só NFes destinadas a esses CNPJs. */
-    cnpjs?: string[];
-  } = {}): Promise<{
+  async listNfesV2(
+    opts: {
+      paginator?: string | null;
+      limit?: number;
+      createdAtFrom?: string; // formato YYYY-MM-DD aceito
+      createdAtTo?: string;
+      accessKeys?: string[];
+      /** CNPJs do "owner" — filtra só NFes destinadas a esses CNPJs. */
+      cnpjs?: string[];
+    } = {},
+  ): Promise<{
     data: QiveNfeListItem[];
     paginator: string | null;
     total: number;
@@ -177,13 +181,15 @@ export class QiveClientService {
         });
         if (!res.ok) {
           const txt = await res.text();
-          throw new Error(
-            `HTTP ${res.status}: ${txt.slice(0, 300)}`,
-          );
+          throw new Error(`HTTP ${res.status}: ${txt.slice(0, 300)}`);
         }
         // Lê o body como texto antes de parsear pra capturar truncamento.
         const raw = await res.text();
-        json = JSON.parse(raw);
+        json = JSON.parse(raw) as {
+          Nfes?: Array<{ AccessKey: string; Xml: string }>;
+          Paginator?: string | null;
+          Total?: number;
+        };
         lastErr = null;
         break;
       } catch (err) {

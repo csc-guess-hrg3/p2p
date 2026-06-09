@@ -49,9 +49,7 @@ import { AdminModule } from './admin/admin.module';
     // Endpoints sensíveis (login) mantém throttle adicional via @Throttle.
     // O controller de anexos usa @SkipThrottle pra não bloquear bursts
     // de download (várias cotações abertas em sequência).
-    ThrottlerModule.forRoot([
-      { name: 'default', ttl: 60_000, limit: 300 },
-    ]),
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 300 }]),
     CryptoModule,
     PrismaModule,
     HealthModule,

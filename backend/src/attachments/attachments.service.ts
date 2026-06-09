@@ -191,11 +191,13 @@ export class AttachmentsService {
     receivingId: string | null;
     fundRequestId: string | null;
   }): { kind: ParentKind; id: string } | null {
-    if (att.requisitionId) return { kind: 'requisition', id: att.requisitionId };
+    if (att.requisitionId)
+      return { kind: 'requisition', id: att.requisitionId };
     if (att.purchaseOrderId)
       return { kind: 'purchaseOrder', id: att.purchaseOrderId };
     if (att.receivingId) return { kind: 'receiving', id: att.receivingId };
-    if (att.fundRequestId) return { kind: 'fundRequest', id: att.fundRequestId };
+    if (att.fundRequestId)
+      return { kind: 'fundRequest', id: att.fundRequestId };
     return null;
   }
 
@@ -265,7 +267,9 @@ export class AttachmentsService {
   ) {
     if (!file) throw new BadRequestException('Arquivo ausente.');
     if (file.size > MAX_BYTES) {
-      throw new BadRequestException(`Arquivo maior que ${MAX_BYTES / 1024 / 1024} MB.`);
+      throw new BadRequestException(
+        `Arquivo maior que ${MAX_BYTES / 1024 / 1024} MB.`,
+      );
     }
     if (!ALLOWED_MIME.has(file.mimetype)) {
       throw new BadRequestException(`Tipo não permitido: ${file.mimetype}.`);
@@ -391,9 +395,7 @@ export class AttachmentsService {
     try {
       await fs.unlink(abs);
     } catch (err) {
-      this.logger.debug(
-        `Falha ao remover ${abs}: ${(err as Error).message}`,
-      );
+      this.logger.debug(`Falha ao remover ${abs}: ${(err as Error).message}`);
     }
     return { ok: true };
   }

@@ -131,5 +131,4 @@ export class LegacyOrdersController {
   ) {
     return this.legacyOrders.listNfes(user, companyId, pedido);
   }
-
 }

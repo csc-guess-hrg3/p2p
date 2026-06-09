@@ -37,7 +37,10 @@ class LocalLoginDto {
   @IsNotEmpty()
   password!: string;
 
-  @ApiProperty({ required: false, description: 'Token Cloudflare Turnstile (anti-bot).' })
+  @ApiProperty({
+    required: false,
+    description: 'Token Cloudflare Turnstile (anti-bot).',
+  })
   @IsOptional()
   @IsString()
   turnstileToken?: string;
@@ -151,7 +154,10 @@ export class AuthController {
    * caminhos são suportados pra evitar dor de cabeça com diferentes
    * clientes HTTP.
    */
-  private turnstileToken(req: Request, body?: { turnstileToken?: string }): string | undefined {
+  private turnstileToken(
+    req: Request,
+    body?: { turnstileToken?: string },
+  ): string | undefined {
     const hdr = req.headers['x-turnstile-token'];
     if (typeof hdr === 'string' && hdr) return hdr;
     if (Array.isArray(hdr) && hdr[0]) return hdr[0];
@@ -321,7 +327,7 @@ export class AuthController {
   ) {
     // Prioriza o refresh token vindo do cookie httpOnly; cai no body como fallback.
     const refreshToken: string | undefined =
-      req.cookies?.p2p_refresh ?? dto.refreshToken;
+      (req.cookies?.p2p_refresh as string | undefined) ?? dto.refreshToken;
     if (!refreshToken) {
       // Mantemos o erro consistente com o service.
       return this.authService.refresh('');
@@ -348,5 +354,4 @@ export class AuthController {
     // re-login). Buscamos fresco em cada /auth/me.
     return this.authService.meWithExtras(user);
   }
-
 }

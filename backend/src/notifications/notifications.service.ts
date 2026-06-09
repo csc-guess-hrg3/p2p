@@ -124,15 +124,17 @@ export class NotificationsService {
    *   2. envs `SMTP_*` (caminho normal — único SMTP corporativo).
    * Retorna null se nenhum dos dois estiver configurado.
    */
-  private resolveSmtpConfig(erpCfg: {
-    smtpHost: string | null;
-    smtpPort: number | null;
-    smtpSecure: boolean | null;
-    smtpUser: string | null;
-    smtpPassword: string | null;
-    smtpFrom: string | null;
-    smtpFromName: string | null;
-  } | null) {
+  private resolveSmtpConfig(
+    erpCfg: {
+      smtpHost: string | null;
+      smtpPort: number | null;
+      smtpSecure: boolean | null;
+      smtpUser: string | null;
+      smtpPassword: string | null;
+      smtpFrom: string | null;
+      smtpFromName: string | null;
+    } | null,
+  ) {
     if (erpCfg?.smtpHost && erpCfg.smtpPort && erpCfg.smtpFrom) {
       return {
         host: erpCfg.smtpHost,
@@ -187,9 +189,7 @@ export class NotificationsService {
       auth: smtp.user ? { user: smtp.user, pass: smtp.password } : undefined,
     });
     const link = this.linkFor(params.entityType, params.entityId);
-    const linkLine = link
-      ? `\n\nAcesse: https://p2p.hrg3.com.br${link}\n`
-      : '';
+    const linkLine = link ? `\n\nAcesse: https://p2p.hrg3.com.br${link}\n` : '';
     // Subject prefixado com a empresa, pra o destinatário identificar de
     // qual contexto veio (Guess vs HRG3 num único inbox).
     const prefix = company?.code ? `[${company.code}] ` : '';

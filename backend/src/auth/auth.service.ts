@@ -1,8 +1,6 @@
 import {
-  ForbiddenException,
   Injectable,
   Logger,
-  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -19,7 +17,7 @@ function ldapAttr(
 ): string | undefined {
   const v = entry[key];
   if (Array.isArray(v)) return v[0] != null ? String(v[0]) : undefined;
-  return v != null ? String(v) : undefined;
+  return v != null ? String((v as string | null) ?? '') : undefined;
 }
 
 @Injectable()
@@ -144,8 +142,7 @@ export class AuthService {
     // Lista de módulos extras liberados via equipe do usuário. Admin
     // gerencia em /admin/equipes. Frontend faz UNIÃO com o que o perfil
     // já vê por padrão.
-    const extraModules =
-      row?.team?.moduleAccess.map((m) => m.module) ?? [];
+    const extraModules = row?.team?.moduleAccess.map((m) => m.module) ?? [];
     return {
       ...user,
       canSwitchEnv: row?.canSwitchEnv ?? false,

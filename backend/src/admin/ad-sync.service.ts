@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as ldap from 'ldapjs';
 import { PrismaService } from '../prisma/prisma.service';
@@ -29,7 +25,12 @@ interface AdUser {
 export interface AdTeamSuggestion {
   ouName: string;
   companyCode: string | null;
-  users: Array<{ login: string; name: string; email: string | null; dn: string }>;
+  users: Array<{
+    login: string;
+    name: string;
+    email: string | null;
+    dn: string;
+  }>;
 }
 
 /**
@@ -86,9 +87,7 @@ export class AdSyncService {
         byOu.set(key, {
           ouName: u.ouName,
           companyCode: u.companyCode,
-          users: [
-            { login: u.login, name: u.name, email: u.email, dn: u.dn },
-          ],
+          users: [{ login: u.login, name: u.name, email: u.email, dn: u.dn }],
         });
       }
     }
@@ -110,7 +109,11 @@ export class AdSyncService {
       teamName: string;
       userLogins: string[];
     }>,
-  ): Promise<{ teamsCreated: number; usersCreated: number; usersLinked: number }> {
+  ): Promise<{
+    teamsCreated: number;
+    usersCreated: number;
+    usersLinked: number;
+  }> {
     const adUsers = await this.searchActiveUsers();
     const byLogin = new Map(adUsers.map((u) => [u.login.toLowerCase(), u]));
     let teamsCreated = 0;
@@ -147,7 +150,7 @@ export class AdSyncService {
           user = await this.prisma.user.create({
             data: {
               adUsername: login,
-              email: ad.email!,  // filtrado em searchActiveUsers (nunca null aqui)
+              email: ad.email!, // filtrado em searchActiveUsers (nunca null aqui)
               name: ad.name,
               profile: UserProfile.OPERATOR,
               status: UserStatus.ACTIVE,
@@ -211,13 +214,11 @@ export class AdSyncService {
         out.push({
           dn,
           login: sam,
-          name:
-            stringAttr(e, 'displayName') ?? stringAttr(e, 'cn') ?? sam,
+          name: stringAttr(e, 'displayName') ?? stringAttr(e, 'cn') ?? sam,
           email,
           ouName,
           topLevelOu,
-          companyCode:
-            TOP_LEVEL_TO_COMPANY[topLevelOu.toLowerCase()] ?? null,
+          companyCode: TOP_LEVEL_TO_COMPANY[topLevelOu.toLowerCase()] ?? null,
         });
       }
       return out;
@@ -227,20 +228,22 @@ export class AdSyncService {
       } catch (err) {
         // unbind falha quando a conexão já caiu — não é problema; só logamos
         // pra diagnosticar problemas reais de rede/auth.
-        this.logger.debug(
-          `ldap.unbind ignorado: ${(err as Error).message}`,
-        );
+        this.logger.debug(`ldap.unbind ignorado: ${(err as Error).message}`);
       }
     }
   }
 
-  private bind(
-    client: ldap.Client,
-    dn: string,
-    pw: string,
-  ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      client.bind(dn, pw, (err) => (err ? reject(err) : resolve()));
+  private bind(client: ldap.Client, dn: string, pw: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      client.bind(dn, pw, (err) => {
+        if (err) {
+          const error: Error =
+            err instanceof Error ? err : new Error(String(err));
+          reject(error);
+          return;
+        }
+        resolve();
+      });
     });
   }
 
@@ -267,17 +270,24 @@ export class AdSyncService {
           paged: { pageSize: 500, pagePause: false },
         },
         (err, res) => {
-          if (err) return reject(err);
+          if (err) {
+            const error: Error =
+              err instanceof Error ? err : new Error(String(err));
+            reject(error);
+            return;
+          }
           res.on('searchEntry', (entry) => entries.push(entry));
-          res.on('error', (e) =>
-            reject(
+          res.on('error', (e) => {
+            const error: Error =
               e.name === 'SizeLimitExceededError'
                 ? new BadRequestException(
                     'AD devolveu mais de 1000 entradas — aumente o limit no AD ou pagine.',
                   )
-                : e,
-            ),
-          );
+                : e instanceof Error
+                  ? e
+                  : new Error(String(e));
+            reject(error);
+          });
           res.on('end', () => resolve(entries));
         },
       );
@@ -290,10 +300,7 @@ export class AdSyncService {
 /* -------------------------------------------------------------- */
 
 /** Lê um atributo string da entry, lidando com formatos do ldapjs. */
-function stringAttr(
-  entry: ldap.SearchEntry,
-  name: string,
-): string | null {
+function stringAttr(entry: ldap.SearchEntry, name: string): string | null {
   const a = entry.attributes.find(
     (x) => x.type.toLowerCase() === name.toLowerCase(),
   );

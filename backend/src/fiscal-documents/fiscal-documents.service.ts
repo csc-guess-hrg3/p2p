@@ -6,9 +6,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { QiveClientService } from '../integration/qive-client.service';
-import { parseNfeBase64, ParsedNfe, ParsedNfeItem } from '../integration/nfe-parser';
+import {
+  parseNfeBase64,
+  ParsedNfe,
+  ParsedNfeItem,
+} from '../integration/nfe-parser';
 import { IntegrationLogStatus } from '../common/enums';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { safeDbName } from '../common/erp/safe-db-name';
@@ -126,9 +131,13 @@ export class FiscalDocumentsService {
     nfesIgnored: number;
     lastError: string | null;
     totalLocal: number;
-    lastRun: { status: string; executedAt: Date; durationMs: number | null } | null;
+    lastRun: {
+      status: string;
+      executedAt: Date;
+      durationMs: number | null;
+    } | null;
   }> {
-    const where: any = { deletedAt: null };
+    const where: Prisma.FiscalDocumentWhereInput = { deletedAt: null };
     if (companyId) where.companyId = companyId;
     const totalLocal = await this.prisma.fiscalDocument.count({ where });
     const lastRunRow = await this.prisma.integrationLog.findFirst({
@@ -175,7 +184,10 @@ export class FiscalDocumentsService {
    * Idempotente — se já tem um sync rodando pra essa empresa, devolve
    * `started: false`. Filtra a chamada Qive pelos CNPJs da empresa.
    */
-  startBackgroundSync(companyId: string): { started: boolean; running: boolean } {
+  startBackgroundSync(companyId: string): {
+    started: boolean;
+    running: boolean;
+  } {
     const st = this.getOrInitSyncState(companyId);
     if (st.running) {
       return { started: false, running: true };
@@ -215,10 +227,7 @@ export class FiscalDocumentsService {
    * `FILIAIS.CGC_CPF` de cada erpDb das empresas ativas.
    */
   private async getCnpjToCompanyMap(): Promise<Map<string, string>> {
-    if (
-      this.cnpjMapCache.map &&
-      Date.now() < this.cnpjMapCache.expiresAt
-    ) {
+    if (this.cnpjMapCache.map && Date.now() < this.cnpjMapCache.expiresAt) {
       return this.cnpjMapCache.map;
     }
     const companies = await this.prisma.company.findMany({
@@ -438,7 +447,7 @@ export class FiscalDocumentsService {
           // cnpjs é o filtro de "owner" — quem é dono da NF na conta Qive.
           // Quando vazio (ex.: HRG3 em HML sem FILIAIS), não filtra.
           ...(cnpjFilter.length > 0 ? { cnpjs: cnpjFilter } : {}),
-        } as any);
+        });
         const items = res.data ?? [];
         if (items.length === 0) break;
         totalSeen = res.total;
@@ -692,7 +701,7 @@ export class FiscalDocumentsService {
     const allowedCompanyIds = opts.companyId
       ? user.companyIds.filter((id) => id === opts.companyId)
       : user.companyIds;
-    const where: any = {
+    const where: Prisma.FiscalDocumentWhereInput = {
       deletedAt: null,
       companyId: { in: allowedCompanyIds },
     };
@@ -708,9 +717,10 @@ export class FiscalDocumentsService {
       ];
     }
     if (opts.from || opts.to) {
-      where.emissao = {};
-      if (opts.from) where.emissao.gte = new Date(opts.from);
-      if (opts.to) where.emissao.lte = new Date(opts.to);
+      const emissao: Prisma.DateTimeFilter = {};
+      if (opts.from) emissao.gte = new Date(opts.from);
+      if (opts.to) emissao.lte = new Date(opts.to);
+      where.emissao = emissao;
     }
 
     // Sort: whitelist de colunas pra evitar SQL injection. Default
@@ -728,10 +738,15 @@ export class FiscalDocumentsService {
       ? (opts.sortBy as string)
       : 'emissao';
     const sortDir = opts.sortDir === 'asc' ? 'asc' : 'desc';
-    const orderBy: any =
+    const orderBy: Prisma.FiscalDocumentOrderByWithRelationInput[] =
       sortBy === 'emissao'
         ? [{ emissao: sortDir }, { createdAt: 'desc' }]
-        : [{ [sortBy]: sortDir }, { emissao: 'desc' }];
+        : [
+            {
+              [sortBy]: sortDir,
+            } as Prisma.FiscalDocumentOrderByWithRelationInput,
+            { emissao: 'desc' },
+          ];
 
     const [total, rows] = await Promise.all([
       this.prisma.fiscalDocument.count({ where }),
@@ -928,8 +943,7 @@ export class FiscalDocumentsService {
       filialAEntregar: r.filialAEntregar,
       statusCompra: r.statusCompra,
       // 'CONSUMIVEL' | 'PA' — pro UI mostrar o badge certo
-      tipoPedido:
-        r.tabelaFilha === 'COMPRAS_PRODUTO' ? 'PA' : 'CONSUMIVEL',
+      tipoPedido: r.tabelaFilha === 'COMPRAS_PRODUTO' ? 'PA' : 'CONSUMIVEL',
       companyId: company.id,
       companyCode: company.code,
     }));
@@ -966,11 +980,7 @@ export class FiscalDocumentsService {
     return this.findOne(user, id);
   }
 
-  async linkToPo(
-    user: AuthenticatedUser,
-    id: string,
-    purchaseOrderId: string,
-  ) {
+  async linkToPo(user: AuthenticatedUser, id: string, purchaseOrderId: string) {
     const doc = await this.findOne(user, id);
     if (doc.status === 'LINKED' && doc.purchaseOrderId === purchaseOrderId) {
       return doc;

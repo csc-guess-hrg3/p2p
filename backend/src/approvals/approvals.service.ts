@@ -96,9 +96,7 @@ export class ApprovalsService {
     }
 
     const entityId =
-      params.requisitionId ??
-      params.purchaseOrderId ??
-      (params.fundRequestId as string);
+      params.requisitionId ?? params.purchaseOrderId ?? params.fundRequestId;
 
     await this.prisma.approvalStep.createMany({
       data: needed.map((lvl) => ({
@@ -118,7 +116,7 @@ export class ApprovalsService {
     // Notificação: quando o primeiro nível tem aprovador fixo, avisa direto.
     // Para níveis dinâmicos (por cargo), a notificação será resolvida na
     // próxima fase quando o engine souber quem são os candidatos.
-    if (needed[0].approverId) {
+    if (needed[0].approverId && entityId) {
       await this.notifyApprover(
         needed[0].approverId,
         params.companyId,
@@ -253,7 +251,8 @@ export class ApprovalsService {
     const step = await this.prisma.approvalStep.findUnique({
       where: { id: stepId },
     });
-    if (!step) throw new NotFoundException('Etapa de aprovação não encontrada.');
+    if (!step)
+      throw new NotFoundException('Etapa de aprovação não encontrada.');
     if (step.status !== ApprovalStepStatus.PENDING) {
       throw new BadRequestException('Esta etapa já foi decidida.');
     }
@@ -297,7 +296,7 @@ export class ApprovalsService {
     // auditoria/UX que não foi o aprovador titular.
     const finalComments = isAdminOverride
       ? `[Decisão por Administrador — ${user.name}] ${(comments ?? '').trim()}`
-      : comments ?? null;
+      : (comments ?? null);
 
     const filter = this.engine.entityFilter(step);
     const lowerPending = await this.prisma.approvalStep.count({
@@ -450,7 +449,8 @@ export class ApprovalsService {
     const step = await this.prisma.approvalStep.findUnique({
       where: { id: stepId },
     });
-    if (!step) throw new NotFoundException('Etapa de aprovação não encontrada.');
+    if (!step)
+      throw new NotFoundException('Etapa de aprovação não encontrada.');
     if (step.status !== ApprovalStepStatus.PENDING) {
       throw new BadRequestException('Esta etapa já foi decidida.');
     }
@@ -529,8 +529,7 @@ export class ApprovalsService {
         title: `Revisão solicitada: ${docNum}`,
         body: `${user.name ?? user.adUsername} pediu ajustes em ${docNum}. Motivo: ${finalComments}`,
         entityType: step.entityType,
-        entityId:
-          step.requisitionId ?? (step.purchaseOrderId as string),
+        entityId: step.requisitionId ?? (step.purchaseOrderId as string),
         sendEmail: true,
       });
     }

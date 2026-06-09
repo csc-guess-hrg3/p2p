@@ -41,11 +41,7 @@ export class PurchaseOrderEditorService {
     private readonly approvals: ApprovalsService,
   ) {}
 
-  async edit(
-    user: AuthenticatedUser,
-    id: string,
-    dto: EditPurchaseOrderDto,
-  ) {
+  async edit(user: AuthenticatedUser, id: string, dto: EditPurchaseOrderDto) {
     if (user.profile === UserProfile.REVIEWER) {
       throw new ForbiddenException('Revisor não edita pedidos de compra.');
     }
@@ -144,7 +140,12 @@ export class PurchaseOrderEditorService {
    */
   private async applyItemPatches(
     purchaseOrderId: string,
-    currentItems: Array<{ id: string; itemDescription: string; quantity: { toString: () => string }; unitPrice: { toString: () => string } }>,
+    currentItems: Array<{
+      id: string;
+      itemDescription: string;
+      quantity: { toString: () => string };
+      unitPrice: { toString: () => string };
+    }>,
     dto: EditPurchaseOrderDto,
   ): Promise<number | null> {
     if (!dto.items || dto.items.length === 0) return null;

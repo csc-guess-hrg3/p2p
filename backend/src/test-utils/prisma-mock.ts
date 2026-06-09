@@ -86,7 +86,7 @@ export interface PrismaMock {
 }
 
 export function createPrismaMock(): PrismaMock {
-  const mock: any = {
+  const mock: PrismaMock = {
     approvalStep: model(),
     delegation: model(),
     auditLog: model(),
@@ -119,16 +119,22 @@ export function createPrismaMock(): PrismaMock {
     paDeliveryChange: model(),
     // $transaction: roda o callback passando o próprio mock como tx, ou
     // resolve uma lista de promises (forma de batch).
-    $transaction: jest.fn(async (fnOrList: any) => {
-      if (typeof fnOrList === 'function') return fnOrList(mock);
-      return Promise.all(fnOrList);
-    }),
+    $transaction: jest.fn(
+      async (
+        fnOrList:
+          | ((tx: PrismaMock) => unknown)
+          | ReadonlyArray<Promise<unknown>>,
+      ) => {
+        if (typeof fnOrList === 'function') return fnOrList(mock);
+        return Promise.all(fnOrList);
+      },
+    ),
     $queryRawUnsafe: jest.fn().mockResolvedValue([]),
     $queryRaw: jest.fn().mockResolvedValue([]),
     $executeRawUnsafe: jest.fn().mockResolvedValue(0),
     $executeRaw: jest.fn().mockResolvedValue(0),
   };
-  return mock as PrismaMock;
+  return mock;
 }
 
 /** Stub padrão de usuário autenticado para testes. */

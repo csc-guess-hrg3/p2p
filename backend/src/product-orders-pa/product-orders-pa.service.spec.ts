@@ -12,10 +12,20 @@ import {
 import { ProductOrdersPaService } from './product-orders-pa.service';
 
 /**
+ * Forma mínima do detalhe de pedido PA que os testes inspecionam. O service
+ * monta o retorno a partir de SQL cru (`$queryRaw`), então o tipo inferido é
+ * frouxo; aqui declaramos só os campos lidos nas asserts.
+ */
+interface PaOrderDetail {
+  pedido: string;
+  timeline: { kind: string }[];
+}
+
+/**
  * Stub mínimo de empresa+config para os testes (suficiente para passar
  * pelas guardas `resolveConfig` e `resolveErpDb`).
  */
-function makeCompany(overrides: Partial<any> = {}) {
+function makeCompany(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     id: 'company-test',
     code: 'GUESS',
@@ -35,16 +45,14 @@ describe('ProductOrdersPaService', () => {
 
   beforeEach(() => {
     prisma = createPrismaMock();
-    service = new ProductOrdersPaService(
-      prisma as unknown as PrismaService,
-    );
+    service = new ProductOrdersPaService(prisma as unknown as PrismaService);
   });
 
   describe('assertCompany', () => {
     it('rejeita empresa inválida', async () => {
-      await expect(
-        service.findAll(TEST_USER, 'OUTRO'),
-      ).rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.findAll(TEST_USER, 'OUTRO')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
     });
   });
 
@@ -128,11 +136,11 @@ describe('ProductOrdersPaService', () => {
       // resolveErpDb dentro do findOne pra timeline
       prisma.company.findFirst.mockResolvedValueOnce(makeCompany());
 
-      const out = await service.approve(
+      const out = (await service.approve(
         { ...TEST_USER, id: 'user-aprovador' },
         'GUESS',
         '60001',
-      );
+      )) as PaOrderDetail;
       expect(prisma.$executeRawUnsafe).toHaveBeenCalledTimes(2);
       expect(out.pedido).toBe('60001');
     });
@@ -181,7 +189,11 @@ describe('ProductOrdersPaService', () => {
       prisma.company.findFirst.mockResolvedValue(makeCompany()); // resolveErpDb
       prisma.$queryRawUnsafe.mockResolvedValueOnce([]); // statusLog
 
-      const out = await service.findOne(TEST_USER, 'GUESS', '60001');
+      const out = (await service.findOne(
+        TEST_USER,
+        'GUESS',
+        '60001',
+      )) as PaOrderDetail;
       expect(out.pedido).toBe('60001');
       expect(out.timeline.length).toBeGreaterThanOrEqual(1);
       expect(out.timeline[out.timeline.length - 1].kind).toBe('created');

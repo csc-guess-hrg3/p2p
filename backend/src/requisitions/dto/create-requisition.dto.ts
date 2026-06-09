@@ -17,7 +17,9 @@ import {
 import { RequisitionNfType } from '../../common/enums';
 
 export class CreateRequisitionItemDto {
-  @ApiPropertyOptional({ description: 'Código do item no ERP (vazio = item livre)' })
+  @ApiPropertyOptional({
+    description: 'Código do item no ERP (vazio = item livre)',
+  })
   @IsOptional()
   @IsString()
   itemErpCode?: string;
@@ -52,7 +54,9 @@ export class CreateRequisitionItemDto {
   @IsNotEmpty()
   branchRateioCode!: string;
 
-  @ApiProperty({ description: 'Código do template de rateio de centro de custo' })
+  @ApiProperty({
+    description: 'Código do template de rateio de centro de custo',
+  })
   @IsString()
   @IsNotEmpty()
   costCenterRateioCode!: string;
@@ -83,18 +87,25 @@ export class CreateRequisitionDto {
    *     com `needsSupplierErpCreation = true`. Ao aprovar, o fornecedor
    *     é cadastrado automaticamente no Linx.
    */
-  @ApiPropertyOptional({ description: 'Código do fornecedor no ERP (vazio para fornecedor externo via CNPJ)' })
+  @ApiPropertyOptional({
+    description:
+      'Código do fornecedor no ERP (vazio para fornecedor externo via CNPJ)',
+  })
   @IsOptional()
   @IsString()
   supplierErpCode?: string;
 
-  @ApiPropertyOptional({ description: 'CNPJ do fornecedor — obrigatório quando supplierErpCode vazio' })
+  @ApiPropertyOptional({
+    description:
+      'CNPJ do fornecedor — obrigatório quando supplierErpCode vazio',
+  })
   @IsOptional()
   @IsString()
   supplierCnpj?: string;
 
   @ApiPropertyOptional({
-    description: 'Nome do fornecedor — usado como fallback quando o CNPJ não está nem no ERP nem na Receita Federal',
+    description:
+      'Nome do fornecedor — usado como fallback quando o CNPJ não está nem no ERP nem na Receita Federal',
   })
   @IsOptional()
   @IsString()
@@ -116,7 +127,9 @@ export class CreateRequisitionDto {
   @IsIn(Object.values(RequisitionNfType))
   tipoNotaFiscal!: string;
 
-  @ApiProperty({ description: 'Código da condição de pagamento (COND_ENT_PGTOS)' })
+  @ApiProperty({
+    description: 'Código da condição de pagamento (COND_ENT_PGTOS)',
+  })
   @IsString()
   @IsNotEmpty()
   paymentConditionCode!: string;
@@ -138,7 +151,8 @@ export class CreateRequisitionDto {
   contractRef?: string;
 
   @ApiPropertyOptional({
-    description: 'Tipo de compra Linx (COMPRAS_TIPOS.TIPO_COMPRA). ' +
+    description:
+      'Tipo de compra Linx (COMPRAS_TIPOS.TIPO_COMPRA). ' +
       'Opcional: se ausente, usa o default da empresa.',
   })
   @IsOptional()

@@ -23,7 +23,9 @@ export class ReceivingController {
   constructor(private readonly receiving: ReceivingService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Registra um recebimento contra um pedido de compra' })
+  @ApiOperation({
+    summary: 'Registra um recebimento contra um pedido de compra',
+  })
   create(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateReceivingDto,
@@ -47,7 +49,9 @@ export class ReceivingController {
   }
 
   @Post(':id/confirm')
-  @ApiOperation({ summary: 'Confirma o recebimento e atualiza o saldo do pedido' })
+  @ApiOperation({
+    summary: 'Confirma o recebimento e atualiza o saldo do pedido',
+  })
   confirm(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.receiving.confirm(user, id);
   }

@@ -15,15 +15,13 @@ import { ForbiddenException } from '@nestjs/common';
  *   const db = safeDbName(company.erpDbName);
  *   await prisma.$queryRawUnsafe(`SELECT * FROM [${db}].dbo.COMPRAS ...`);
  */
-const ALLOWED_ERP_DBS = new Set([
-  'GUESS_PRODUCAO',
-  'HML_GUESS',
-  'DB_HRG3',
-]);
+const ALLOWED_ERP_DBS = new Set(['GUESS_PRODUCAO', 'HML_GUESS', 'DB_HRG3']);
 
 export function safeDbName(erpDbName: string | null | undefined): string {
   if (!erpDbName || !ALLOWED_ERP_DBS.has(erpDbName)) {
-    throw new ForbiddenException(`erpDbName inválido: ${erpDbName ?? '(vazio)'}`);
+    throw new ForbiddenException(
+      `erpDbName inválido: ${erpDbName ?? '(vazio)'}`,
+    );
   }
   return erpDbName;
 }

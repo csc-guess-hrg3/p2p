@@ -1,11 +1,4 @@
-import {
-  Controller,
-  Get,
-  Param,
-  Post,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -37,15 +30,14 @@ export class NotificationsController {
 
   @Post(':id/read')
   @ApiOperation({ summary: 'Marca notificação como lida' })
-  markRead(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id') id: string,
-  ) {
+  markRead(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.notifications.markRead(user, id);
   }
 
   @Post('read-all')
-  @ApiOperation({ summary: 'Marca todas as notificações do usuário como lidas' })
+  @ApiOperation({
+    summary: 'Marca todas as notificações do usuário como lidas',
+  })
   markAllRead(@CurrentUser() user: AuthenticatedUser) {
     return this.notifications.markAllRead(user);
   }

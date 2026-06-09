@@ -64,10 +64,7 @@ export class FiscalItemRequestsService {
     if (!dto.itemErpCode) {
       throw new BadRequestException('Informe o código do item para o vínculo.');
     }
-    const item = await this.integration.findItem(
-      company.code,
-      dto.itemErpCode,
-    );
+    const item = await this.integration.findItem(company.code, dto.itemErpCode);
     if (!item) {
       throw new BadRequestException('Item não encontrado no catálogo.');
     }

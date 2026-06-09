@@ -36,7 +36,10 @@ export class EditPurchaseOrderDto {
   @ApiPropertyOptional() @IsOptional() @IsString() paymentCondition?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() transportadora?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() deliveryAddress?: string;
-  @ApiPropertyOptional() @IsOptional() @IsDateString() expectedDelivery?: string;
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  expectedDelivery?: string;
 
   @ApiPropertyOptional({ type: [EditPoItem] })
   @IsOptional()

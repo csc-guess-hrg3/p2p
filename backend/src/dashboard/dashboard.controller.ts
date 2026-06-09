@@ -50,7 +50,9 @@ export class DashboardController {
   }
 
   @Get('budget-consumption')
-  @ApiOperation({ summary: 'Drill-down: consumo orçamentário por centro de custo' })
+  @ApiOperation({
+    summary: 'Drill-down: consumo orçamentário por centro de custo',
+  })
   budgetConsumption(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: QueryDashboardDto,

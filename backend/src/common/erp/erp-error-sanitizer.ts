@@ -18,7 +18,7 @@ const FRIENDLY_BY_TABLE: Record<string, string> = {
 function rawErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (typeof err === 'string') return err;
-  return String(err ?? '');
+  return String((err as string | null) ?? '');
 }
 
 function firstKnownFriendly(raw: string): string | null {
@@ -45,10 +45,7 @@ export function publicErpErrorMessage(err: unknown): string {
   return firstKnownFriendly(raw) ?? FALLBACK_PUBLIC_MESSAGE;
 }
 
-export function sanitizeErpErrorDetail(
-  err: unknown,
-  maxLength = 1900,
-): string {
+export function sanitizeErpErrorDetail(err: unknown, maxLength = 1900): string {
   const raw = rawErrorMessage(err).replace(/\s+/g, ' ').trim();
   const friendly = firstKnownFriendly(raw);
   let sanitized = raw || FALLBACK_PUBLIC_MESSAGE;

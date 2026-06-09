@@ -99,9 +99,7 @@ export class DelegationsService {
       delegation.delegatorId !== user.id &&
       user.profile !== UserProfile.ADMIN
     ) {
-      throw new ForbiddenException(
-        'Só o delegante pode cancelar a delegação.',
-      );
+      throw new ForbiddenException('Só o delegante pode cancelar a delegação.');
     }
     return this.prisma.delegation.update({
       where: { id },

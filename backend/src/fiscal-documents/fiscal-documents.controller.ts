@@ -22,9 +22,7 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 @UseGuards(JwtAuthGuard)
 @Controller('fiscal-documents')
 export class FiscalDocumentsController {
-  constructor(
-    private readonly fiscalDocuments: FiscalDocumentsService,
-  ) {}
+  constructor(private readonly fiscalDocuments: FiscalDocumentsService) {}
 
   @Get()
   @ApiOperation({ summary: 'Lista NFes baixadas da Qive (paginado)' })
@@ -63,19 +61,13 @@ export class FiscalDocumentsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Detalhe da NFe (XML parseado + status)' })
-  findOne(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id') id: string,
-  ) {
+  findOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.fiscalDocuments.findOne(user, id);
   }
 
   @Get(':id/candidates')
   @ApiOperation({ summary: 'PCs candidatos para vincular a esta NFe' })
-  candidates(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id') id: string,
-  ) {
+  candidates(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.fiscalDocuments.candidatesForLink(user, id);
   }
 
@@ -117,10 +109,7 @@ export class FiscalDocumentsController {
 
   @Delete(':id/link')
   @ApiOperation({ summary: 'Desvincula a NFe do PC atual' })
-  unlink(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id') id: string,
-  ) {
+  unlink(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.fiscalDocuments.unlinkFromPo(user, id);
   }
 
@@ -136,10 +125,7 @@ export class FiscalDocumentsController {
 
   @Post(':id/restore')
   @ApiOperation({ summary: 'Retorna a NFe pro status PENDING' })
-  restore(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id') id: string,
-  ) {
+  restore(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.fiscalDocuments.restorePending(user, id);
   }
 

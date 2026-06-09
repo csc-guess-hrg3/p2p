@@ -54,7 +54,9 @@ export class ApiExceptionFilter implements ExceptionFilter {
         exception instanceof Error ? exception.stack : String(exception),
       );
     } else {
-      this.logger.debug(`${route} → ${translated.statusCode}: ${translated.message}`);
+      this.logger.debug(
+        `${route} → ${translated.statusCode}: ${translated.message}`,
+      );
     }
 
     res.status(translated.statusCode).json({
@@ -112,7 +114,8 @@ export class ApiExceptionFilter implements ExceptionFilter {
 
     // 3) Erros do MSSQL (cross-DB pro Linx). O driver `mssql` propaga
     //    `originalCode` e `originalMessage`. Pegamos pelos textos típicos.
-    const raw = exception instanceof Error ? exception.message : String(exception);
+    const raw =
+      exception instanceof Error ? exception.message : String(exception);
     const linx = this.translateLinx(raw);
     if (linx) return linx;
 
@@ -139,12 +142,12 @@ export class ApiExceptionFilter implements ExceptionFilter {
     message: string;
     code: string;
   } {
-    const meta = err.meta as Record<string, unknown> | undefined;
+    const meta = err.meta;
     switch (err.code) {
       case 'P2002': {
         const target = Array.isArray(meta?.target)
           ? (meta?.target as string[]).join(', ')
-          : String(meta?.target ?? 'campo único');
+          : String((meta?.target as string | number | undefined) ?? 'campo único');
         return {
           statusCode: HttpStatus.CONFLICT,
           message: `Já existe um registro com este valor em "${target}".`,
@@ -175,8 +178,12 @@ export class ApiExceptionFilter implements ExceptionFilter {
         // Raw query — extrai mensagem do Linx se houver.
         const driver = (meta?.driverAdapterError as { cause?: unknown })?.cause;
         const inner =
-          driver instanceof Error ? driver.message : String(driver ?? '');
-        const linx = this.translateLinx(inner || (meta?.originalMessage as string) || err.message);
+          driver instanceof Error
+            ? driver.message
+            : String((driver as string | number | undefined) ?? '');
+        const linx = this.translateLinx(
+          inner || (meta?.originalMessage as string) || err.message,
+        );
         if (linx) return { ...linx, code: linx.code ?? 'LINX_QUERY' };
         return {
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
@@ -205,8 +212,10 @@ export class ApiExceptionFilter implements ExceptionFilter {
     action?: string;
   } | null {
     // Triggers que dão rollback explícito.
-    if (raw.includes('transaction ended in the trigger') ||
-        raw.includes('batch has been aborted')) {
+    if (
+      raw.includes('transaction ended in the trigger') ||
+      raw.includes('batch has been aborted')
+    ) {
       // Tenta achar a tabela mencionada em "porque #TABELA".
       const m = raw.match(
         /porque\s*#?(FORNECEDORES|FILIAIS|MOEDAS|COND_ENT_PGTOS|COND_ATAC_PGTOS|TRANSPORTADORAS|PRODUCAO_PROGRAMA|COMPRAS_TIPOS|COMPRAS_STATUS|CTB_CENTRO_CUSTO_RATEIO|CTB_FILIAL_RATEIO|SS_ITEM_FISCAL_FORNECEDOR|CTB_LANC_PADRAO)\b/i,
@@ -247,7 +256,10 @@ export class ApiExceptionFilter implements ExceptionFilter {
     }
 
     // Conversion failed → tipicamente número com whitespace ou char inválido.
-    if (raw.includes('Conversion failed') || raw.includes('Invalid column name')) {
+    if (
+      raw.includes('Conversion failed') ||
+      raw.includes('Invalid column name')
+    ) {
       return {
         statusCode: HttpStatus.BAD_REQUEST,
         message:

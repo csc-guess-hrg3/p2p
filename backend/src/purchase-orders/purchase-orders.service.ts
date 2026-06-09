@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -10,7 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { LinxErpService } from '../integration/linx-erp.service';
 import { EmailService } from '../integration/email.service';
 import { IntegrationService } from '../integration/integration.service';
-import { PurchaseOrderStatus, UserProfile } from '../common/enums';
+import { UserProfile } from '../common/enums';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { QueryPurchaseOrdersDto } from './dto/query-purchase-orders.dto';
 import { assertPoTeamAccess } from './po-access';

@@ -110,7 +110,6 @@ export class LinxErpService {
     return String(value).slice(0, len);
   }
 
-
   /**
    * Trunca para char(n) do Linx — emite warning quando corta, para o
    * operador ter visibilidade (PRD: campos como FORNECEDOR e
@@ -165,9 +164,7 @@ export class LinxErpService {
   ): Promise<string | null> {
     const safeDb = safeDbName(erpDb);
     try {
-      const rows = await this.prisma.$queryRawUnsafe<
-        { PEDIDO: string }[]
-      >(
+      const rows = await this.prisma.$queryRawUnsafe<{ PEDIDO: string }[]>(
         `SELECT TOP 1 PEDIDO FROM [${safeDb}].dbo.COMPRAS WHERE OBS = @P1 ORDER BY EMISSAO DESC`,
         obs,
       );
@@ -187,7 +184,12 @@ export class LinxErpService {
    * Grava entrada em COMPRAS_STATUS_LOG pra rastreio.
    */
   async markPedidoEmEstudo(
-    po: { id: string; companyId: string; erpPedido: string | null; number: string },
+    po: {
+      id: string;
+      companyId: string;
+      erpPedido: string | null;
+      number: string;
+    },
     reason: string,
     user: AuthenticatedUser,
   ): Promise<void> {
@@ -223,7 +225,12 @@ export class LinxErpService {
    * registra em COMPRAS_STATUS_LOG.
    */
   async markPedidoAprovado(
-    po: { id: string; companyId: string; erpPedido: string | null; number: string },
+    po: {
+      id: string;
+      companyId: string;
+      erpPedido: string | null;
+      number: string;
+    },
     user: AuthenticatedUser,
   ): Promise<void> {
     if (!po.erpPedido) return;
@@ -285,7 +292,8 @@ export class LinxErpService {
     const req = await this.prisma.requisition.findUnique({
       where: { id: po.requisitionId },
     });
-    if (!req) throw new NotFoundException('Requisição de origem não encontrada.');
+    if (!req)
+      throw new NotFoundException('Requisição de origem não encontrada.');
 
     const cfg = company.erpConfig;
     const erpDb = safeDbName(company.erpDbName); // HML_GUESS | GUESS_PRODUCAO | DB_HRG3
@@ -350,9 +358,7 @@ export class LinxErpService {
         const tx = this.prisma;
         // 1) Gera o nº do PEDIDO via LX_SEQUENCIAL (OUTPUT param). Procedure
         //    vive em <erpDb>.dbo.LX_SEQUENCIAL.
-        const seqResult = await tx.$queryRawUnsafe<
-          { sequencia: string }[]
-        >(
+        const seqResult = await tx.$queryRawUnsafe<{ sequencia: string }[]>(
           `DECLARE @seq VARCHAR(20);
            EXEC [${erpDb}].dbo.LX_SEQUENCIAL @TABELA_COLUNA = N'COMPRAS.PEDIDO',
                                              @SEQUENCIA = @seq OUTPUT;
@@ -444,7 +450,11 @@ export class LinxErpService {
                 @P7, @P8, @P8,
                 @P9, @P10, @P11,
                 @P1, @P1)`,
-            this.trunc(it.itemErpCode ?? it.itemDescription, 50, 'CONSUMIVEL') ?? '',
+            this.trunc(
+              it.itemErpCode ?? it.itemDescription,
+              50,
+              'CONSUMIVEL',
+            ) ?? '',
             po.expectedDelivery ?? new Date(),
             pedido,
             this.trunc(it.itemDescription, 250, 'DESC_CONSUMIVEL') ?? '',
@@ -453,7 +463,8 @@ export class LinxErpService {
             qty,
             totalIt,
             this.trunc(it.branchRateioCode, 15, 'RATEIO_FILIAL') ?? '',
-            this.trunc(it.costCenterRateioCode, 15, 'RATEIO_CENTRO_CUSTO') ?? '',
+            this.trunc(it.costCenterRateioCode, 15, 'RATEIO_CENTRO_CUSTO') ??
+              '',
             this.trunc(it.accountingAccount, 20, 'CONTA_CONTABIL') ?? '',
           );
         }
@@ -489,23 +500,27 @@ export class LinxErpService {
       // C7 — compensação: se o cabeçalho entrou mas algo depois falhou
       // (item parcial), desfazemos no Linx para que o próximo retry parta
       // do zero sem pedido manco. Itens primeiro (FK), cabeçalho depois.
-      if (pedidoCriado) {
+      // O fluxo da IIFE acima faz o TS estreitar `pedidoCriado` a `never`
+      // aqui; relemos via uma cópia tipada explicitamente como string.
+      const pedidoParaCompensar = pedidoCriado as string | null;
+      if (pedidoParaCompensar) {
+        const pedidoStr: string = pedidoParaCompensar;
         try {
           await this.prisma.$executeRawUnsafe(
             `DELETE FROM [${erpDb}].dbo.COMPRAS_CONSUMIVEL WHERE PEDIDO = @P1`,
-            pedidoCriado,
+            pedidoStr,
           );
           await this.prisma.$executeRawUnsafe(
             `DELETE FROM [${erpDb}].dbo.COMPRAS WHERE PEDIDO = @P1`,
-            pedidoCriado,
+            pedidoStr,
           );
           this.logger.warn(
-            `C7: compensação aplicada — PEDIDO ${pedidoCriado} removido do Linx após falha parcial em ${po.number}`,
+            `C7: compensação aplicada — PEDIDO ${pedidoStr} removido do Linx após falha parcial em ${po.number}`,
           );
         } catch (compErr) {
           // Falha na compensação: loga com urgência — requer intervenção manual.
           this.logger.error(
-            `C7: falha na compensação do PEDIDO ${pedidoCriado} (${erpDb}) — pedido parcial pendente de limpeza manual: ${(compErr as Error).message}`,
+            `C7: falha na compensação do PEDIDO ${pedidoStr} (${erpDb}) — pedido parcial pendente de limpeza manual: ${(compErr as Error).message}`,
           );
         }
       }
@@ -550,9 +565,7 @@ export class LinxErpService {
     try {
       let idLog: number | null = null;
       try {
-        const seq = await this.prisma.$queryRawUnsafe<
-          { sequencia: string }[]
-        >(
+        const seq = await this.prisma.$queryRawUnsafe<{ sequencia: string }[]>(
           `DECLARE @seq VARCHAR(20);
            EXEC [${safeDb}].dbo.LX_SEQUENCIAL @TABELA_COLUNA = N'COMPRAS_EMAIL_LOG.ID_LOG',
                                                  @SEQUENCIA = @seq OUTPUT;
@@ -803,7 +816,6 @@ export class LinxErpService {
    */
   async gravarSolicitacaoVerba(
     sv: FundRequest & { items: FundRequestItem[] },
-    user: AuthenticatedUser,
   ): Promise<{ solicitacao: string }> {
     if (sv.erpSolicitacao) {
       this.logger.log(
@@ -933,12 +945,7 @@ export class LinxErpService {
         this.trunc(obsTag, 250, 'VERBA_OBS') ?? '',
       );
 
-      await this.insertSvItems(
-        erpDb,
-        Number(solicitacao),
-        sv.items,
-        codClifor,
-      );
+      await this.insertSvItems(erpDb, Number(solicitacao), sv.items, codClifor);
 
       await this.prisma.fundRequest.update({
         where: { id: sv.id },
@@ -1071,7 +1078,9 @@ export class LinxErpService {
     );
     const raw = seqResult[0]?.sequencia?.trim();
     if (!raw) {
-      throw new InternalServerErrorException('LX_SEQUENCIAL não devolveu CLIFOR.');
+      throw new InternalServerErrorException(
+        'LX_SEQUENCIAL não devolveu CLIFOR.',
+      );
     }
     const clifor = raw.padStart(6, '0').slice(0, 6);
 

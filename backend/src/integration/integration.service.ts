@@ -45,10 +45,7 @@ export class IntegrationService {
   }
 
   /** Filiais da empresa. */
-  async getBranches(
-    company: string,
-    onlyActive = true,
-  ): Promise<ErpBranch[]> {
+  async getBranches(company: string, onlyActive = true): Promise<ErpBranch[]> {
     const c = this.assertCompany(company);
     return this.prisma.$queryRaw<ErpBranch[]>`
       SELECT codigo, nome, razao_social AS razaoSocial, cnpj, ie,
@@ -104,10 +101,7 @@ export class IntegrationService {
   }
 
   /** Plano de contas da empresa. */
-  async getAccounts(
-    company: string,
-    onlyActive = true,
-  ): Promise<ErpAccount[]> {
+  async getAccounts(company: string, onlyActive = true): Promise<ErpAccount[]> {
     const c = this.assertCompany(company);
     return this.prisma.$queryRaw<ErpAccount[]>`
       SELECT codigo, nome, tipo_conta AS tipoConta,
@@ -139,9 +133,7 @@ export class IntegrationService {
   }
 
   /** Transportadoras ativas (TRANSPORTADORAS). */
-  async getTransportadoras(
-    company: string,
-  ): Promise<Array<{ nome: string }>> {
+  async getTransportadoras(company: string): Promise<Array<{ nome: string }>> {
     const c = this.assertCompany(company);
     return this.prisma.$queryRaw<{ nome: string }[]>`
       SELECT nome FROM dbo.v_p2p_transportadoras
@@ -150,9 +142,7 @@ export class IntegrationService {
   }
 
   /** Condições de pagamento da empresa (COND_ENT_PGTOS). */
-  async getPaymentConditions(
-    company: string,
-  ): Promise<ErpPaymentCondition[]> {
+  async getPaymentConditions(company: string): Promise<ErpPaymentCondition[]> {
     const c = this.assertCompany(company);
     return this.prisma.$queryRaw<ErpPaymentCondition[]>`
       SELECT codigo, descricao, tipo, parcelas
@@ -306,9 +296,8 @@ export class IntegrationService {
     ctb?: number,
   ): Promise<ErpNaturezaEntrada[]> {
     const c = this.assertCompany(company);
-    const ctbFilter = ctb != null
-      ? Prisma.sql`AND ctb_tipo_operacao = ${ctb}`
-      : Prisma.empty;
+    const ctbFilter =
+      ctb != null ? Prisma.sql`AND ctb_tipo_operacao = ${ctb}` : Prisma.empty;
     return this.prisma.$queryRaw<ErpNaturezaEntrada[]>`
       SELECT codigo, descricao, ctb_tipo_operacao AS ctbTipoOperacao
       FROM dbo.v_p2p_naturezas_entrada
@@ -320,10 +309,7 @@ export class IntegrationService {
   // Lookups individuais — validação de códigos do ERP ao criar documentos
   // ----------------------------------------------------------------
 
-  async findBranch(
-    company: string,
-    codigo: string,
-  ): Promise<ErpBranch | null> {
+  async findBranch(company: string, codigo: string): Promise<ErpBranch | null> {
     const c = this.assertCompany(company);
     const rows = await this.prisma.$queryRaw<ErpBranch[]>`
       SELECT codigo, nome, razao_social AS razaoSocial, cnpj, ie,

@@ -1,4 +1,8 @@
-import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   createCipheriv,
@@ -68,9 +72,7 @@ export class SecretService {
 
     const parts = stored.slice(SecretService.PREFIX.length).split(':');
     if (parts.length !== 3) {
-      throw new InternalServerErrorException(
-        'Payload de segredo malformado.',
-      );
+      throw new InternalServerErrorException('Payload de segredo malformado.');
     }
     if (!this.enabled) {
       throw new InternalServerErrorException(

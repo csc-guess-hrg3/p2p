@@ -253,7 +253,11 @@ export class RequisitionsService {
   private snapshotLines(
     kind: 'BRANCH' | 'COST_CENTER',
     rateioCode: string,
-    rawLines: { targetCode: string; branchCode: string | null; percentage: number }[],
+    rawLines: {
+      targetCode: string;
+      branchCode: string | null;
+      percentage: number;
+    }[],
     total: number,
   ) {
     if (rawLines.length === 0) {
@@ -609,25 +613,26 @@ export class RequisitionsService {
     // dos itens desta req, listamos aqui para que a UI mostre o status
     // ao solicitante SEM precisar dar acesso ao módulo Fiscal.
     const itemDescs = req.items.map((it) => it.itemDescription);
-    const fiscalRows = req.supplierErpCode && itemDescs.length > 0
-      ? await this.prisma.fiscalItemRequest.findMany({
-          where: {
-            companyId: req.companyId,
-            supplierErpCode: req.supplierErpCode,
-            itemDescription: { in: itemDescs },
-          },
-          orderBy: { createdAt: 'desc' },
-          select: {
-            id: true,
-            status: true,
-            itemErpCode: true,
-            itemDescription: true,
-            rejectionReason: true,
-            createdAt: true,
-            resolvedAt: true,
-          },
-        })
-      : [];
+    const fiscalRows =
+      req.supplierErpCode && itemDescs.length > 0
+        ? await this.prisma.fiscalItemRequest.findMany({
+            where: {
+              companyId: req.companyId,
+              supplierErpCode: req.supplierErpCode,
+              itemDescription: { in: itemDescs },
+            },
+            orderBy: { createdAt: 'desc' },
+            select: {
+              id: true,
+              status: true,
+              itemErpCode: true,
+              itemDescription: true,
+              rejectionReason: true,
+              createdAt: true,
+              resolvedAt: true,
+            },
+          })
+        : [];
 
     // Achata os nomes pra simplificar consumo no front (campos flat
     // `decidedByName`/`assignedApproverName` em vez de objetos aninhados).
@@ -648,11 +653,7 @@ export class RequisitionsService {
   }
 
   /** Edita uma requisição em rascunho (apenas o solicitante ou admin). */
-  async update(
-    user: AuthenticatedUser,
-    id: string,
-    dto: UpdateRequisitionDto,
-  ) {
+  async update(user: AuthenticatedUser, id: string, dto: UpdateRequisitionDto) {
     const req = await this.findOne(user, id);
 
     const editableStatuses: string[] = [
@@ -731,9 +732,7 @@ export class RequisitionsService {
         dto.branchErpCode,
       );
       if (!branch) {
-        throw new BadRequestException(
-          `Filial inválida: ${dto.branchErpCode}`,
-        );
+        throw new BadRequestException(`Filial inválida: ${dto.branchErpCode}`);
       }
       data.branchErpCode = dto.branchErpCode;
       data.branchName = branch.nome;
@@ -767,10 +766,7 @@ export class RequisitionsService {
     }
 
     if (dto.items) {
-      const teamRateios = await this.loadTeamRateios(
-        user.teamId,
-        company.id,
-      );
+      const teamRateios = await this.loadTeamRateios(user.teamId, company.id);
       const { built, totalAmount } = await this.buildItems(
         company.code,
         dto.items,
@@ -964,9 +960,7 @@ export class RequisitionsService {
       );
     }
     if (req.requesterId !== user.id && user.profile !== UserProfile.ADMIN) {
-      throw new ForbiddenException(
-        'Só o solicitante pode pedir a dispensa.',
-      );
+      throw new ForbiddenException('Só o solicitante pode pedir a dispensa.');
     }
     if (!isQuotationWaiverReason(reason)) {
       throw new BadRequestException(
@@ -1005,9 +999,7 @@ export class RequisitionsService {
       );
     }
     if (req.requesterId !== user.id && user.profile !== UserProfile.ADMIN) {
-      throw new ForbiddenException(
-        'Só o solicitante pode remover a dispensa.',
-      );
+      throw new ForbiddenException('Só o solicitante pode remover a dispensa.');
     }
     await this.prisma.requisition.update({
       where: { id },
@@ -1108,7 +1100,11 @@ export class RequisitionsService {
   async fiscalClassify(
     user: AuthenticatedUser,
     id: string,
-    dto: { ctbTipoOperacao: number; naturezaEntrada: string; tipoCompra?: string },
+    dto: {
+      ctbTipoOperacao: number;
+      naturezaEntrada: string;
+      tipoCompra?: string;
+    },
   ) {
     if (
       user.profile !== UserProfile.REVIEWER &&
@@ -1175,10 +1171,12 @@ export class RequisitionsService {
         (a, b) =>
           new Date(b.decidedAt!).getTime() - new Date(a.decidedAt!).getTime(),
       );
-    const lastApprovedName = decidedSteps.find((s) => s.status === 'APPROVED')
-      ?.decidedByName;
-    const lastRejectedName = decidedSteps.find((s) => s.status === 'REJECTED')
-      ?.decidedByName;
+    const lastApprovedName = decidedSteps.find(
+      (s) => s.status === 'APPROVED',
+    )?.decidedByName;
+    const lastRejectedName = decidedSteps.find(
+      (s) => s.status === 'REJECTED',
+    )?.decidedByName;
     if (req.approvedAt) {
       events.push({
         at: req.approvedAt.toISOString(),

@@ -36,6 +36,20 @@ function makePo(over: Partial<any> = {}) {
   };
 }
 
+/** Forma mínima dos args de `*.update` inspecionados nos testes. */
+interface UpdateArg {
+  data?: { status?: string; divergenceNotes?: string };
+}
+
+/** Acha (tipado) a 1ª chamada de update cujo `data.status` casa. */
+function findUpdateByStatus(
+  mock: jest.Mock,
+  status: string,
+): [UpdateArg] | undefined {
+  const calls = mock.mock.calls as [UpdateArg][];
+  return calls.find((c) => c[0]?.data?.status === status);
+}
+
 function buildService(prisma: PrismaMock) {
   const numbering = {
     next: jest.fn().mockResolvedValue('REC-001'),
@@ -135,9 +149,10 @@ describe('ReceivingService.create', () => {
       ],
     });
     expect(out.id).toBe('rec-1');
+    const dataMatcher: unknown = expect.objectContaining({ status: 'DRAFT' });
     expect(prisma.receiving.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ status: 'DRAFT' }),
+        data: dataMatcher,
       }),
     );
   });
@@ -205,12 +220,11 @@ describe('ReceivingService.confirm', () => {
 
     await service.confirm(TEST_USER, 'rec-1');
 
-    const recUpdate = prisma.receiving.update.mock.calls.find(
-      (c: any[]) => c[0]?.data?.status === 'CONFIRMED',
-    );
+    const recUpdate = findUpdateByStatus(prisma.receiving.update, 'CONFIRMED');
     expect(recUpdate).toBeTruthy();
-    const poUpdate = prisma.purchaseOrder.update.mock.calls.find(
-      (c: any[]) => c[0]?.data?.status === 'FULLY_RECEIVED',
+    const poUpdate = findUpdateByStatus(
+      prisma.purchaseOrder.update,
+      'FULLY_RECEIVED',
     );
     expect(poUpdate).toBeTruthy();
   });
@@ -233,11 +247,9 @@ describe('ReceivingService.confirm', () => {
 
     await service.confirm(TEST_USER, 'rec-1');
 
-    const recUpdate = prisma.receiving.update.mock.calls.find(
-      (c: any[]) => c[0]?.data?.status === 'DIVERGENT',
-    );
+    const recUpdate = findUpdateByStatus(prisma.receiving.update, 'DIVERGENT');
     expect(recUpdate).toBeTruthy();
-    expect(recUpdate[0].data.divergenceNotes).toContain('Rejeição');
+    expect(recUpdate?.[0].data?.divergenceNotes).toContain('Rejeição');
   });
 
   it('rejeita confirmação de recebimento que não está em DRAFT', async () => {

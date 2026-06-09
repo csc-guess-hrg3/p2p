@@ -163,9 +163,7 @@ export class AuditInterceptor implements NestInterceptor {
       const out: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(obj)) {
         out[k] =
-          SENSITIVE.test(k) && v != null && v !== ''
-            ? '***'
-            : this.mask(v);
+          SENSITIVE.test(k) && v != null && v !== '' ? '***' : this.mask(v);
       }
       return out;
     }

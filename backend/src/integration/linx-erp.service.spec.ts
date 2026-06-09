@@ -8,11 +8,18 @@
  *  - prepareStagingId é idempotente: devolve o valor atual quando já existe.
  */
 import { BadRequestException } from '@nestjs/common';
+import type { PurchaseOrder, PurchaseOrderItem } from '@prisma/client';
 import { LinxErpService } from './linx-erp.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { createPrismaMock, TEST_USER, type PrismaMock } from '../test-utils/prisma-mock';
+import {
+  createPrismaMock,
+  TEST_USER,
+  type PrismaMock,
+} from '../test-utils/prisma-mock';
 
-function makePo(over: Partial<any> = {}) {
+type PoArg = PurchaseOrder & { items: PurchaseOrderItem[] };
+
+function makePo(over: Partial<PoArg> = {}): PoArg {
   return {
     id: 'po-1',
     number: 'OC-001',
@@ -50,7 +57,7 @@ function makePo(over: Partial<any> = {}) {
       },
     ],
     ...over,
-  };
+  } as unknown as PoArg;
 }
 
 describe('LinxErpService.gravarPedidoCompra', () => {
@@ -64,7 +71,7 @@ describe('LinxErpService.gravarPedidoCompra', () => {
 
   it('curto-circuita quando erpPedido já está preenchido', async () => {
     const po = makePo({ erpPedido: '00060500' });
-    const out = await service.gravarPedidoCompra(po as any, TEST_USER);
+    const out = await service.gravarPedidoCompra(po, TEST_USER);
     expect(out).toEqual({ pedido: '00060500' });
     expect(prisma.company.findUniqueOrThrow).not.toHaveBeenCalled();
     expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
@@ -78,7 +85,7 @@ describe('LinxErpService.gravarPedidoCompra', () => {
       erpConfig: null,
     });
     await expect(
-      service.gravarPedidoCompra(makePo() as any, TEST_USER),
+      service.gravarPedidoCompra(makePo(), TEST_USER),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
   });
@@ -105,10 +112,12 @@ describe('LinxErpService.gravarPedidoCompra', () => {
     prisma.purchaseOrder.findUniqueOrThrow.mockResolvedValue({
       erpStagingId: 'PO-po-1',
     });
-    // Recovery: encontra PEDIDO existente pelo OBS
+    // 1ª chamada $queryRawUnsafe: lookup de FORNECEDORES (supplierErpCode setado).
+    prisma.$queryRawUnsafe.mockResolvedValueOnce([{ FORNECEDOR: 'Fornecedor' }]);
+    // 2ª: recovery — encontra PEDIDO existente pelo OBS.
     prisma.$queryRawUnsafe.mockResolvedValueOnce([{ PEDIDO: '00060500' }]);
 
-    const out = await service.gravarPedidoCompra(makePo() as any, TEST_USER);
+    const out = await service.gravarPedidoCompra(makePo(), TEST_USER);
     expect(out).toEqual({ pedido: '00060500' });
     // Não chega a executar o INSERT (só fez o SELECT de recovery)
     expect(prisma.$executeRawUnsafe).not.toHaveBeenCalled();
@@ -129,10 +138,13 @@ describe('LinxErpService.gravarPedidoCompra', () => {
     });
     const out = await service.prepareStagingId('po-novo');
     expect(out).toBe('PO-po-novo');
+    const dataMatcher: unknown = expect.objectContaining({
+      erpStagingId: 'PO-po-novo',
+    });
     expect(prisma.purchaseOrder.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'po-novo' },
-        data: expect.objectContaining({ erpStagingId: 'PO-po-novo' }),
+        data: dataMatcher,
       }),
     );
   });

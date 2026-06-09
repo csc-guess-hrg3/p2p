@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import PDFDocument from 'pdfkit';
 import { PrismaService } from '../prisma/prisma.service';
@@ -57,7 +53,9 @@ export class EmailService {
       doc.text(`Filial: ${po.branchName}`);
       if (po.paymentCondition) doc.text(`Condição: ${po.paymentCondition}`);
       if (po.expectedDelivery) {
-        doc.text(`Entrega prevista: ${po.expectedDelivery.toLocaleDateString('pt-BR')}`);
+        doc.text(
+          `Entrega prevista: ${po.expectedDelivery.toLocaleDateString('pt-BR')}`,
+        );
       }
       if (po.deliveryAddress) doc.text(`Endereço: ${po.deliveryAddress}`);
       doc.moveDown();
@@ -122,9 +120,7 @@ export class EmailService {
     opts: SendOptions,
   ): Promise<{ messageId?: string }> {
     if (!opts.to) {
-      throw new BadRequestException(
-        'E-mail do destinatário não informado.',
-      );
+      throw new BadRequestException('E-mail do destinatário não informado.');
     }
 
     const company = await this.prisma.company.findUniqueOrThrow({
@@ -146,9 +142,7 @@ export class EmailService {
       host: cfg.smtpHost,
       port: cfg.smtpPort,
       secure: cfg.smtpSecure,
-      auth: cfg.smtpUser
-        ? { user: cfg.smtpUser, pass: smtpPass }
-        : undefined,
+      auth: cfg.smtpUser ? { user: cfg.smtpUser, pass: smtpPass } : undefined,
     });
 
     const vars = {
