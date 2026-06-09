@@ -196,6 +196,34 @@ export class ApprovalEngineService {
     return f?.requesterId ?? null;
   }
 
+  /**
+   * Status atual do documento-pai do step (requisição/PC/SV). Usado para
+   * impedir decisões em documentos já finalizados (ex.: rejeitar o diretor
+   * depois que o gestor já reprovou — a requisição já morreu) e para
+   * esconder esses steps órfãos das filas de aprovação.
+   */
+  async documentStatus(step: StepRef): Promise<string | null> {
+    if (step.requisitionId) {
+      const r = await this.prisma.requisition.findUnique({
+        where: { id: step.requisitionId },
+        select: { status: true },
+      });
+      return r?.status ?? null;
+    }
+    if (step.purchaseOrderId) {
+      const p = await this.prisma.purchaseOrder.findUnique({
+        where: { id: step.purchaseOrderId },
+        select: { status: true },
+      });
+      return p?.status ?? null;
+    }
+    const f = await this.prisma.fundRequest.findUnique({
+      where: { id: step.fundRequestId as string },
+      select: { status: true },
+    });
+    return f?.status ?? null;
+  }
+
   /** Número do documento (para mensagens de notificação). */
   async documentNumber(step: StepRef): Promise<string> {
     if (step.requisitionId) {
