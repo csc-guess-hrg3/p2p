@@ -117,8 +117,14 @@ export class ReceivingService {
 
   /** Lista recebimentos do escopo do usuário. */
   async findAll(user: AuthenticatedUser, query: QueryReceivingsDto) {
-    const { companyId, purchaseOrderId, status, search, skip = 0, take = 50 } =
-      query;
+    const {
+      companyId,
+      purchaseOrderId,
+      status,
+      search,
+      skip = 0,
+      take = 50,
+    } = query;
     if (companyId && !user.companyIds.includes(companyId)) {
       throw new ForbiddenException('Sem acesso a esta empresa.');
     }

@@ -176,7 +176,9 @@ export class FinancialController {
   }
 
   @Get('branches')
-  @ApiOperation({ summary: 'Lista filiais ativas da empresa (para dropdowns).' })
+  @ApiOperation({
+    summary: 'Lista filiais ativas da empresa (para dropdowns).',
+  })
   branches(
     @CurrentUser() user: AuthenticatedUser,
     @Query('companyId') companyId: string,

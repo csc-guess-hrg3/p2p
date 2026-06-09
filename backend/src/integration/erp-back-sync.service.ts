@@ -3,10 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { safeDbName } from '../common/erp/safe-db-name';
 import { sanitizeErpErrorDetail } from '../common/erp/erp-error-sanitizer';
-import {
-  IntegrationLogStatus,
-  PurchaseOrderStatus,
-} from '../common/enums';
+import { IntegrationLogStatus, PurchaseOrderStatus } from '../common/enums';
 
 /**
  * "Mão de volta" do ERP — cron que lê o estado real dos pedidos no Linx
@@ -424,10 +421,7 @@ export class ErpBackSyncService {
       select: { quantity: true, receivedQty: true, cancelledQty: true },
     });
     const sumQty = itemsNow.reduce((s, x) => s + Number(x.quantity), 0);
-    const sumReceived = itemsNow.reduce(
-      (s, x) => s + Number(x.receivedQty),
-      0,
-    );
+    const sumReceived = itemsNow.reduce((s, x) => s + Number(x.receivedQty), 0);
     const sumCancelled = itemsNow.reduce(
       (s, x) => s + Number(x.cancelledQty),
       0,

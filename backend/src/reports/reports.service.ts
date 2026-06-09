@@ -60,7 +60,12 @@ export class ReportsService {
     since.setDate(since.getDate() - 90);
     for (const co of companies) {
       const suppliers = await this.prisma.$queryRaw<
-        { codigo: string; nome: string; cnpj_cpf: string | null; email: string | null }[]
+        {
+          codigo: string;
+          nome: string;
+          cnpj_cpf: string | null;
+          email: string | null;
+        }[]
       >`
         SELECT codigo, nome, cnpj_cpf, email
         FROM dbo.v_p2p_suppliers
@@ -97,10 +102,7 @@ export class ReportsService {
    * Considera atraso = expectedDelivery + 30 dias < hoje, em pedido
    * ainda aberto (não recebido total, não cancelado, não integrado).
    */
-  async overdueOrdersOver30Days(
-    user: AuthenticatedUser,
-    companyId?: string,
-  ) {
+  async overdueOrdersOver30Days(user: AuthenticatedUser, companyId?: string) {
     const companyIds = this.scope(user, companyId);
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 30);

@@ -144,8 +144,7 @@ export class AuthService {
     // Lista de módulos extras liberados via equipe do usuário. Admin
     // gerencia em /admin/equipes. Frontend faz UNIÃO com o que o perfil
     // já vê por padrão.
-    const extraModules =
-      row?.team?.moduleAccess.map((m) => m.module) ?? [];
+    const extraModules = row?.team?.moduleAccess.map((m) => m.module) ?? [];
     return {
       ...user,
       canSwitchEnv: row?.canSwitchEnv ?? false,

@@ -154,7 +154,9 @@ export class LocalAuthService {
     if (!tk) throw new NotFoundException('Link inválido ou já utilizado.');
     if (tk.usedAt) throw new BadRequestException('Link já foi utilizado.');
     if (tk.expiresAt < new Date())
-      throw new BadRequestException('Link expirado — solicite um novo ao Admin.');
+      throw new BadRequestException(
+        'Link expirado — solicite um novo ao Admin.',
+      );
     const hash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     const now = new Date();
     await this.prisma.$transaction([
@@ -269,9 +271,7 @@ export class LocalAuthService {
       this.config.get<string>('PUBLIC_URL') ?? 'https://p2p.hrg3.com.br';
     const link = `${baseUrl}/definir-senha?token=${rawToken}`;
     const subject =
-      purpose === 'SETUP'
-        ? 'P2P: defina sua senha'
-        : 'P2P: redefina sua senha';
+      purpose === 'SETUP' ? 'P2P: defina sua senha' : 'P2P: redefina sua senha';
     const body =
       purpose === 'SETUP'
         ? `Olá ${name},\n\nVocê foi cadastrado no sistema P2P da HRG3. Para definir sua senha, clique no link abaixo (válido por ${TOKEN_LIFETIME_HOURS} horas):\n\n${link}\n\nSe não foi você quem solicitou, ignore esta mensagem.`
@@ -302,4 +302,3 @@ export class LocalAuthService {
     }
   }
 }
-

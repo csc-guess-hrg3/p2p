@@ -40,10 +40,7 @@ export class RequisitionsController {
     summary:
       'Clona requisição existente como rascunho. O solicitante do clone é o usuário logado.',
   })
-  clone(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id') id: string,
-  ) {
+  clone(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.requisitions.clone(user, id);
   }
 

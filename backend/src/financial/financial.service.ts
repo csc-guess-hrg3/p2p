@@ -143,12 +143,12 @@ export class FinancialService {
     const ef = this.safeDate(f.emissaoFrom);
     const et = this.safeDate(f.emissaoTo);
     if (cols.emissao && ef) parts.push(`AND ${cols.emissao} >= '${ef}'`);
-    if (cols.emissao && et) parts.push(`AND ${cols.emissao} <= '${et} 23:59:59'`);
+    if (cols.emissao && et)
+      parts.push(`AND ${cols.emissao} <= '${et} 23:59:59'`);
 
     const vf = this.safeDate(f.vencimentoFrom);
     const vt = this.safeDate(f.vencimentoTo);
-    if (cols.vencimento && vf)
-      parts.push(`AND ${cols.vencimento} >= '${vf}'`);
+    if (cols.vencimento && vf) parts.push(`AND ${cols.vencimento} >= '${vf}'`);
     if (cols.vencimento && vt)
       parts.push(`AND ${cols.vencimento} <= '${vt} 23:59:59'`);
 
@@ -199,10 +199,7 @@ export class FinancialService {
       offset?: number;
     },
   ) {
-    const { erpDbName } = await this.resolveCompany(
-      user,
-      params.companyId,
-    );
+    const { erpDbName } = await this.resolveCompany(user, params.companyId);
     const db = this.safeDbName(erpDbName);
     const limit = Math.min(Math.max(params.limit ?? 50, 1), 500);
     const offset = Math.max(params.offset ?? 0, 0);
@@ -327,9 +324,8 @@ export class FinancialService {
       ORDER BY MIN(p.VENCIMENTO_REAL) DESC
       OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
     `;
-    const rows = await this.prisma.$queryRawUnsafe<Record<string, unknown>[]>(
-      sql,
-    );
+    const rows =
+      await this.prisma.$queryRawUnsafe<Record<string, unknown>[]>(sql);
     return { items: rows, limit, offset };
   }
 
@@ -435,9 +431,8 @@ export class FinancialService {
       ORDER BY MIN(p.VENCIMENTO_REAL) DESC
       OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
     `;
-    const rows = await this.prisma.$queryRawUnsafe<Record<string, unknown>[]>(
-      sql,
-    );
+    const rows =
+      await this.prisma.$queryRawUnsafe<Record<string, unknown>[]>(sql);
     return { items: rows, limit, offset };
   }
 
@@ -555,10 +550,7 @@ export class FinancialService {
       offset?: number;
     },
   ) {
-    const { erpDbName } = await this.resolveCompany(
-      user,
-      params.companyId,
-    );
+    const { erpDbName } = await this.resolveCompany(user, params.companyId);
     const db = this.safeDbName(erpDbName);
     const limit = Math.min(Math.max(params.limit ?? 50, 1), 500);
     const offset = Math.max(params.offset ?? 0, 0);
@@ -617,9 +609,8 @@ export class FinancialService {
       ORDER BY v.EMISSAO DESC
       OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
     `;
-    const rows = await this.prisma.$queryRawUnsafe<Record<string, unknown>[]>(
-      sql,
-    );
+    const rows =
+      await this.prisma.$queryRawUnsafe<Record<string, unknown>[]>(sql);
     return { items: rows, limit, offset };
   }
 
@@ -646,10 +637,7 @@ export class FinancialService {
       offset?: number;
     },
   ) {
-    const { erpDbName } = await this.resolveCompany(
-      user,
-      params.companyId,
-    );
+    const { erpDbName } = await this.resolveCompany(user, params.companyId);
     const db = this.safeDbName(erpDbName);
     const limit = Math.min(Math.max(params.limit ?? 50, 1), 500);
     const offset = Math.max(params.offset ?? 0, 0);
@@ -774,9 +762,8 @@ export class FinancialService {
       ORDER BY d.DATA_RECEBIMENTO DESC
       OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
     `;
-    const rows = await this.prisma.$queryRawUnsafe<Record<string, unknown>[]>(
-      sql,
-    );
+    const rows =
+      await this.prisma.$queryRawUnsafe<Record<string, unknown>[]>(sql);
     return { items: rows, limit, offset };
   }
 
@@ -923,9 +910,8 @@ export class FinancialService {
       ORDER BY a.VENCIMENTO_REAL DESC, a.LANCAMENTO DESC
       OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
     `;
-    const rows = await this.prisma.$queryRawUnsafe<Record<string, unknown>[]>(
-      sql,
-    );
+    const rows =
+      await this.prisma.$queryRawUnsafe<Record<string, unknown>[]>(sql);
     return { items: rows, limit, offset };
   }
 
@@ -1004,7 +990,12 @@ export class FinancialService {
             OR CGC_CPF LIKE N'%${search.replace(/\D/g, '')}%'`
       : '';
     const rows = await this.prisma.$queryRawUnsafe<
-      Array<{ CLIFOR: string; NOME_CLIFOR: string; RAZAO_SOCIAL: string; CGC_CPF: string }>
+      Array<{
+        CLIFOR: string;
+        NOME_CLIFOR: string;
+        RAZAO_SOCIAL: string;
+        CGC_CPF: string;
+      }>
     >(`
       SELECT TOP ${limit} CLIFOR, NOME_CLIFOR, RAZAO_SOCIAL, CGC_CPF
       FROM [${db}].dbo.CADASTRO_CLI_FOR

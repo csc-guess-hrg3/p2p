@@ -26,7 +26,7 @@ interface CreateQuotationInput {
   }>;
 }
 
-interface UpdateQuotationInput extends Partial<CreateQuotationInput> {}
+type UpdateQuotationInput = Partial<CreateQuotationInput>;
 
 @Injectable()
 export class QuotationsService {
@@ -134,7 +134,10 @@ export class QuotationsService {
     // 1) Lookup no ERP — se achar, captura código + nome + condição padrão.
     // 2) Senão, consulta BrasilAPI pra trazer razão social + endereço.
     // 3) Senão, exige o nome digitado pelo solicitante (`supplierNameOverride`).
-    const erp = await this.integration.findSupplierByCnpj(req.company.code, cnpj);
+    const erp = await this.integration.findSupplierByCnpj(
+      req.company.code,
+      cnpj,
+    );
     let supplierName = erp?.nome ?? '';
     let publicData: Awaited<ReturnType<CnpjPublicService['lookup']>> | null =
       null;
@@ -566,14 +569,16 @@ export class QuotationsService {
         );
         if (!linked) {
           // Verifica se há pendência APPROVED prévia (mesmo fornecedor+item).
-          const alreadyApproved = await this.prisma.fiscalItemRequest.findFirst({
-            where: {
-              companyId: req.companyId,
-              supplierErpCode: q.supplierErpCode,
-              itemErpCode: template.itemErpCode,
-              status: 'APPROVED',
+          const alreadyApproved = await this.prisma.fiscalItemRequest.findFirst(
+            {
+              where: {
+                companyId: req.companyId,
+                supplierErpCode: q.supplierErpCode,
+                itemErpCode: template.itemErpCode,
+                status: 'APPROVED',
+              },
             },
-          });
+          );
           // E se já tem PENDING aberta (não duplica).
           const alreadyPending = await this.prisma.fiscalItemRequest.findFirst({
             where: {
@@ -592,7 +597,8 @@ export class QuotationsService {
                 supplierErpCode: q.supplierErpCode,
                 supplierName: q.supplierName,
                 itemErpCode: template.itemErpCode,
-                itemDescription: q.items[0]?.description ?? template.itemDescription,
+                itemDescription:
+                  q.items[0]?.description ?? template.itemDescription,
                 unit: template.unit,
                 requestedById: user.id,
                 notes:
@@ -606,7 +612,6 @@ export class QuotationsService {
       } catch (err) {
         // Não derruba a seleção se a checagem de vínculo falhar — só loga.
         // O convert vai pegar a inconsistência depois.
-        // eslint-disable-next-line no-console
         console.warn(
           `[selectAsWinner] Falha ao verificar vínculo item-fornecedor: ${(err as Error).message}`,
         );

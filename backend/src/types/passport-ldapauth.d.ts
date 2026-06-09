@@ -17,7 +17,10 @@ declare module 'passport-ldapauth' {
     usernameField?: string;
     passwordField?: string;
     passReqToCallback?: boolean;
-    credentialsLookup?: (req: unknown) => { username: string; password: string };
+    credentialsLookup?: (req: unknown) => {
+      username: string;
+      password: string;
+    };
   }
 
   export type VerifyCallback = (

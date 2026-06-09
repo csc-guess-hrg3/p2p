@@ -14,7 +14,8 @@ export class ReportsController {
 
   @Get('rel-001-suppliers-no-cc')
   @ApiOperation({
-    summary: 'REL-001 — Fornecedores sem CC associado (sem pedidos nos últimos 90d)',
+    summary:
+      'REL-001 — Fornecedores sem CC associado (sem pedidos nos últimos 90d)',
   })
   rel001(
     @CurrentUser() user: AuthenticatedUser,

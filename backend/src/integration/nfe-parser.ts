@@ -53,20 +53,14 @@ export interface ParsedNfeItem {
  * e a extração de items das NFes 4.00 retornava sempre vazia.
  */
 function tag(xml: string, name: string): string | null {
-  const re = new RegExp(
-    `<${name}(?:\\s[^>]*)?>([\\s\\S]*?)</${name}>`,
-    'i',
-  );
+  const re = new RegExp(`<${name}(?:\\s[^>]*)?>([\\s\\S]*?)</${name}>`, 'i');
   const m = xml.match(re);
   return m ? m[1].trim() : null;
 }
 
 /** Extrai TODOS os blocos de uma tag (retorna array). Aceita atributos. */
 function tags(xml: string, name: string): string[] {
-  const re = new RegExp(
-    `<${name}(?:\\s[^>]*)?>([\\s\\S]*?)</${name}>`,
-    'gi',
-  );
+  const re = new RegExp(`<${name}(?:\\s[^>]*)?>([\\s\\S]*?)</${name}>`, 'gi');
   const out: string[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(xml)) !== null) {
@@ -109,15 +103,21 @@ export function parseNfeXml(xml: string): ParsedNfe | null {
 
   // <emit> — fornecedor (CNPJ)
   const emitBlock = tag(xml, 'emit') ?? '';
-  const emitCnpj = (tag(emitBlock, 'CNPJ') ?? tag(emitBlock, 'CPF') ?? '')
-    .replace(/\D/g, '');
+  const emitCnpj = (
+    tag(emitBlock, 'CNPJ') ??
+    tag(emitBlock, 'CPF') ??
+    ''
+  ).replace(/\D/g, '');
   const emitNome = tag(emitBlock, 'xNome') ?? '';
   if (!emitCnpj) return null;
 
   // <dest> — destinatário (a nossa filial)
   const destBlock = tag(xml, 'dest') ?? '';
-  const destCnpj = (tag(destBlock, 'CNPJ') ?? tag(destBlock, 'CPF') ?? '')
-    .replace(/\D/g, '');
+  const destCnpj = (
+    tag(destBlock, 'CNPJ') ??
+    tag(destBlock, 'CPF') ??
+    ''
+  ).replace(/\D/g, '');
   const destNome = tag(destBlock, 'xNome');
 
   // <total>/<ICMSTot>/<vNF> — valor total da NF

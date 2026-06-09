@@ -9,7 +9,13 @@ import { NumberingModule } from '../numbering/numbering.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [IntegrationModule, ApprovalsModule, SettingsModule, NumberingModule, NotificationsModule],
+  imports: [
+    IntegrationModule,
+    ApprovalsModule,
+    SettingsModule,
+    NumberingModule,
+    NotificationsModule,
+  ],
   controllers: [RequisitionsController],
   providers: [RequisitionsService, RequisitionRecurrenceService],
   exports: [RequisitionsService],

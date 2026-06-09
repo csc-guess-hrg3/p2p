@@ -37,8 +37,7 @@ export class ApprovalEngineService {
   /** Filtro Prisma para os steps do mesmo documento que o step base. */
   entityFilter(step: StepRef): Prisma.ApprovalStepWhereInput {
     if (step.requisitionId) return { requisitionId: step.requisitionId };
-    if (step.purchaseOrderId)
-      return { purchaseOrderId: step.purchaseOrderId };
+    if (step.purchaseOrderId) return { purchaseOrderId: step.purchaseOrderId };
     return { fundRequestId: step.fundRequestId };
   }
 

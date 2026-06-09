@@ -1,11 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import {
-  IsArray,
-  IsNotEmpty,
-  IsString,
-  ValidateNested,
-} from 'class-validator';
+import { IsArray, IsNotEmpty, IsString, ValidateNested } from 'class-validator';
 
 export class BranchAssignmentEntry {
   @ApiProperty()
@@ -22,8 +17,7 @@ export class BranchAssignmentEntry {
 export class SetBranchAssignmentsDto {
   @ApiProperty({
     type: [BranchAssignmentEntry],
-    description:
-      'Lista completa de filiais cobertas pelo usuário (substitui).',
+    description: 'Lista completa de filiais cobertas pelo usuário (substitui).',
   })
   @IsArray()
   @ValidateNested({ each: true })

@@ -14,10 +14,10 @@ const VENDOR_PROFILE = 'OPERATOR';
 
 /** Linha bruta da view `v_p2p_loja_vendedores` (cross-DB Linx). */
 interface LojaVendedorRow {
-  empresa: string;          // 'GUESS' | 'HRG3'
-  cpf: string;              // só dígitos
+  empresa: string; // 'GUESS' | 'HRG3'
+  cpf: string; // só dígitos
   nome: string;
-  branch_erp_code: string;  // FILIAIS.COD_FILIAL
+  branch_erp_code: string; // FILIAIS.COD_FILIAL
   branch_name: string;
 }
 
@@ -71,7 +71,11 @@ export class StoreAuthService {
     found: boolean;
     needsSetup: boolean;
     name: string | null;
-    branches: Array<{ companyCode: string; branchErpCode: string; branchName: string }>;
+    branches: Array<{
+      companyCode: string;
+      branchErpCode: string;
+      branchName: string;
+    }>;
   }> {
     const rows = await this.findVendorRows(cpf);
     if (rows.length === 0) {
@@ -81,8 +85,7 @@ export class StoreAuthService {
       where: { cpf: normalizeCpf(cpf) },
       select: { passwordHash: true, status: true, deletedAt: true },
     });
-    const needsSetup =
-      !user || !user.passwordHash || user.deletedAt !== null;
+    const needsSetup = !user || !user.passwordHash || user.deletedAt !== null;
     return {
       found: true,
       needsSetup,

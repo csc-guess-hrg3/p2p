@@ -45,10 +45,7 @@ export function publicErpErrorMessage(err: unknown): string {
   return firstKnownFriendly(raw) ?? FALLBACK_PUBLIC_MESSAGE;
 }
 
-export function sanitizeErpErrorDetail(
-  err: unknown,
-  maxLength = 1900,
-): string {
+export function sanitizeErpErrorDetail(err: unknown, maxLength = 1900): string {
   const raw = rawErrorMessage(err).replace(/\s+/g, ' ').trim();
   const friendly = firstKnownFriendly(raw);
   let sanitized = raw || FALLBACK_PUBLIC_MESSAGE;

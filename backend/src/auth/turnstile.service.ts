@@ -41,7 +41,10 @@ export class TurnstileService {
    * Valida o token. Lança 401 se inválido. Aceita sem validação quando
    * o serviço está desativado (sem secret key).
    */
-  async assertValid(token: string | undefined, remoteIp?: string): Promise<void> {
+  async assertValid(
+    token: string | undefined,
+    remoteIp?: string,
+  ): Promise<void> {
     if (!this.secretKey) return; // dev / sem captcha configurado
     if (!token) {
       throw new UnauthorizedException(

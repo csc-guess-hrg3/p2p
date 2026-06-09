@@ -11,6 +11,6 @@ export class SetTeamModulesDto {
   @IsArray()
   @ArrayUnique()
   @IsString({ each: true })
-  @IsIn(KNOWN_MODULES as unknown as string[], { each: true })
+  @IsIn(KNOWN_MODULES, { each: true })
   modules!: string[];
 }

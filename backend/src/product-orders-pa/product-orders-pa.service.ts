@@ -10,6 +10,44 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { safeDbName } from '../common/erp/safe-db-name';
 
+/*
+ * Linhas das views v_p2p_product_order* (consultadas via `SELECT *`).
+ * Tipamos só os campos que o código acessa; as demais colunas ficam como
+ * `unknown` via index signature — evita `any` (e os erros no-unsafe-*) sem
+ * precisar enumerar todas as colunas das views.
+ */
+type PaOrderRow = {
+  pedido: string;
+  cadastramento: string | Date | null;
+  requerido_por: string | null;
+  data_aprovacao: string | Date | null;
+  status_efetivo: string | null;
+  status_compra: string | null;
+  aprovado_por: string | null;
+  emissao: string | Date | null;
+  [col: string]: unknown;
+};
+type PaItemRow = {
+  produto: string | null;
+  cor: string | null;
+  entrega: string | Date | null;
+  [col: string]: unknown;
+};
+type PaNfRow = {
+  nf: string | null;
+  serie: string | null;
+  recebimento: string | Date | null;
+  emissao: string | Date | null;
+  qtde_total: number | string | null;
+  [col: string]: unknown;
+};
+type PaItemNfRow = {
+  produto: string | null;
+  cor: string | null;
+  entrega: string | Date | null;
+  [col: string]: unknown;
+};
+
 /**
  * Pedidos de Compra de PRODUTO ACABADO (PA).
  *
@@ -373,8 +411,8 @@ export class ProductOrdersPaService {
           companyId: comp.id,
           pedido: numero,
           scope: payload.scope,
-          produto: payload.scope === 'item' ? payload.produto ?? null : null,
-          cor: payload.scope === 'item' ? payload.cor ?? null : null,
+          produto: payload.scope === 'item' ? (payload.produto ?? null) : null,
+          cor: payload.scope === 'item' ? (payload.cor ?? null) : null,
           entregaOriginal:
             payload.scope === 'item' && payload.entregaOriginal
               ? new Date(payload.entregaOriginal)
@@ -431,7 +469,7 @@ export class ProductOrdersPaService {
     // Query 1: pedidos. Evitamos OUTER APPLY com subquery agregada (que
     // dispara 200 leituras na view de NFs por chamada — em PROD passava
     // dos 5s). Vamos fazer o agg de NFs separado, em batch (Q2).
-    const rows = await this.prisma.$queryRaw<any[]>`
+    const rows = await this.prisma.$queryRaw<PaOrderRow[]>`
       SELECT TOP 200 *
       FROM dbo.v_p2p_product_orders
       WHERE ${where}
@@ -490,24 +528,24 @@ export class ProductOrdersPaService {
     this.assertUserHasCompany(user, c);
 
     const numero = pedido.trim();
-    const headerRows = await this.prisma.$queryRaw<any[]>`
+    const headerRows = await this.prisma.$queryRaw<PaOrderRow[]>`
       SELECT TOP 1 * FROM dbo.v_p2p_product_orders
       WHERE empresa = ${c} AND pedido = ${numero}`;
     if (headerRows.length === 0) {
       throw new NotFoundException(`Pedido ${numero} não encontrado.`);
     }
-    const items = await this.prisma.$queryRaw<any[]>`
+    const items = await this.prisma.$queryRaw<PaItemRow[]>`
       SELECT * FROM dbo.v_p2p_product_order_items
       WHERE empresa = ${c} AND pedido = ${numero}
       ORDER BY produto, cor, entrega`;
 
     // NFs do pedido (header agregado) + linhas NF×item para associar
     // a coluna "NF que entregou" em cada item da grade.
-    const nfs = await this.prisma.$queryRaw<any[]>`
+    const nfs = await this.prisma.$queryRaw<PaNfRow[]>`
       SELECT * FROM dbo.v_p2p_product_order_nfs
       WHERE empresa = ${c} AND pedido = ${numero}
       ORDER BY recebimento DESC, emissao DESC, nf`;
-    const itemNfs = await this.prisma.$queryRaw<any[]>`
+    const itemNfs = await this.prisma.$queryRaw<PaItemNfRow[]>`
       SELECT * FROM dbo.v_p2p_product_order_item_nfs
       WHERE empresa = ${c} AND pedido = ${numero}`;
 
@@ -549,7 +587,13 @@ export class ProductOrdersPaService {
     const header = headerRows[0];
     type Evt = {
       at: string;
-      kind: 'created' | 'approved' | 'rejected' | 'status' | 'nf' | 'reschedule';
+      kind:
+        | 'created'
+        | 'approved'
+        | 'rejected'
+        | 'status'
+        | 'nf'
+        | 'reschedule';
       label: string;
       who?: string | null;
       detail?: string | null;
@@ -591,7 +635,11 @@ export class ProductOrdersPaService {
       const aprovDt = header.data_aprovacao
         ? new Date(header.data_aprovacao).getTime()
         : null;
-      if (aprovDt && Math.abs(dt - aprovDt) < 60_000 && (log.status_compra === 'A' || log.status_compra === 'R')) {
+      if (
+        aprovDt &&
+        Math.abs(dt - aprovDt) < 60_000 &&
+        (log.status_compra === 'A' || log.status_compra === 'R')
+      ) {
         continue;
       }
       const code = (log.status_compra ?? '').trim().toUpperCase();
@@ -700,7 +748,9 @@ export class ProductOrdersPaService {
     // poderia ter mandado o `grade` direto, mas resolver no backend
     // mantém a UI burra (sem cross-table).
     const erpDb = await this.resolveErpDb(c);
-    const gradeRow = await this.prisma.$queryRawUnsafe<{ grade: string | null }[]>(
+    const gradeRow = await this.prisma.$queryRawUnsafe<
+      { grade: string | null }[]
+    >(
       `SELECT TOP 1 RTRIM(GRADE) AS grade FROM [${erpDb}].dbo.PRODUTOS WHERE PRODUTO = @P1`,
       produto,
     );
@@ -708,7 +758,12 @@ export class ProductOrdersPaService {
 
     const date = new Date(entrega);
     const rows = await this.prisma.$queryRaw<
-      { posicao: number; qtdeOriginal: number; qtdeEntregue: number; tamanho: string | null }[]
+      {
+        posicao: number;
+        qtdeOriginal: number;
+        qtdeEntregue: number;
+        tamanho: string | null;
+      }[]
     >`
       SELECT g.posicao,
              g.qtde_original AS qtdeOriginal,
@@ -732,11 +787,7 @@ export class ProductOrdersPaService {
    * cruzadas com fiscal_documents pra liberar XML/DANFe download quando
    * disponível.
    */
-  async listNfes(
-    user: AuthenticatedUser,
-    company: string,
-    pedido: string,
-  ) {
+  async listNfes(user: AuthenticatedUser, company: string, pedido: string) {
     const c = this.assertCompany(company);
     this.assertUserHasCompany(user, c);
     const erpDb = await this.resolveErpDb(c);
@@ -775,10 +826,7 @@ export class ProductOrdersPaService {
     const keys = rows
       .map((r) => (r.chaveNfe ?? '').replace(/\D/g, ''))
       .filter((k) => k.length === 44);
-    const fdMap = new Map<
-      string,
-      { id: string; status: string }
-    >();
+    const fdMap = new Map<string, { id: string; status: string }>();
     if (keys.length > 0) {
       const fds = await this.prisma.fiscalDocument.findMany({
         where: { accessKey: { in: keys }, deletedAt: null },

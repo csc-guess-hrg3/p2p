@@ -92,11 +92,7 @@ export class LegacyOrdersService {
    * pedidos do P2P (PRD §11). Pedido externo é um COMPRAS como qualquer
    * outro; só muda a origem. Reusa ErpBackSync.readFinanceiroByPedido.
    */
-  async financeiro(
-    user: AuthenticatedUser,
-    companyId: string,
-    pedido: string,
-  ) {
+  async financeiro(user: AuthenticatedUser, companyId: string, pedido: string) {
     this.requireAdmin(user);
     const company = await this.resolveCompany(companyId);
     return this.erpBackSync.readFinanceiroByPedido(company.erpDbName, pedido);
@@ -247,7 +243,9 @@ export class LegacyOrdersService {
     // Conta total — aplica o mesmo nfeExistsClause pra paginação coerente.
     const countRows = await this.prisma.$queryRawUnsafe<
       Array<{ total: number }>
-    >(`SELECT COUNT(*) AS total FROM [${db}].dbo.COMPRAS c WITH (NOLOCK) WHERE ${where} ${nfeExistsClause}`);
+    >(
+      `SELECT COUNT(*) AS total FROM [${db}].dbo.COMPRAS c WITH (NOLOCK) WHERE ${where} ${nfeExistsClause}`,
+    );
     const total = Number(countRows[0]?.total ?? 0);
 
     // Paginação por OFFSET/FETCH (SQL Server 2012+)
@@ -294,7 +292,7 @@ export class LegacyOrdersService {
 
     // Conta NFs só pros pedidos da página (no máx ~pageSize valores em IN).
     const pedidosOnPage = rowsRaw.map((r) => `'${r.pedido}'`);
-    let nfCounts = new Map<string, { total: number; comChave: number }>();
+    const nfCounts = new Map<string, { total: number; comChave: number }>();
     if (pedidosOnPage.length > 0) {
       const inList = pedidosOnPage.join(',');
       const counts = await this.prisma.$queryRawUnsafe<
@@ -399,11 +397,7 @@ export class LegacyOrdersService {
   // DETALHE
   // ──────────────────────────────────────────────────────────────────
 
-  async detail(
-    user: AuthenticatedUser,
-    companyId: string,
-    pedido: string,
-  ) {
+  async detail(user: AuthenticatedUser, companyId: string, pedido: string) {
     this.requireAdmin(user);
     const company = await this.resolveCompany(companyId);
     const db = safeDbName(company.erpDbName);
@@ -613,11 +607,7 @@ export class LegacyOrdersService {
     });
   }
 
-  async listNfes(
-    user: AuthenticatedUser,
-    companyId: string,
-    pedido: string,
-  ) {
+  async listNfes(user: AuthenticatedUser, companyId: string, pedido: string) {
     this.requireAdmin(user);
     const company = await this.resolveCompany(companyId);
     return this.listNfesForOrder(safeDbName(company.erpDbName), pedido);

@@ -54,7 +54,7 @@ export class FundRequestsService {
         'SV ainda não foi aprovada — não há o que integrar no Linx.',
       );
     }
-    const { solicitacao } = await this.linx.gravarSolicitacaoVerba(sv, user);
+    const { solicitacao } = await this.linx.gravarSolicitacaoVerba(sv);
     // gravarSolicitacaoVerba já atualiza erpSolicitacao + integratedAt
     // + limpa lastErpError. Aqui só promovemos o status pra INTEGRATED.
     await this.prisma.fundRequest.update({

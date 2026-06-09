@@ -30,7 +30,7 @@ interface CreateQuotationDto {
   items: QuotationItemDto[];
 }
 
-interface UpdateQuotationDto extends Partial<CreateQuotationDto> {}
+type UpdateQuotationDto = Partial<CreateQuotationDto>;
 
 @ApiTags('Cotações')
 @ApiBearerAuth()
@@ -93,7 +93,11 @@ export class QuotationsController {
     @Param('id') quotationId: string,
     @Body() body: { reason?: string },
   ) {
-    return this.quotations.selectAsWinner(user, quotationId, body?.reason ?? '');
+    return this.quotations.selectAsWinner(
+      user,
+      quotationId,
+      body?.reason ?? '',
+    );
   }
 
   @Post('requisitions/:id/quotations/clear-winner')

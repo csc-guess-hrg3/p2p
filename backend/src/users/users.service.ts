@@ -112,9 +112,7 @@ export class UsersService {
         where: { id: { in: uniqueCompanies }, deletedAt: null },
       });
       if (found !== uniqueCompanies.length) {
-        throw new BadRequestException(
-          'Uma ou mais empresas são inválidas.',
-        );
+        throw new BadRequestException('Uma ou mais empresas são inválidas.');
       }
     }
     await this.prisma.$transaction([

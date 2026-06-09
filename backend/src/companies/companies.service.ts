@@ -108,14 +108,20 @@ export class CompaniesService {
         ? {}
         : { smtpPassword: this.secrets.encrypt(patch.smtpPassword) };
     const data = {
-      codTransacao: patch.codTransacao ?? current?.codTransacao ?? 'COMPRAS_003',
-      tabelaFilha: patch.tabelaFilha ?? current?.tabelaFilha ?? 'COMPRAS_CONSUMIVEL',
+      codTransacao:
+        patch.codTransacao ?? current?.codTransacao ?? 'COMPRAS_003',
+      tabelaFilha:
+        patch.tabelaFilha ?? current?.tabelaFilha ?? 'COMPRAS_CONSUMIVEL',
       tipoCompraDefault:
-        patch.tipoCompraDefault ?? current?.tipoCompraDefault ?? 'COMPRA DIVERSAS',
+        patch.tipoCompraDefault ??
+        current?.tipoCompraDefault ??
+        'COMPRA DIVERSAS',
       ctbTipoOperacaoDefault:
         patch.ctbTipoOperacaoDefault ?? current?.ctbTipoOperacaoDefault ?? 202,
       naturezaEntradaDefault:
-        patch.naturezaEntradaDefault ?? current?.naturezaEntradaDefault ?? '202.01',
+        patch.naturezaEntradaDefault ??
+        current?.naturezaEntradaDefault ??
+        '202.01',
       moeda: patch.moeda ?? current?.moeda ?? 'R$',
       transportadoraPadrao:
         patch.transportadoraPadrao ?? current?.transportadoraPadrao ?? null,
@@ -134,12 +140,12 @@ export class CompaniesService {
       // mandou) de null (limpar explicitamente) via 'in'.
       paApproverUserId:
         'paApproverUserId' in patch
-          ? patch.paApproverUserId ?? null
-          : current?.paApproverUserId ?? null,
+          ? (patch.paApproverUserId ?? null)
+          : (current?.paApproverUserId ?? null),
       paReschedulerTeamId:
         'paReschedulerTeamId' in patch
-          ? patch.paReschedulerTeamId ?? null
-          : current?.paReschedulerTeamId ?? null,
+          ? (patch.paReschedulerTeamId ?? null)
+          : (current?.paReschedulerTeamId ?? null),
     };
 
     const saved = await this.prisma.companyErpConfig.upsert({

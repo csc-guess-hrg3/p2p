@@ -45,7 +45,8 @@ export class DashboardService {
   ): { scope: 'mine' | 'team' | 'all'; where: Prisma.PurchaseOrderWhereInput } {
     const isAdmin = user.profile === UserProfile.ADMIN;
     const isManager = user.profile === UserProfile.MANAGER;
-    let scope: 'mine' | 'team' | 'all' = requested ?? (isAdmin ? 'all' : 'mine');
+    let scope: 'mine' | 'team' | 'all' =
+      requested ?? (isAdmin ? 'all' : 'mine');
     if (scope === 'all' && !isAdmin) scope = isManager ? 'team' : 'mine';
     if (scope === 'team' && !isAdmin && !isManager) scope = 'mine';
     const where: Prisma.PurchaseOrderWhereInput =
@@ -107,7 +108,9 @@ export class DashboardService {
         _count: true,
         _sum: { totalAmount: true },
       }),
-      wantBudget ? this.budgetConsumption(user, companyId) : Promise.resolve(null),
+      wantBudget
+        ? this.budgetConsumption(user, companyId)
+        : Promise.resolve(null),
     ]);
 
     const openAmount = Number(open._sum.totalAmount ?? 0);
@@ -178,7 +181,9 @@ export class DashboardService {
       select: {
         totalAmount: true,
         expectedDelivery: true,
-        requisition: { select: { teamId: true, team: { select: { name: true } } } },
+        requisition: {
+          select: { teamId: true, team: { select: { name: true } } },
+        },
       },
     });
     const now = new Date();
@@ -197,16 +202,14 @@ export class DashboardService {
       const teamId = po.requisition?.teamId ?? null;
       const key = teamId ?? '__none__';
       const teamName = po.requisition?.team?.name ?? 'Sem equipe';
-      const e =
-        map.get(key) ??
-        {
-          teamId,
-          teamName,
-          openCount: 0,
-          openAmount: 0,
-          overdueCount: 0,
-          overdueAmount: 0,
-        };
+      const e = map.get(key) ?? {
+        teamId,
+        teamName,
+        openCount: 0,
+        openAmount: 0,
+        overdueCount: 0,
+        overdueAmount: 0,
+      };
       const amt = Number(po.totalAmount);
       e.openCount += 1;
       e.openAmount += amt;
@@ -233,14 +236,12 @@ export class DashboardService {
     user: AuthenticatedUser,
     companyId?: string,
     months = 6,
-  ): Promise<Array<{ year: number; month: number; count: number; total: number }>> {
+  ): Promise<
+    Array<{ year: number; month: number; count: number; total: number }>
+  > {
     const companyIds = this.resolveScope(user, companyId);
     const now = new Date();
-    const since = new Date(
-      now.getFullYear(),
-      now.getMonth() - (months - 1),
-      1,
-    );
+    const since = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
     const orders = await this.prisma.purchaseOrder.findMany({
       where: {
         deletedAt: null,
@@ -254,7 +255,11 @@ export class DashboardService {
     // não pular nenhum no gráfico, mesmo que sem pedidos.
     const buckets = new Map<string, { count: number; total: number }>();
     for (let i = 0; i < months; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - (months - 1 - i), 1);
+      const d = new Date(
+        now.getFullYear(),
+        now.getMonth() - (months - 1 - i),
+        1,
+      );
       const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
       buckets.set(key, { count: 0, total: 0 });
     }
@@ -275,11 +280,7 @@ export class DashboardService {
    * Top fornecedores do mês corrente por valor total comprado.
    * Mês corrente em vez de janela móvel pra alinhar com o KPI orçamentário.
    */
-  async topSuppliers(
-    user: AuthenticatedUser,
-    companyId?: string,
-    limit = 10,
-  ) {
+  async topSuppliers(user: AuthenticatedUser, companyId?: string, limit = 10) {
     const companyIds = this.resolveScope(user, companyId);
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), 1);

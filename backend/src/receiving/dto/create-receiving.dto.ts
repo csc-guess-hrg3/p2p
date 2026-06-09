@@ -49,7 +49,9 @@ export class CreateReceivingDto {
   @IsNotEmpty()
   purchaseOrderId!: string;
 
-  @ApiPropertyOptional({ description: 'Data do recebimento (ISO 8601). Padrão: agora.' })
+  @ApiPropertyOptional({
+    description: 'Data do recebimento (ISO 8601). Padrão: agora.',
+  })
   @IsOptional()
   @IsISO8601()
   receivedAt?: string;
@@ -64,7 +66,9 @@ export class CreateReceivingDto {
   @IsISO8601()
   measurementEnd?: string;
 
-  @ApiPropertyOptional({ description: 'Percentual de conclusão (medição de serviços)' })
+  @ApiPropertyOptional({
+    description: 'Percentual de conclusão (medição de serviços)',
+  })
   @IsOptional()
   @IsNumber()
   @Min(0)

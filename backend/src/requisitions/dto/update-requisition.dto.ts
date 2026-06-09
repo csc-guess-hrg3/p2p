@@ -28,12 +28,17 @@ export class UpdateRequisitionDto {
   @IsString()
   supplierErpCode?: string;
 
-  @ApiPropertyOptional({ description: 'CNPJ pra fornecedor externo (sem código no ERP).' })
+  @ApiPropertyOptional({
+    description: 'CNPJ pra fornecedor externo (sem código no ERP).',
+  })
   @IsOptional()
   @IsString()
   supplierCnpj?: string;
 
-  @ApiPropertyOptional({ description: 'Nome manual quando o CNPJ não bate nem no ERP nem na Receita.' })
+  @ApiPropertyOptional({
+    description:
+      'Nome manual quando o CNPJ não bate nem no ERP nem na Receita.',
+  })
   @IsOptional()
   @IsString()
   supplierNameOverride?: string;

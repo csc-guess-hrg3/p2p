@@ -35,10 +35,7 @@ export class DelegationsController {
   @ApiOperation({
     summary: 'Lista delegações (type=given concedidas | received recebidas)',
   })
-  list(
-    @CurrentUser() user: AuthenticatedUser,
-    @Query('type') type?: string,
-  ) {
+  list(@CurrentUser() user: AuthenticatedUser, @Query('type') type?: string) {
     return type === 'received'
       ? this.delegations.listReceived(user.id)
       : this.delegations.listGiven(user.id);
