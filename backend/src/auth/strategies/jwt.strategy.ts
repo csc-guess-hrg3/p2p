@@ -22,7 +22,7 @@ import { AuthenticatedUser, JwtPayload } from '../auth.types';
  * essa escolha está no front em `LoginPage`.
  */
 function fromCookie(req: Request): string | null {
-  return req.cookies?.p2p_token ?? null;
+  return (req.cookies?.p2p_token as string | undefined) ?? null;
 }
 
 @Injectable()

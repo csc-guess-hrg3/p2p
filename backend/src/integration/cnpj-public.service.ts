@@ -101,12 +101,12 @@ export class CnpjPublicService {
             .filter(Boolean)
             .join(' / ') || null,
         logradouro: (data.logradouro as string | null) || null,
-        numero: data.numero ? String(data.numero as string | number) : null,
+        numero: data.numero ? String(data.numero as string) : null,
         complemento: (data.complemento as string | null) || null,
         bairro: (data.bairro as string | null) || null,
         cidade: (data.municipio as string | null) || null,
         uf: (data.uf as string | null) || null,
-        cep: data.cep ? String(data.cep as string | number) : null,
+        cep: data.cep ? String(data.cep as string) : null,
         cnaePrincipal: (data.cnae_fiscal_descricao as string | null) || null,
         dataAbertura: (data.data_inicio_atividade as string | null) || null,
       };

@@ -18,7 +18,7 @@ const FRIENDLY_BY_TABLE: Record<string, string> = {
 function rawErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (typeof err === 'string') return err;
-  return String(err ?? '');
+  return String((err as string | null) ?? '');
 }
 
 function firstKnownFriendly(raw: string): string | null {

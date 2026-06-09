@@ -55,10 +55,6 @@ function validatePassword(password: string): void {
     throw new BadRequestException('A senha precisa de 1 caractere especial.');
 }
 
-function normalizeCpf(raw: string): string {
-  return raw.replace(/\D/g, '');
-}
-
 function isValidEmailDomain(email: string): boolean {
   const domain = email.split('@')[1]?.toLowerCase();
   return !!domain && ALLOWED_EMAIL_DOMAINS.includes(domain);
