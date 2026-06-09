@@ -7,6 +7,7 @@ import {
   Download,
   FileText,
   Pencil,
+  Plus,
   Trash2,
 } from 'lucide-react';
 import { downloadAttachment, type Attachment } from '@/lib/attachments';
@@ -48,6 +49,12 @@ interface Props {
   /** Opcional — referência aos items da req pra editar via dialog. */
   requisitionForEdit?: Pick<Requisition, 'id' | 'items'>;
   /**
+   * Esconde o botão "Adicionar cotação" do header. Usado quando o card
+   * está DENTRO do formulário da requisição — lá o próprio form já provê
+   * o botão (com auto-save do rascunho), evitando duplicidade.
+   */
+  hideAddButton?: boolean;
+  /**
    * Proposta do solicitante = "Cotação 1" implícita. Recebe os dados da
    * própria req (supplier + total + items) pra renderizar no topo do
    * card, em pé de igualdade visual com as cotações alternativas.
@@ -85,6 +92,7 @@ export function QuotationsCard({
   canSelect,
   canEdit,
   requisitionForEdit,
+  hideAddButton,
   proposal,
 }: Props) {
   const { toast } = useToast();
@@ -93,6 +101,7 @@ export function QuotationsCard({
   const clearWinnerMut = useClearWinningQuotation(requisitionId);
   const deleteMut = useDeleteQuotation(requisitionId);
   const [editing, setEditing] = useState<Quotation | null>(null);
+  const [creating, setCreating] = useState(false);
   // Diálogo de confirmação substituindo `confirm()` nativo — texto claro,
   // botões com label da ação real e estilo coerente com o resto do app.
   const [confirmSelect, setConfirmSelect] = useState<Quotation | null>(null);
@@ -141,9 +150,22 @@ export function QuotationsCard({
               {proposal ? quotations.length + 1 : quotations.length}
             </span>
           </span>
+          {canEdit && requisitionForEdit && !hideAddButton && (
+            <Button size="sm" onClick={() => setCreating(true)}>
+              <Plus className="size-4" />
+              Adicionar cotação
+            </Button>
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent>
+        {!proposal && quotations.length === 0 && (
+          <p className="mb-1 text-sm text-muted-foreground">
+            {canEdit && requisitionForEdit
+              ? 'Nenhuma cotação cadastrada. Clique em "Adicionar cotação" — o formulário herda os itens da requisição e pede o PDF da proposta.'
+              : 'Nenhuma cotação cadastrada.'}
+          </p>
+        )}
         <ul className="space-y-3">
           {/* Cotação 1 = proposta do solicitante. Mesma posição visual
               das demais (mesma <li>), com badge "Proposta do solicitante"
@@ -461,6 +483,14 @@ export function QuotationsCard({
             existing={editing}
             open={!!editing}
             onOpenChange={(o) => !o && setEditing(null)}
+          />
+        )}
+
+        {creating && requisitionForEdit && (
+          <QuotationDialog
+            requisition={requisitionForEdit}
+            open={creating}
+            onOpenChange={(o) => !o && setCreating(false)}
           />
         )}
 

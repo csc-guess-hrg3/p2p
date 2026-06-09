@@ -53,7 +53,9 @@ import {
 import { ItemDialog } from './ItemDialog';
 import { SupplierPicker, type SupplierPickerValue } from './SupplierPicker';
 import { InlineQuotationsAndAttachments } from './InlineQuotationsAndAttachments';
+import { QuotationDialog } from './QuotationDialog';
 import { AttachmentsSection } from '@/components/AttachmentsSection';
+import { useQuotationsPolicy } from '@/lib/admin';
 import { useToast } from '@/components/ui/use-toast';
 
 const schema = z
@@ -124,6 +126,11 @@ export function RequisitionFormPage() {
   // depois abrimos o diálogo. Esse flag conta pro `persist()` que ele tem
   // que abrir o diálogo de dispensa logo após o save.
   const [openWaiverAfterSave, setOpenWaiverAfterSave] = useState(false);
+  // Cadastro de cotação direto do form. Em requisição nova, auto-salva o
+  // rascunho e abre o diálogo assim que o modo edição carrega (mesmo padrão
+  // do botão de dispensa via `openWaiverAfterSave`).
+  const [quotationDialogOpen, setQuotationDialogOpen] = useState(false);
+  const [openQuotationAfterSave, setOpenQuotationAfterSave] = useState(false);
 
   const [items, setItems] = useState<RequisitionItemForm[]>([]);
   const [itemsError, setItemsError] = useState<string | null>(null);
@@ -208,6 +215,18 @@ export function RequisitionFormPage() {
     (sum, it) => sum + (Number(it.quantity) || 0) * (Number(it.estimatedPrice) || 0),
     0,
   );
+  // RN-REQ-02 ao vivo: acima do threshold e ainda sem o mínimo de cotações,
+  // o botão "Adicionar cotação" ganha destaque (a proposta do solicitante já
+  // conta como 1, então faltam `minRequired - 1` cotações alternativas).
+  const quotationsPolicy = useQuotationsPolicy(activeCompany?.id);
+  const quotationsOverThreshold =
+    !!quotationsPolicy &&
+    quotationsPolicy.thresholdAmount > 0 &&
+    itemsTotal >= quotationsPolicy.thresholdAmount;
+  const quotationsInsufficient =
+    quotationsOverThreshold &&
+    quotationsPolicy.minRequired > 0 &&
+    realQuotationsCount + 1 < quotationsPolicy.minRequired;
 
   // Edição: popula o formulário.
   //
@@ -274,6 +293,15 @@ export function RequisitionFormPage() {
     }
   }, [openWaiverAfterSave, isEdit, id, existing.data]);
 
+  // Mesmo padrão para "Adicionar cotação": numa req nova, auto-salva o
+  // rascunho e abre o diálogo de cotação assim que o modo edição carrega.
+  useEffect(() => {
+    if (openQuotationAfterSave && isEdit && id && existing.data) {
+      setQuotationDialogOpen(true);
+      setOpenQuotationAfterSave(false);
+    }
+  }, [openQuotationAfterSave, isEdit, id, existing.data]);
+
   // Edição liberada em DRAFT (rascunho) e REVISION (devolvida pra ajuste).
   // A tela de detalhe usa o mesmo critério (canEdit = isDraft || isRevision)
   // — manter alinhado evita o cenário em que o detalhe oferece "Editar" mas
@@ -320,6 +348,22 @@ export function RequisitionFormPage() {
    * `null` se a validação do form falhou — nesse caso, os erros aparecem
    * nos campos como sempre.
    */
+  /**
+   * Abre o cadastro de cotação. Em requisição já salva, abre direto; em
+   * requisição nova, auto-salva o rascunho e o efeito `openQuotationAfterSave`
+   * abre o diálogo assim que o modo edição carrega (sem fricção de "salve
+   * primeiro").
+   */
+  async function handleAddQuotation(): Promise<void> {
+    if (isEdit && id && existing.data) {
+      setQuotationDialogOpen(true);
+      return;
+    }
+    setOpenQuotationAfterSave(true);
+    const savedId = await ensureDraftSaved();
+    if (!savedId) setOpenQuotationAfterSave(false); // validação falhou
+  }
+
   async function ensureDraftSaved(): Promise<string | null> {
     if (isEdit && id) return id; // já tem rascunho salvo
     if (!activeCompany) return null;
@@ -1006,6 +1050,32 @@ export function RequisitionFormPage() {
               }
             />
           )}
+
+          {/* Adicionar cotação — SEMPRE disponível quando editável; ganha
+              destaque quando o valor passa o threshold e ainda faltam
+              cotações. Em requisição nova, auto-salva o rascunho ao clicar
+              (sem fricção de "salve primeiro"). */}
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+            <p className="text-sm text-muted-foreground">
+              {quotationsInsufficient
+                ? 'Esta requisição exige cotações — cadastre as propostas dos fornecedores.'
+                : 'Cotações dos fornecedores (cada uma herda os itens e leva o PDF da proposta).'}
+            </p>
+            <Button
+              type="button"
+              variant={quotationsInsufficient ? 'default' : 'outline'}
+              size="sm"
+              onClick={handleAddQuotation}
+              className={
+                quotationsInsufficient
+                  ? 'ring-2 ring-red-400 ring-offset-1'
+                  : undefined
+              }
+            >
+              <Plus className="size-4" />
+              Adicionar cotação
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -1026,8 +1096,8 @@ export function RequisitionFormPage() {
           <CardContent className="pt-6">
             <AttachmentsSection
               kind="requisition"
-              hint="Cotações, contratos e documentos de apoio. Ao adicionar o primeiro anexo, o rascunho é salvo automaticamente."
-              allowedDocKinds={['QUOTATION', 'CONTRACT', 'INVOICE', 'OTHER']}
+              hint="Contratos, faturas e documentos de apoio. Ao adicionar o primeiro anexo, o rascunho é salvo automaticamente. (Cotações são cadastradas no card de Cotações, com o PDF da proposta.)"
+              allowedDocKinds={['CONTRACT', 'INVOICE', 'OTHER']}
               // Sem defaultDocKind → usuário escolhe tipo conscientemente.
               onBeforeUpload={ensureDraftSaved}
             />
@@ -1050,6 +1120,17 @@ export function RequisitionFormPage() {
           open={waiverOpen}
           onOpenChange={setWaiverOpen}
           suggestedReason={existing.data.recurring ? 'RECORRENTE' : undefined}
+        />
+      )}
+
+      {/* Cadastro de cotação no nível do form — herda os itens da requisição
+          já salva e exige o PDF. Abre direto (edição) ou após o auto-save
+          (requisição nova). */}
+      {isEdit && id && existing.data && (
+        <QuotationDialog
+          requisition={existing.data}
+          open={quotationDialogOpen}
+          onOpenChange={(o) => !o && setQuotationDialogOpen(false)}
         />
       )}
 

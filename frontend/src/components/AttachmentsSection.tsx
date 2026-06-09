@@ -192,11 +192,12 @@ export function AttachmentsSection({
     }
     if (inputRef.current) inputRef.current.value = '';
 
-    // Se foi cotação e o upload deu certo, devolve pra página abrir
-    // o dialog de cadastro. Pulamos os toasts comuns nesse caso — o
-    // dialog seguinte é o feedback.
-    if (isQuotation && lastUploaded && failures.length === 0) {
-      onQuotationUploaded?.(lastUploaded);
+    // Se foi cotação e o upload deu certo E a página quer tratar (callback
+    // definido), devolve pra ela abrir o dialog de cadastro — pulando os
+    // toasts comuns (o dialog seguinte é o feedback). Sem callback, cai no
+    // fluxo normal de toast pra não engolir o feedback do upload.
+    if (isQuotation && onQuotationUploaded && lastUploaded && failures.length === 0) {
+      onQuotationUploaded(lastUploaded);
       return;
     }
 
