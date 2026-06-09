@@ -27,6 +27,7 @@ frontend/.env*
 *.err
 npm-debug.log*
 pm2*.log
+backend/logs/
 
 # OS
 .DS_Store
