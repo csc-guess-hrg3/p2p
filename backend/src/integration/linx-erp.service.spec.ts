@@ -112,7 +112,9 @@ describe('LinxErpService.gravarPedidoCompra', () => {
     prisma.purchaseOrder.findUniqueOrThrow.mockResolvedValue({
       erpStagingId: 'PO-po-1',
     });
-    // Recovery: encontra PEDIDO existente pelo OBS
+    // 1ª chamada $queryRawUnsafe: lookup de FORNECEDORES (supplierErpCode setado).
+    prisma.$queryRawUnsafe.mockResolvedValueOnce([{ FORNECEDOR: 'Fornecedor' }]);
+    // 2ª: recovery — encontra PEDIDO existente pelo OBS.
     prisma.$queryRawUnsafe.mockResolvedValueOnce([{ PEDIDO: '00060500' }]);
 
     const out = await service.gravarPedidoCompra(makePo(), TEST_USER);
