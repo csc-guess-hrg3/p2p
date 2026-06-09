@@ -177,4 +177,25 @@ describe('ApprovalsService.decide', () => {
     );
     expect(matched).toBeTruthy();
   });
+
+  it('lança BadRequest e não decide quando o documento já foi finalizado por outro nível (rejeição encerra o processo)', async () => {
+    // Cenário do bug: gestor já reprovou (requisição REJECTED) e tenta-se
+    // decidir o step do diretor. Deve travar — a requisição morre na 1ª
+    // rejeição.
+    prisma.approvalStep.findUnique.mockResolvedValue(
+      makeStep({ id: 'step-2', level: 2, levelName: 'Diretor' }),
+    );
+    prisma.delegation.findMany.mockResolvedValue([]);
+    prisma.requisition.findUnique.mockResolvedValue({
+      status: 'REJECTED',
+      requesterId: 'someone-else',
+    });
+
+    await expect(
+      service.decide(TEST_USER, 'step-2', false, 'Reprovação tardia'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    // Não pode ter mexido na etapa nem no documento.
+    expect(prisma.approvalStep.update).not.toHaveBeenCalled();
+    expect(prisma.requisition.update).not.toHaveBeenCalled();
+  });
 });

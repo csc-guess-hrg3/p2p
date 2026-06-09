@@ -44,6 +44,19 @@ interface StartApprovalParams {
  * - Cada nível tem um aprovador; a ausência é coberta por delegação.
  * - Rejeição em qualquer nível encerra o processo.
  */
+
+/**
+ * Status que significam "documento finalizado" — não há mais o que decidir.
+ * Compartilhado entre os 3 tipos (requisição/PC/SV). Usado pra travar
+ * decisões tardias e esconder steps órfãos das filas.
+ */
+const FINALIZED_DOC_STATUSES = new Set([
+  'APPROVED',
+  'REJECTED',
+  'CANCELLED',
+  'CONVERTED',
+]);
+
 @Injectable()
 export class ApprovalsService {
   private readonly logger = new Logger(ApprovalsService.name);
@@ -177,9 +190,15 @@ export class ApprovalsService {
       orderBy: { createdAt: 'asc' },
     });
 
-    // Mantém apenas os steps do nível ativo (sem nível anterior pendente).
+    // Mantém apenas os steps do nível ativo (sem nível anterior pendente) e
+    // de documentos que ainda estão em aprovação. Um step pode continuar
+    // PENDING mesmo após o documento ser rejeitado/cancelado por outro nível
+    // (ex.: gestor reprova → diretor fica com um step órfão) — esses não
+    // devem aparecer na fila.
     const active: typeof steps = [];
     for (const step of steps) {
+      const docStatus = await this.engine.documentStatus(step);
+      if (docStatus && FINALIZED_DOC_STATUSES.has(docStatus)) continue;
       const lowerPending = await this.prisma.approvalStep.count({
         where: {
           ...this.engine.entityFilter(step),
@@ -255,6 +274,18 @@ export class ApprovalsService {
       throw new NotFoundException('Etapa de aprovação não encontrada.');
     if (step.status !== ApprovalStepStatus.PENDING) {
       throw new BadRequestException('Esta etapa já foi decidida.');
+    }
+
+    // O documento já pode ter sido finalizado por OUTRO step (ex.: o gestor
+    // reprovou → requisição REJECTED). Como o admin enxerga todos os steps
+    // pendentes, sem este guard ele conseguia reprovar/aprovar o nível
+    // seguinte (diretor) DEPOIS do documento já estar morto. A rejeição em
+    // qualquer nível encerra o processo — nada mais é decidível.
+    const currentDocStatus = await this.engine.documentStatus(step);
+    if (currentDocStatus && FINALIZED_DOC_STATUSES.has(currentDocStatus)) {
+      throw new BadRequestException(
+        'Este documento já foi finalizado (aprovado, rejeitado ou cancelado) — não há mais etapas a decidir.',
+      );
     }
 
     // O usuário precisa ser o aprovador do nível — direto, por delegação,
