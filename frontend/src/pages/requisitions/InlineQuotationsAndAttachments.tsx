@@ -33,6 +33,7 @@ export function InlineQuotationsAndAttachments({ requisition }: Props) {
         canSelect={false}
         canEdit
         requisitionForEdit={requisition}
+        hideAddButton
       />
 
       <Card>

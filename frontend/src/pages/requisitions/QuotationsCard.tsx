@@ -49,6 +49,12 @@ interface Props {
   /** Opcional — referência aos items da req pra editar via dialog. */
   requisitionForEdit?: Pick<Requisition, 'id' | 'items'>;
   /**
+   * Esconde o botão "Adicionar cotação" do header. Usado quando o card
+   * está DENTRO do formulário da requisição — lá o próprio form já provê
+   * o botão (com auto-save do rascunho), evitando duplicidade.
+   */
+  hideAddButton?: boolean;
+  /**
    * Proposta do solicitante = "Cotação 1" implícita. Recebe os dados da
    * própria req (supplier + total + items) pra renderizar no topo do
    * card, em pé de igualdade visual com as cotações alternativas.
@@ -86,6 +92,7 @@ export function QuotationsCard({
   canSelect,
   canEdit,
   requisitionForEdit,
+  hideAddButton,
   proposal,
 }: Props) {
   const { toast } = useToast();
@@ -143,7 +150,7 @@ export function QuotationsCard({
               {proposal ? quotations.length + 1 : quotations.length}
             </span>
           </span>
-          {canEdit && requisitionForEdit && (
+          {canEdit && requisitionForEdit && !hideAddButton && (
             <Button size="sm" onClick={() => setCreating(true)}>
               <Plus className="size-4" />
               Adicionar cotação
