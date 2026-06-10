@@ -352,6 +352,14 @@ model BranchExtension {
   companyId     String   @db.UniqueIdentifier
   branchErpCode String   @db.NVarChar(20)
   email         String?  @db.NVarChar(255)
+  /**
+   * De-Para (camada P2P) — override opcional sobre a filial do ERP, sem
+   * tocar o Linx. `aliasName` = nome amigável exibido no portal (F-02);
+   * `hidden` = filial não-P2P some das telas/seletores (F-01). A filial
+   * continua referenciada pelo `branchErpCode` na devolução ao ERP.
+   */
+  aliasName     String?  @db.NVarChar(200)
+  hidden        Boolean  @default(false)
   updatedAt     DateTime @updatedAt
   createdAt     DateTime @default(now())
 
