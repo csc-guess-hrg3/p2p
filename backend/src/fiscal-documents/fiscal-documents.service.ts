@@ -74,6 +74,9 @@ export class FiscalDocumentsService {
   // Com o filtro cnpj[] (v1), cada empresa tem poucas páginas (50/página),
   // então 60 páginas cobrem 3k NFs/exec — sobra folga.
   private readonly MAX_PAGES_PER_RUN = 60;
+  // Teto do clique manual (drain): 2000 páginas × 50 = 100k NFs — bem acima
+  // de qualquer empresa; só existe como trava anti-loop.
+  private readonly MAX_PAGES_DRAIN = 2000;
   private readonly PAGE_SIZE = 50;
   private readonly SLEEP_BETWEEN_PAGES_MS = 300;
 
@@ -212,7 +215,7 @@ export class FiscalDocumentsService {
     st.nfesIgnored = 0;
     st.latestEmissao = null;
     st.lastError = null;
-    this.syncAll('received', companyId).catch((err) => {
+    this.syncAll('received', companyId, true).catch((err) => {
       this.logger.error(
         `startBackgroundSync(${companyId}): ${(err as Error).message}`,
       );
@@ -410,6 +413,11 @@ export class FiscalDocumentsService {
   async syncAll(
     role: 'received' = 'received',
     targetCompanyId?: string,
+    /**
+     * `true` = drena o acervo da empresa até o fim (clique manual "Buscar").
+     * `false` (cron) = uma passada de até MAX_PAGES_PER_RUN páginas.
+     */
+    drain = false,
   ): Promise<{
     companiesProcessed: number;
     nfesInserted: number;
@@ -439,11 +447,20 @@ export class FiscalDocumentsService {
     let grandIgnored = 0;
 
     for (const anchorCompany of targets) {
+      // No cron (drain=false), pula empresa que já tem um sync manual
+      // (drain) rodando — evita dois walks concorrentes no mesmo cursor.
+      if (!drain && this.getOrInitSyncState(anchorCompany.id).running) {
+        this.logger.log(
+          `syncAll: ${anchorCompany.code} já tem busca em andamento — cron pula nesta volta.`,
+        );
+        continue;
+      }
       const result = await this.syncOneCompany(
         anchorCompany,
         allCompanies,
         role,
         started,
+        drain,
       );
       grandInserted += result.inserted;
       grandExisted += result.existed;
@@ -480,6 +497,8 @@ export class FiscalDocumentsService {
     }>,
     role: 'received',
     started: number,
+    /** `true` = continua até drenar o acervo (clique manual). */
+    drain = false,
   ): Promise<{
     inserted: number;
     existed: number;
@@ -524,13 +543,15 @@ export class FiscalDocumentsService {
     let drained = false;
     // v1 não devolve o total da conta — progresso é por contagem local.
     st.totalOnQive = null;
+    // Clique manual (drain) vai até o fim; cron faz só uma passada curta.
+    const maxPages = drain ? this.MAX_PAGES_DRAIN : this.MAX_PAGES_PER_RUN;
 
     this.logger.log(
-      `syncOneCompany(${anchorCompany.code}): v1 cursor=${cursor}, ${cnpjFilter.length} CNPJ(s) no filtro${authorizedKnown ? '' : ' (sem lista de autorizados — best-effort)'}`,
+      `syncOneCompany(${anchorCompany.code}): v1 cursor=${cursor}, ${cnpjFilter.length} CNPJ(s) no filtro${drain ? ' (drenar até o fim)' : ''}${authorizedKnown ? '' : ' (sem lista de autorizados — best-effort)'}`,
     );
 
     try {
-      while (pages < this.MAX_PAGES_PER_RUN) {
+      while (pages < maxPages) {
         const res = await this.qive.listNfes({
           role,
           cursor,
@@ -847,9 +868,8 @@ export class FiscalDocumentsService {
 
   /**
    * Carga total controlada — usada pelo script `qive:backfill`. Zera o
-   * cursor e drena o acervo INTEIRO da empresa, chamando o walk v1 em loop
-   * (cada passada faz até MAX_PAGES_PER_RUN páginas e retoma pelo cursor)
-   * até `drained`. O cron segue incremental daí pra frente.
+   * cursor e drena o acervo INTEIRO da empresa numa passada `drain` do walk
+   * v1 (vai até o fim, retomando pelo cursor). O cron segue incremental.
    * Roda em contexto de script (não no request HTTP).
    */
   async runFullBackfill(companyId: string): Promise<{
@@ -888,32 +908,20 @@ export class FiscalDocumentsService {
     st.latestEmissao = null;
     st.lastError = null;
 
-    let inserted = 0;
-    let existed = 0;
-    let ignored = 0;
-    const started = Date.now();
-    // Teto de segurança anti-loop: 200 passadas × 60 páginas × 50 = 600k NFs.
-    for (let pass = 0; pass < 200; pass++) {
-      const res = await this.syncOneCompany(
-        anchor,
-        allCompanies,
-        'received',
-        started,
-      );
-      inserted += res.inserted;
-      existed += res.existed;
-      ignored += res.ignored;
-      this.logger.log(
-        `runFullBackfill(${anchor.code}): passada ${pass + 1} — +${res.inserted} novas (${res.drained ? 'DRENADO' : 'continua'})`,
-      );
-      if (res.drained) break;
-    }
-    st.running = false;
+    // drain=true → uma chamada que vai até o fim do acervo (syncOneCompany
+    // já marca st.running=false ao concluir).
+    const r = await this.syncOneCompany(
+      anchor,
+      allCompanies,
+      'received',
+      Date.now(),
+      true,
+    );
     return {
-      inserted,
-      existed,
-      ignored,
-      totalSeen: inserted + existed + ignored,
+      inserted: r.inserted,
+      existed: r.existed,
+      ignored: r.ignored,
+      totalSeen: r.inserted + r.existed + r.ignored,
     };
   }
 
