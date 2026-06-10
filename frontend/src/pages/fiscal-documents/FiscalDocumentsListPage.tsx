@@ -230,11 +230,11 @@ export function FiscalDocumentsListPage() {
             <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="font-medium text-blue-900">
-                  Buscando notas fiscais de {activeCompany?.code}…
+                  Buscando notas fiscais…
                 </div>
                 <div className="text-xs text-blue-800">
                   {syncStatus.totalOnQive
-                    ? `${verificadas.toLocaleString('pt-BR')} de ${syncStatus.totalOnQive.toLocaleString('pt-BR')} verificadas (${pct}%)`
+                    ? `${verificadas.toLocaleString('pt-BR')} de ${syncStatus.totalOnQive.toLocaleString('pt-BR')} conferidas (${pct}%)`
                     : 'preparando…'}
                 </div>
               </div>
@@ -246,31 +246,16 @@ export function FiscalDocumentsListPage() {
                   />
                 </div>
               ) : null}
-              <div className="mt-1.5 grid grid-cols-1 gap-1 text-xs text-blue-800 sm:grid-cols-3">
-                <div>
-                  <span className="font-medium">
-                    {syncStatus.nfesInserted.toLocaleString('pt-BR')}
-                  </span>{' '}
-                  notas novas
-                </div>
-                <div>
-                  <span className="font-medium">
-                    {syncStatus.nfesAlreadyExisted.toLocaleString('pt-BR')}
-                  </span>{' '}
-                  já estavam aqui
-                </div>
-                <div>
-                  <span className="font-medium">
-                    {syncStatus.nfesIgnored.toLocaleString('pt-BR')}
-                  </span>{' '}
-                  de outras empresas
-                </div>
+              <div className="mt-2 text-sm text-blue-900">
+                <span className="font-semibold">
+                  {syncStatus.totalLocal.toLocaleString('pt-BR')}
+                </span>{' '}
+                notas de {activeCompany?.code} já disponíveis aqui.
               </div>
-              <div className="mt-1 text-xs text-blue-700">
-                {syncStatus.totalLocal.toLocaleString('pt-BR')} notas de{' '}
-                {activeCompany?.code} já no sistema. A primeira sincronização
-                confere todas as notas e pode levar alguns minutos — pode
-                continuar usando normalmente.
+              <div className="mt-0.5 text-xs text-blue-700">
+                A primeira busca confere toda a base da Qive e pode levar alguns
+                minutos — as notas de {activeCompany?.code} vão aparecendo
+                conforme chegam. Pode continuar usando normalmente.
               </div>
             </div>
           );
