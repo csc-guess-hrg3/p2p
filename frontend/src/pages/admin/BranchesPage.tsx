@@ -22,6 +22,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
+import { Badge } from '@/components/ui/badge';
 import { usePagination } from '@/lib/use-pagination';
 
 /**
@@ -77,9 +78,10 @@ export function BranchesPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Dados base (código, nome, CNPJ, endereço) vêm do ERP. Clique
-            na filial para abrir o cadastro completo e editar os campos
-            P2P-side (e-mail, etc.).
+            Dados base (código, nome, CNPJ, endereço) vêm do ERP. Clique na
+            filial para abrir o cadastro completo: e-mail, <b>apelido</b>{' '}
+            (nome amigável no portal) e <b>ocultar</b> filiais que não usam o
+            P2P.
           </p>
 
           <div className="flex flex-col gap-3 sm:flex-row">
@@ -143,17 +145,33 @@ export function BranchesPage() {
                   <TableRow
                     key={b.codigo}
                     onClick={() => openDetail(b.codigo)}
-                    className="cursor-pointer hover:bg-accent"
+                    className={`cursor-pointer hover:bg-accent ${
+                      b.hidden ? 'opacity-50' : ''
+                    }`}
                   >
                     <TableCell className="font-mono text-xs">
                       {b.codigo}
                     </TableCell>
                     <TableCell>
-                      <div className="font-medium">{b.nome}</div>
-                      {b.razaoSocial && b.razaoSocial !== b.nome && (
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{b.nomeExibicao}</span>
+                        {b.hidden && (
+                          <Badge variant="neutral" className="text-[10px]">
+                            Oculta
+                          </Badge>
+                        )}
+                      </div>
+                      {b.aliasName ? (
                         <div className="text-xs text-muted-foreground">
-                          {b.razaoSocial}
+                          ERP: {b.nome}
                         </div>
+                      ) : (
+                        b.razaoSocial &&
+                        b.razaoSocial !== b.nome && (
+                          <div className="text-xs text-muted-foreground">
+                            {b.razaoSocial}
+                          </div>
+                        )
                       )}
                     </TableCell>
                     <TableCell className="font-mono text-xs">
