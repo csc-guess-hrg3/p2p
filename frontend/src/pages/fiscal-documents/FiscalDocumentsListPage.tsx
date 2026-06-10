@@ -134,17 +134,17 @@ export function FiscalDocumentsListPage() {
       const running = (res as any).running;
       toast({
         title: started
-          ? 'Sincronização iniciada'
+          ? 'Busca de notas iniciada'
           : running
-            ? 'Sincronização já em andamento'
+            ? 'Já estamos buscando'
             : 'Pronto',
         description: started
-          ? 'Acompanhe o progresso no banner abaixo.'
-          : 'Aguarde o sync atual terminar.',
+          ? 'Acompanhe o progresso no aviso abaixo.'
+          : 'Aguarde a busca atual terminar.',
       });
     } catch (err) {
       toast({
-        title: 'Falha no sync',
+        title: 'Não foi possível buscar as notas',
         description: extractApiMessage(err),
         variant: 'destructive',
       });
@@ -174,10 +174,9 @@ export function FiscalDocumentsListPage() {
         <div>
           <h1 className="text-2xl font-semibold">Notas Fiscais (Qive)</h1>
           <p className="text-sm text-muted-foreground">
-            NFes baixadas da Qive — vincule manualmente ao pedido.
-            Sincronização e listagem filtradas pela empresa{' '}
-            <span className="font-medium">{activeCompany?.code}</span>{' '}
-            (CNPJs da empresa apenas).
+            Notas fiscais recebidas pela empresa{' '}
+            <span className="font-medium">{activeCompany?.code}</span>. Vincule
+            cada nota ao pedido correspondente.
           </p>
         </div>
         <div className="flex gap-2">
@@ -188,10 +187,10 @@ export function FiscalDocumentsListPage() {
                 size="sm"
                 onClick={() => setPeriodOpen(true)}
                 disabled={syncStatus?.running}
-                title="Sincroniza apenas um período (por data de criação na Qive)"
+                title="Busca notas de um período específico (por data de entrada na Qive)"
               >
                 <CalendarClock className="mr-2 h-4 w-4" />
-                Sincronizar período
+                Buscar por período
               </Button>
               <Button
                 variant="outline"
@@ -206,66 +205,46 @@ export function FiscalDocumentsListPage() {
                   }`}
                 />
                 {syncStatus?.running
-                  ? 'Sincronizando…'
-                  : `Sincronizar Qive (${activeCompany?.code ?? ''})`}
+                  ? 'Buscando…'
+                  : 'Buscar notas novas'}
               </Button>
             </>
           )}
         </div>
       </div>
 
-      {/* Banner de progresso do sync — só aparece quando rodando. */}
-      {syncStatus?.running && (
-        <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm">
-          <div className="flex items-center justify-between">
-            <div className="font-medium text-blue-900">
-              Sincronizando {activeCompany?.code} com a Qive…
+      {/* Banner de progresso — busca filtrada pelos CNPJs da empresa. */}
+      {syncStatus?.running &&
+        (() => {
+          const verificadas =
+            syncStatus.nfesInserted +
+            syncStatus.nfesAlreadyExisted +
+            syncStatus.nfesIgnored;
+          return (
+            <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="font-medium text-blue-900">
+                  Buscando notas fiscais de {activeCompany?.code}…
+                </div>
+                <div className="text-xs text-blue-800">
+                  {verificadas > 0
+                    ? `${verificadas.toLocaleString('pt-BR')} conferidas`
+                    : 'iniciando…'}
+                </div>
+              </div>
+              <div className="mt-2 text-sm text-blue-900">
+                <span className="font-semibold">
+                  {syncStatus.totalLocal.toLocaleString('pt-BR')}
+                </span>{' '}
+                notas de {activeCompany?.code} já disponíveis aqui.
+              </div>
+              <div className="mt-0.5 text-xs text-blue-700">
+                Buscamos só as notas destinadas à {activeCompany?.code}. As
+                novas vão aparecendo conforme chegam — pode continuar usando.
+              </div>
             </div>
-            <div className="text-xs text-blue-800">
-              {syncStatus.totalOnQive
-                ? `${syncStatus.totalOnQive.toLocaleString('pt-BR')} NFs da empresa na Qive`
-                : 'verificando total…'}
-            </div>
-          </div>
-          {syncStatus.totalOnQive ? (
-            <div className="mt-2 h-2 w-full overflow-hidden rounded bg-blue-100">
-              <div
-                className="h-full bg-blue-500 transition-all"
-                style={{
-                  width: `${Math.min(
-                    100,
-                    Math.round(
-                      ((syncStatus.nfesInserted +
-                        syncStatus.nfesAlreadyExisted +
-                        syncStatus.nfesIgnored) /
-                        syncStatus.totalOnQive) *
-                        100,
-                    ),
-                  )}%`,
-                }}
-              />
-            </div>
-          ) : null}
-          <div className="mt-1 grid grid-cols-1 gap-1 text-xs text-blue-800 md:grid-cols-3">
-            <div>
-              <span className="font-medium">{syncStatus.nfesInserted.toLocaleString('pt-BR')}</span>{' '}
-              novas neste sync
-            </div>
-            <div>
-              <span className="font-medium">{syncStatus.nfesAlreadyExisted.toLocaleString('pt-BR')}</span>{' '}
-              já estavam no P2P
-            </div>
-            <div>
-              <span className="font-medium">{syncStatus.nfesIgnored.toLocaleString('pt-BR')}</span>{' '}
-              ignoradas (CNPJ fora da empresa)
-            </div>
-          </div>
-          <div className="mt-1 text-xs text-blue-700">
-            Página {syncStatus.pagesProcessed} • {syncStatus.totalLocal.toLocaleString('pt-BR')}{' '}
-            NFs de {activeCompany?.code} no banco
-          </div>
-        </div>
-      )}
+          );
+        })()}
 
       <div className="flex flex-wrap items-end gap-3 rounded-md border bg-card p-3">
         <div className="w-48">
