@@ -77,9 +77,6 @@ export class FiscalDocumentsService {
   private readonly PAGE_SIZE = 50;
   private readonly SLEEP_BETWEEN_PAGES_MS = 300;
 
-  /** Janela ampla do backfill manual por período. */
-  private readonly BACKFILL_FROM = '2010-01-01';
-  private readonly OPEN_TO = '2099-12-31';
   /** Teto alto de páginas do sync manual por período (proteção anti-loop). */
   private readonly MAX_PAGES_PER_PERIOD = 200;
 
@@ -102,6 +99,9 @@ export class FiscalDocumentsService {
       nfesInserted: number;
       nfesAlreadyExisted: number;
       nfesIgnored: number;
+      // Emissão mais recente já conferida nesta rodada — indicador de
+      // progresso (o walk anda em ordem de chegada, então sobe até "hoje").
+      latestEmissao: Date | null;
       lastError: string | null;
     }
   >();
@@ -117,6 +117,7 @@ export class FiscalDocumentsService {
         nfesInserted: 0,
         nfesAlreadyExisted: 0,
         nfesIgnored: 0,
+        latestEmissao: null,
         lastError: null,
       };
       this.syncStates.set(companyId, st);
@@ -132,6 +133,7 @@ export class FiscalDocumentsService {
     nfesInserted: number;
     nfesAlreadyExisted: number;
     nfesIgnored: number;
+    latestEmissao: Date | null;
     lastError: string | null;
     totalLocal: number;
     lastRun: {
@@ -161,6 +163,11 @@ export class FiscalDocumentsService {
             nfesInserted: acc.nfesInserted + s.nfesInserted,
             nfesAlreadyExisted: acc.nfesAlreadyExisted + s.nfesAlreadyExisted,
             nfesIgnored: acc.nfesIgnored + s.nfesIgnored,
+            latestEmissao:
+              s.latestEmissao &&
+              (!acc.latestEmissao || s.latestEmissao > acc.latestEmissao)
+                ? s.latestEmissao
+                : acc.latestEmissao,
             lastError: s.lastError ?? acc.lastError,
           }),
           {
@@ -171,6 +178,7 @@ export class FiscalDocumentsService {
             nfesInserted: 0,
             nfesAlreadyExisted: 0,
             nfesIgnored: 0,
+            latestEmissao: null as Date | null,
             lastError: null as string | null,
           },
         );
@@ -202,6 +210,7 @@ export class FiscalDocumentsService {
     st.nfesInserted = 0;
     st.nfesAlreadyExisted = 0;
     st.nfesIgnored = 0;
+    st.latestEmissao = null;
     st.lastError = null;
     this.syncAll('received', companyId).catch((err) => {
       this.logger.error(
@@ -471,7 +480,12 @@ export class FiscalDocumentsService {
     }>,
     role: 'received',
     started: number,
-  ): Promise<{ inserted: number; existed: number; ignored: number }> {
+  ): Promise<{
+    inserted: number;
+    existed: number;
+    ignored: number;
+    drained: boolean;
+  }> {
     const st = this.getOrInitSyncState(anchorCompany.id);
     let totalInserted = 0;
     let totalExisted = 0;
@@ -489,7 +503,7 @@ export class FiscalDocumentsService {
         `syncOneCompany(${anchorCompany.code}): nenhum CNPJ autorizado pra filtrar — pulando (não varremos a conta inteira da Qive).`,
       );
       st.running = false;
-      return { inserted: 0, existed: 0, ignored: 0 };
+      return { inserted: 0, existed: 0, ignored: 0, drained: true };
     }
 
     const state = await this.prisma.fiscalDocumentSyncState.upsert({
@@ -535,6 +549,12 @@ export class FiscalDocumentsService {
             totalIgnored++;
             st.nfesIgnored = totalIgnored;
             continue;
+          }
+          if (
+            parsed.emissao &&
+            (!st.latestEmissao || parsed.emissao > st.latestEmissao)
+          ) {
+            st.latestEmissao = parsed.emissao;
           }
           // upsertParsed devolve um sinal mais rico (created | existed | ignored)
           const outcome = await this.upsertParsedV2(
@@ -613,6 +633,7 @@ export class FiscalDocumentsService {
       inserted: totalInserted,
       existed: totalExisted,
       ignored: totalIgnored,
+      drained,
     };
   }
 
@@ -726,6 +747,12 @@ export class FiscalDocumentsService {
             st.nfesIgnored = totalIgnored;
             continue;
           }
+          if (
+            parsed.emissao &&
+            (!st.latestEmissao || parsed.emissao > st.latestEmissao)
+          ) {
+            st.latestEmissao = parsed.emissao;
+          }
           const outcome = await this.upsertParsedV2(
             parsed,
             item.xml,
@@ -806,6 +833,7 @@ export class FiscalDocumentsService {
     st.nfesInserted = 0;
     st.nfesAlreadyExisted = 0;
     st.nfesIgnored = 0;
+    st.latestEmissao = null;
     st.lastError = null;
     this.syncByPeriod(companyId, from, to).catch((err) => {
       this.logger.error(
@@ -819,8 +847,9 @@ export class FiscalDocumentsService {
 
   /**
    * Carga total controlada — usada pelo script `qive:backfill`. Zera o
-   * cursor e drena o acervo INTEIRO da empresa de forma SÍNCRONA (o cnpj[]
-   * já limita às NFes dela). O cron segue incremental pelo cursor depois.
+   * cursor e drena o acervo INTEIRO da empresa, chamando o walk v1 em loop
+   * (cada passada faz até MAX_PAGES_PER_RUN páginas e retoma pelo cursor)
+   * até `drained`. O cron segue incremental daí pra frente.
    * Roda em contexto de script (não no request HTTP).
    */
   async runFullBackfill(companyId: string): Promise<{
@@ -829,12 +858,63 @@ export class FiscalDocumentsService {
     ignored: number;
     totalSeen: number;
   }> {
+    const allCompanies = await this.prisma.company.findMany({
+      where: { active: true, deletedAt: null },
+      select: {
+        id: true,
+        code: true,
+        cnpj: true,
+        cnpjRaizes: true,
+        name: true,
+        erpDbName: true,
+      },
+    });
+    const anchor = allCompanies.find((c) => c.id === companyId);
+    if (!anchor) {
+      throw new BadRequestException('Empresa não encontrada ou inativa.');
+    }
     // Estado limpo: zera o cursor pra varrer desde o início do acervo.
     await this.prisma.fiscalDocumentSyncState.updateMany({
       where: { companyId, role: 'received' },
       data: { lastCursor: 0 },
     });
-    return this.syncByPeriod(companyId, this.BACKFILL_FROM, this.OPEN_TO);
+
+    const st = this.getOrInitSyncState(companyId);
+    st.running = true;
+    st.startedAt = new Date();
+    st.nfesInserted = 0;
+    st.nfesAlreadyExisted = 0;
+    st.nfesIgnored = 0;
+    st.latestEmissao = null;
+    st.lastError = null;
+
+    let inserted = 0;
+    let existed = 0;
+    let ignored = 0;
+    const started = Date.now();
+    // Teto de segurança anti-loop: 200 passadas × 60 páginas × 50 = 600k NFs.
+    for (let pass = 0; pass < 200; pass++) {
+      const res = await this.syncOneCompany(
+        anchor,
+        allCompanies,
+        'received',
+        started,
+      );
+      inserted += res.inserted;
+      existed += res.existed;
+      ignored += res.ignored;
+      this.logger.log(
+        `runFullBackfill(${anchor.code}): passada ${pass + 1} — +${res.inserted} novas (${res.drained ? 'DRENADO' : 'continua'})`,
+      );
+      if (res.drained) break;
+    }
+    st.running = false;
+    return {
+      inserted,
+      existed,
+      ignored,
+      totalSeen: inserted + existed + ignored,
+    };
   }
 
   /**

@@ -220,6 +220,12 @@ export function FiscalDocumentsListPage() {
             syncStatus.nfesInserted +
             syncStatus.nfesAlreadyExisted +
             syncStatus.nfesIgnored;
+          const chegouEm = syncStatus.latestEmissao
+            ? new Date(syncStatus.latestEmissao).toLocaleDateString('pt-BR', {
+                month: 'short',
+                year: 'numeric',
+              })
+            : null;
           return (
             <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -232,7 +238,14 @@ export function FiscalDocumentsListPage() {
                     : 'iniciando…'}
                 </div>
               </div>
-              <div className="mt-2 text-sm text-blue-900">
+              {chegouEm && (
+                <div className="mt-2 text-sm text-blue-900">
+                  Já conferi notas emitidas até{' '}
+                  <span className="font-semibold">{chegouEm}</span> — subindo até
+                  ficar em dia.
+                </div>
+              )}
+              <div className="mt-1 text-sm text-blue-900">
                 <span className="font-semibold">
                   {syncStatus.totalLocal.toLocaleString('pt-BR')}
                 </span>{' '}

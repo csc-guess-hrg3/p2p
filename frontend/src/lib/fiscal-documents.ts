@@ -261,6 +261,8 @@ export interface FiscalSyncStatus {
   nfesInserted: number;
   nfesAlreadyExisted: number;
   nfesIgnored: number;
+  /** Emissão mais recente já conferida nesta rodada (ISO) — progresso. */
+  latestEmissao: string | null;
   lastError: string | null;
   totalLocal: number;
   lastRun: {
