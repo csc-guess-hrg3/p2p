@@ -85,13 +85,19 @@ export class QiveClientService {
       cursor?: number;
       limit?: number;
       cnpj?: string[];
+      /** Filtro por data de CRIAÇÃO na Qive (YYYY-MM-DD). */
+      createdFrom?: string;
+      createdTo?: string;
     } = {},
   ): Promise<QiveListNfesResponse> {
     const role = opts.role ?? 'received';
     const params = new URLSearchParams();
+    params.set('format_type', 'xml');
     params.set('limit', String(Math.min(opts.limit ?? 50, 50)));
     if (opts.cursor != null) params.set('cursor', String(opts.cursor));
     if (opts.cnpj) opts.cnpj.forEach((c) => params.append('cnpj[]', c));
+    if (opts.createdFrom) params.set('created_at[from]', opts.createdFrom);
+    if (opts.createdTo) params.set('created_at[to]', opts.createdTo);
     const url = `${this.baseUrl}/v1/nfe/${role}?${params.toString()}`;
     const res = await fetch(url, {
       headers: this.headers(),
@@ -104,6 +110,24 @@ export class QiveClientService {
       );
     }
     return (await res.json()) as QiveListNfesResponse;
+  }
+
+  /**
+   * Extrai o próximo cursor numérico de uma resposta v1 (`page.next` traz
+   * a URL completa com `?cursor=N`). Devolve null no fim do walk.
+   * Aceita `page` no topo ou aninhado em `data.page` (a Qive varia).
+   */
+  extractNextCursor(res: QiveListNfesResponse): number | null {
+    let next = res.page?.next;
+    if (!next) {
+      const data = (res as { data?: unknown }).data;
+      if (data && typeof data === 'object' && 'page' in data) {
+        next = (data as { page?: { next?: string } }).page?.next;
+      }
+    }
+    if (!next) return null;
+    const m = next.match(/[?&]cursor=(\d+)/);
+    return m ? Number(m[1]) : null;
   }
 
   /**

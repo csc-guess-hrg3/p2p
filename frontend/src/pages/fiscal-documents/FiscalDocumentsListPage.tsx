@@ -213,39 +213,25 @@ export function FiscalDocumentsListPage() {
         </div>
       </div>
 
-      {/* Banner de progresso — linguagem amigável (sem jargão de sync). */}
+      {/* Banner de progresso — busca filtrada pelos CNPJs da empresa. */}
       {syncStatus?.running &&
         (() => {
           const verificadas =
             syncStatus.nfesInserted +
             syncStatus.nfesAlreadyExisted +
             syncStatus.nfesIgnored;
-          const pct = syncStatus.totalOnQive
-            ? Math.min(
-                100,
-                Math.round((verificadas / syncStatus.totalOnQive) * 100),
-              )
-            : 0;
           return (
             <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="font-medium text-blue-900">
-                  Buscando notas fiscais…
+                  Buscando notas fiscais de {activeCompany?.code}…
                 </div>
                 <div className="text-xs text-blue-800">
-                  {syncStatus.totalOnQive
-                    ? `${verificadas.toLocaleString('pt-BR')} de ${syncStatus.totalOnQive.toLocaleString('pt-BR')} conferidas (${pct}%)`
-                    : 'preparando…'}
+                  {verificadas > 0
+                    ? `${verificadas.toLocaleString('pt-BR')} conferidas`
+                    : 'iniciando…'}
                 </div>
               </div>
-              {syncStatus.totalOnQive ? (
-                <div className="mt-2 h-2 w-full overflow-hidden rounded bg-blue-100">
-                  <div
-                    className="h-full bg-blue-500 transition-all"
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
-              ) : null}
               <div className="mt-2 text-sm text-blue-900">
                 <span className="font-semibold">
                   {syncStatus.totalLocal.toLocaleString('pt-BR')}
@@ -253,9 +239,8 @@ export function FiscalDocumentsListPage() {
                 notas de {activeCompany?.code} já disponíveis aqui.
               </div>
               <div className="mt-0.5 text-xs text-blue-700">
-                A primeira busca confere toda a base da Qive e pode levar alguns
-                minutos — as notas de {activeCompany?.code} vão aparecendo
-                conforme chegam. Pode continuar usando normalmente.
+                Buscamos só as notas destinadas à {activeCompany?.code}. As
+                novas vão aparecendo conforme chegam — pode continuar usando.
               </div>
             </div>
           );

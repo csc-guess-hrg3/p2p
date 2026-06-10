@@ -70,23 +70,14 @@ export class FiscalDocumentsService {
   private readonly logger = new Logger(FiscalDocumentsService.name);
 
   // Limite por execução do cron — protege o cron de rodar 1h se a Qive
-  // tiver acumulado muita coisa. Próxima execução pega o resto.
-  //
-  // A v2 ignora o Limit menor que ~500 e devolve em batches fixos
-  // (~9MB/página). Pedimos 50, ela manda 500 mesmo. Trabalhamos com
-  // isso: 60 páginas × ~500 = ~30k NFs/exec. Como a conta tem ~56k,
-  // 2 execuções terminam o backfill completo.
+  // tiver acumulado muita coisa. Próxima execução retoma pelo cursor.
+  // Com o filtro cnpj[] (v1), cada empresa tem poucas páginas (50/página),
+  // então 60 páginas cobrem 3k NFs/exec — sobra folga.
   private readonly MAX_PAGES_PER_RUN = 60;
   private readonly PAGE_SIZE = 50;
   private readonly SLEEP_BETWEEN_PAGES_MS = 300;
 
-  /**
-   * Folga aplicada à marca d'água no sync incremental — re-pede alguns
-   * dias pra trás pra pegar NF que a Qive registra com atraso (ou em fuso
-   * diferente). Re-baixa um punhado que volta 'existed' — barato.
-   */
-  private readonly WATERMARK_OVERLAP_MS = 3 * 24 * 60 * 60 * 1000;
-  /** Janela ampla do backfill (quando ainda não há marca d'água). */
+  /** Janela ampla do backfill manual por período. */
   private readonly BACKFILL_FROM = '2010-01-01';
   private readonly OPEN_TO = '2099-12-31';
   /** Teto alto de páginas do sync manual por período (proteção anti-loop). */
@@ -232,6 +223,80 @@ export class FiscalDocumentsService {
     map: Map<string, string> | null;
     expiresAt: number;
   } = { map: null, expiresAt: 0 };
+
+  /**
+   * CNPJs autorizados na conta Qive (GET /v1/company). A v1 valida o
+   * filtro `cnpj[]` contra esta lista — mandar um CNPJ não autorizado
+   * derruba a chamada com BAD_REQUEST. Por isso só filtramos pela
+   * interseção (FILIAIS ∩ autorizados). TTL 30min.
+   */
+  private authorizedCnpjsCache: {
+    set: Set<string> | null;
+    expiresAt: number;
+  } = { set: null, expiresAt: 0 };
+
+  private async getAuthorizedCnpjs(): Promise<Set<string>> {
+    if (
+      this.authorizedCnpjsCache.set &&
+      Date.now() < this.authorizedCnpjsCache.expiresAt
+    ) {
+      return this.authorizedCnpjsCache.set;
+    }
+    try {
+      const list = await this.qive.listCompanies();
+      const set = new Set(
+        list
+          .map((c) => String(c).replace(/\D/g, ''))
+          .filter((c) => c.length === 14),
+      );
+      this.authorizedCnpjsCache = {
+        set,
+        expiresAt: Date.now() + this.CNPJ_MAP_TTL_MS,
+      };
+      this.logger.log(
+        `getAuthorizedCnpjs: ${set.size} CNPJs autorizados na conta Qive (cache 30min)`,
+      );
+      return set;
+    } catch (err) {
+      this.logger.warn(
+        `getAuthorizedCnpjs: falha (${(err as Error).message.slice(0, 80)}) — seguirei sem interseção`,
+      );
+      return new Set();
+    }
+  }
+
+  /**
+   * Resolve o filtro de CNPJs pra uma empresa: dos CNPJs AUTORIZADOS na
+   * conta Qive (GET /v1/company), pega os que pertencem à empresa — por
+   * raiz (companyMatchesRaiz) OU por match exato em FILIAIS. Importante:
+   * NÃO é "FILIAIS ∩ autorizados" — muitos CNPJs GUESS autorizados na Qive
+   * não estão no FILIAIS do ERP (batem só por raiz). Partir do FILIAIS
+   * perderia ~85% das filiais. Partimos da lista da Qive (a fonte real do
+   * que dá pra filtrar) e particionamos por empresa.
+   */
+  private async resolveCompanyCnpjFilter(anchorCompany: {
+    code: string;
+    erpDbName: string;
+    cnpj: string | null;
+    cnpjRaizes: string | null;
+  }): Promise<{ filter: string[]; authorizedKnown: boolean }> {
+    const authorized = await this.getAuthorizedCnpjs();
+    if (authorized.size === 0) {
+      // Sem a lista de autorizados, cai pro FILIAIS como best-effort (pode
+      // mandar algum CNPJ não autorizado, mas é melhor que não filtrar).
+      const filialCnpjs = await this.loadCnpjFilter(anchorCompany);
+      return { filter: filialCnpjs, authorizedKnown: false };
+    }
+    const filialSet = new Set(await this.loadCnpjFilter(anchorCompany));
+    const filter = [...authorized].filter(
+      (c) =>
+        companyMatchesRaiz(anchorCompany, c.slice(0, 8)) || filialSet.has(c),
+    );
+    this.logger.log(
+      `resolveCompanyCnpjFilter(${anchorCompany.code}): ${filter.length} CNPJ(s) autorizados pertencem à empresa (de ${authorized.size} na conta Qive)`,
+    );
+    return { filter, authorizedKnown: true };
+  }
   private readonly CNPJ_MAP_TTL_MS = 30 * 60 * 1000;
 
   /**
@@ -412,8 +477,20 @@ export class FiscalDocumentsService {
     let totalExisted = 0;
     let totalIgnored = 0;
 
-    // Carrega CNPJs (14 chars) da empresa pra filtrar a chamada Qive.
-    const cnpjFilter = await this.loadCnpjFilter(anchorCompany);
+    // Filtro de CNPJs = FILIAIS da empresa ∩ autorizados na conta Qive.
+    // A v1 (GET /v1/nfe/received) RESPEITA o cnpj[] — então cada empresa
+    // puxa só as NFes destinadas a ela (ao contrário da v2, que ignora o
+    // filtro e devolve a conta inteira). Sem nenhum CNPJ válido, NÃO
+    // varremos a conta toda — pulamos a empresa.
+    const { filter: cnpjFilter, authorizedKnown } =
+      await this.resolveCompanyCnpjFilter(anchorCompany);
+    if (cnpjFilter.length === 0) {
+      this.logger.warn(
+        `syncOneCompany(${anchorCompany.code}): nenhum CNPJ autorizado pra filtrar — pulando (não varremos a conta inteira da Qive).`,
+      );
+      st.running = false;
+      return { inserted: 0, existed: 0, ignored: 0 };
+    }
 
     const state = await this.prisma.fiscalDocumentSyncState.upsert({
       where: {
@@ -423,50 +500,31 @@ export class FiscalDocumentsService {
       update: {},
     });
 
-    // Janela de CreatedAt (criação na Qive): incremental por marca d'água.
-    // Sem watermark (1ª vez) → backfill em janela ampla. Com watermark →
-    // só o que entrou desde a última drenagem, com folga de alguns dias.
-    const watermark = state.createdAtWatermark;
-    const isBackfill = watermark == null;
-    const windowFrom = watermark
-      ? this.toDateOnly(
-          new Date(watermark.getTime() - this.WATERMARK_OVERLAP_MS),
-        )
-      : this.BACKFILL_FROM;
-    // Instante do início do walk — vira a nova marca d'água SE drenarmos a
-    // janela. Usar o início (não o fim) garante que não perdemos NF criada
-    // durante o próprio walk.
-    const windowStartedAt = new Date();
-
-    let paginator: string | null = state.lastPaginator ?? null;
+    // Modelo v1: walk por cursor numérico (estável e resumível). O cursor
+    // É a marca d'água — NFs novas entram à frente do último cursor, então
+    // retomar de lastCursor já é o incremental. O cnpj[] limita ao acervo
+    // da empresa; não precisa de filtro de data no cron.
+    let cursor = state.lastCursor ?? 0;
     let pages = 0;
     let lastError: string | null = null;
-    let totalSeen = 0;
     let drained = false;
+    // v1 não devolve o total da conta — progresso é por contagem local.
+    st.totalOnQive = null;
 
     this.logger.log(
-      `syncOneCompany(${anchorCompany.code}): janela CreatedAt ${windowFrom}..hoje (${isBackfill ? 'backfill' : 'incremental'}), paginator ${paginator ? 'retoma' : 'novo'}`,
+      `syncOneCompany(${anchorCompany.code}): v1 cursor=${cursor}, ${cnpjFilter.length} CNPJ(s) no filtro${authorizedKnown ? '' : ' (sem lista de autorizados — best-effort)'}`,
     );
 
     try {
       while (pages < this.MAX_PAGES_PER_RUN) {
-        const res = await this.qive.listNfesV2({
-          paginator,
+        const res = await this.qive.listNfes({
+          role,
+          cursor,
           limit: this.PAGE_SIZE,
-          // Filtra por CNPJs da empresa — assim cada company só puxa as
-          // NFes que são dela. A v2 também exige Filters.CreatedAt pra
-          // não responder 500.
-          createdAtFrom: windowFrom,
-          createdAtTo: this.OPEN_TO,
-          accessKeys: undefined,
-          // cnpjs é o filtro de "owner" — quem é dono da NF na conta Qive.
-          // Quando vazio (ex.: HRG3 em HML sem FILIAIS), não filtra.
-          ...(cnpjFilter.length > 0 ? { cnpjs: cnpjFilter } : {}),
+          cnpj: cnpjFilter,
         });
         const items = res.data ?? [];
-        if (items.length === 0) break;
-        totalSeen = res.total;
-        st.totalOnQive = totalSeen;
+        const nextCursor = this.qive.extractNextCursor(res);
 
         for (const item of items) {
           const parsed = parseNfeBase64(item.xml);
@@ -496,24 +554,23 @@ export class FiscalDocumentsService {
           }
         }
 
-        // Salva paginator atual no DB pra próxima execução do cron
-        // continuar daqui mesmo se a página seguinte falhar.
+        pages++;
+        st.pagesProcessed = pages;
+
+        // Fim do walk: sem próximo cursor, cursor repetido ou página vazia.
+        // (Não avança o checkpoint além da última página — igual ao ingest.)
+        if (nextCursor == null || nextCursor === cursor || items.length === 0) {
+          drained = true;
+          break;
+        }
+        cursor = nextCursor;
+        // Checkpoint a cada página (resumível se a próxima falhar).
         await this.prisma.fiscalDocumentSyncState.update({
           where: {
             companyId_role: { companyId: anchorCompany.id, role },
           },
-          data: { lastPaginator: res.paginator ?? null },
+          data: { lastCursor: cursor },
         });
-
-        // Próximo paginator — null/empty = fim do walk (janela drenada).
-        if (!res.paginator) {
-          paginator = null;
-          drained = true;
-          break;
-        }
-        paginator = res.paginator;
-        pages++;
-        st.pagesProcessed = pages;
         await this.sleep(this.SLEEP_BETWEEN_PAGES_MS);
       }
     } catch (err) {
@@ -528,13 +585,9 @@ export class FiscalDocumentsService {
         companyId_role: { companyId: anchorCompany.id, role },
       },
       data: {
-        lastPaginator: paginator,
+        lastCursor: cursor,
         lastSyncAt: new Date(),
         lastError: lastError?.slice(0, 1900) ?? null,
-        // Só avança a marca d'água quando a janela foi totalmente drenada.
-        // Se parou no teto de páginas (paginator != null), mantém o
-        // watermark atual e retoma pelo paginator na próxima execução.
-        ...(drained ? { createdAtWatermark: windowStartedAt } : {}),
       },
     });
 
@@ -553,7 +606,7 @@ export class FiscalDocumentsService {
     });
 
     this.logger.log(
-      `qive-nfe-sync(${anchorCompany.code}) concluído: ${totalInserted} novas, ${totalExisted} já existiam, ${totalIgnored} ignoradas (Qive total=${totalSeen}, paginator=${paginator ? 'continua' : 'fim'}), em ${Date.now() - started}ms`,
+      `qive-nfe-sync(${anchorCompany.code}) concluído: ${totalInserted} novas, ${totalExisted} já existiam, ${totalIgnored} ignoradas (cursor=${cursor}, ${drained ? 'fim' : 'continua'}), em ${Date.now() - started}ms`,
     );
 
     return {
@@ -561,11 +614,6 @@ export class FiscalDocumentsService {
       existed: totalExisted,
       ignored: totalIgnored,
     };
-  }
-
-  /** Formata uma Date como 'YYYY-MM-DD' (a Qive aceita date ou datetime). */
-  private toDateOnly(d: Date): string {
-    return d.toISOString().slice(0, 10);
   }
 
   /**
@@ -642,33 +690,34 @@ export class FiscalDocumentsService {
     }
 
     const st = this.getOrInitSyncState(companyId);
-    const cnpjFilter = await this.loadCnpjFilter(anchorCompany);
+    const { filter: cnpjFilter } =
+      await this.resolveCompanyCnpjFilter(anchorCompany);
 
     let totalInserted = 0;
     let totalExisted = 0;
     let totalIgnored = 0;
-    let totalSeen = 0;
-    let paginator: string | null = null;
+    // Walk ad-hoc desde o início da janela — NÃO mexe no checkpoint do cron.
+    let cursor = 0;
     let pages = 0;
     let lastError: string | null = null;
+    st.totalOnQive = null;
 
     this.logger.log(
-      `syncByPeriod(${anchorCompany.code}): janela CreatedAt ${from}..${to}`,
+      `syncByPeriod(${anchorCompany.code}): janela CreatedAt ${from}..${to}, ${cnpjFilter.length} CNPJ(s)${cnpjFilter.length === 0 ? ' (nada autorizado — sem busca)' : ''}`,
     );
 
     try {
-      while (pages < this.MAX_PAGES_PER_PERIOD) {
-        const res = await this.qive.listNfesV2({
-          paginator,
+      while (cnpjFilter.length > 0 && pages < this.MAX_PAGES_PER_PERIOD) {
+        const res = await this.qive.listNfes({
+          role: 'received',
+          cursor,
           limit: this.PAGE_SIZE,
-          createdAtFrom: from,
-          createdAtTo: to,
-          ...(cnpjFilter.length > 0 ? { cnpjs: cnpjFilter } : {}),
+          cnpj: cnpjFilter,
+          createdFrom: from,
+          createdTo: to,
         });
         const items = res.data ?? [];
-        if (items.length === 0) break;
-        totalSeen = res.total;
-        st.totalOnQive = totalSeen;
+        const nextCursor = this.qive.extractNextCursor(res);
 
         for (const item of items) {
           const parsed = parseNfeBase64(item.xml);
@@ -694,10 +743,12 @@ export class FiscalDocumentsService {
           }
         }
 
-        if (!res.paginator) break;
-        paginator = res.paginator;
         pages++;
         st.pagesProcessed = pages;
+        if (nextCursor == null || nextCursor === cursor || items.length === 0) {
+          break;
+        }
+        cursor = nextCursor;
         await this.sleep(this.SLEEP_BETWEEN_PAGES_MS);
       }
     } catch (err) {
@@ -721,8 +772,9 @@ export class FiscalDocumentsService {
       },
     });
 
+    const totalSeen = totalInserted + totalExisted + totalIgnored;
     this.logger.log(
-      `syncByPeriod(${anchorCompany.code}) [${from}..${to}]: ${totalInserted} novas, ${totalExisted} existiam, ${totalIgnored} ignoradas (Qive total=${totalSeen}), em ${Date.now() - started}ms`,
+      `syncByPeriod(${anchorCompany.code}) [${from}..${to}]: ${totalInserted} novas, ${totalExisted} existiam, ${totalIgnored} ignoradas, em ${Date.now() - started}ms`,
     );
 
     return {
@@ -766,9 +818,9 @@ export class FiscalDocumentsService {
   }
 
   /**
-   * Carga total controlada — usada pelo script `qive:backfill`. Reseta a
-   * marca d'água + paginator, drena a janela ampla de forma SÍNCRONA, e
-   * grava a marca d'água pro cron seguir incremental daí pra frente.
+   * Carga total controlada — usada pelo script `qive:backfill`. Zera o
+   * cursor e drena o acervo INTEIRO da empresa de forma SÍNCRONA (o cnpj[]
+   * já limita às NFes dela). O cron segue incremental pelo cursor depois.
    * Roda em contexto de script (não no request HTTP).
    */
   async runFullBackfill(companyId: string): Promise<{
@@ -777,29 +829,12 @@ export class FiscalDocumentsService {
     ignored: number;
     totalSeen: number;
   }> {
-    const startedAt = new Date();
-    // Estado limpo da janela antes do walk completo.
+    // Estado limpo: zera o cursor pra varrer desde o início do acervo.
     await this.prisma.fiscalDocumentSyncState.updateMany({
       where: { companyId, role: 'received' },
-      data: { lastPaginator: null, createdAtWatermark: null },
+      data: { lastCursor: 0 },
     });
-    const out = await this.syncByPeriod(
-      companyId,
-      this.BACKFILL_FROM,
-      this.OPEN_TO,
-    );
-    // Marca a posição: a partir daqui o cron vai incremental.
-    await this.prisma.fiscalDocumentSyncState.upsert({
-      where: { companyId_role: { companyId, role: 'received' } },
-      create: {
-        companyId,
-        role: 'received',
-        lastCursor: 0,
-        createdAtWatermark: startedAt,
-      },
-      update: { createdAtWatermark: startedAt, lastPaginator: null },
-    });
-    return out;
+    return this.syncByPeriod(companyId, this.BACKFILL_FROM, this.OPEN_TO);
   }
 
   /**
