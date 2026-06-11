@@ -113,19 +113,6 @@ export function SupplierPicker({ company, value, onChange }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cnpj, mode, company]);
 
-  // Quando o usuário digita o nome manualmente (último fallback).
-  function handleNameChange(name: string) {
-    setSupplierName(name);
-    const digits = cnpj.replace(/\D/g, '');
-    onChange({
-      supplierErpCode: '',
-      supplierCnpj: digits,
-      supplierName: name,
-      isExternal: true,
-      suggestedPaymentCondition: null,
-    });
-  }
-
   /**
    * Reseta a seleção pra estado vazio. `isExternal` é deixado `false`
    * (default semântico) — o pai decide pelo modo atual da UI, não pelo
@@ -148,8 +135,6 @@ export function SupplierPicker({ company, value, onChange }: Props) {
 
   const cnpjDigits = cnpj.replace(/\D/g, '');
   const cnpjValid = cnpjDigits.length === 14 || cnpjDigits.length === 11;
-  const autoIdentified = !!erpMatch || !!publicMatch;
-  const needsName = mode === 'external' && cnpjValid && !lookingUp && !autoIdentified && !supplierName.trim();
 
   return (
     <div className="space-y-2">
@@ -206,9 +191,8 @@ export function SupplierPicker({ company, value, onChange }: Props) {
             </button>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Informe o CNPJ. O fornecedor segue junto da requisição{' '}
-            <b>para validação</b> — quando aprovada, ele é cadastrado no Linx
-            automaticamente. Não cadastramos direto sem aprovação.
+            Informe o CNPJ. O fornecedor segue junto da requisição e só é
+            cadastrado no Linx <b>quando ela é aprovada</b> — nunca direto.
           </p>
 
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-[200px_1fr]">
@@ -238,18 +222,13 @@ export function SupplierPicker({ company, value, onChange }: Props) {
             <div className="space-y-1">
               <Label className="text-[11px] text-muted-foreground">
                 Razão social
-                {needsName && <span className="ml-1 text-destructive">*</span>}
               </Label>
               <Input
                 value={supplierName}
-                onChange={(e) => handleNameChange(e.target.value)}
-                disabled={autoIdentified}
+                readOnly
+                disabled
                 placeholder={
-                  autoIdentified
-                    ? ''
-                    : lookingUp
-                      ? 'Consultando…'
-                      : 'Nome do fornecedor'
+                  lookingUp ? 'Consultando…' : 'Preenchido pelo CNPJ (Receita)'
                 }
               />
             </div>
@@ -306,7 +285,8 @@ export function SupplierPicker({ company, value, onChange }: Props) {
                   CNPJ não encontrado no ERP nem na Receita Federal
                 </p>
                 <p className="text-[11px] text-muted-foreground">
-                  Confira o CNPJ ou informe o nome do fornecedor manualmente.
+                  Confira o CNPJ — o cadastro usa a razão social da Receita
+                  Federal, não dá pra digitar o nome à mão.
                 </p>
               </div>
             </div>
