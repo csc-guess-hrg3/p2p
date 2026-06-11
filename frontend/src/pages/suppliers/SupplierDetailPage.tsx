@@ -186,12 +186,12 @@ function Field({
   mono?: boolean;
 }) {
   return (
-    <div className="space-y-1">
+    <div className="min-w-0 space-y-1">
       <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         {label}
       </div>
       <div
-        className={`min-h-[1.25rem] text-sm ${mono ? 'font-mono' : ''} ${
+        className={`min-h-[1.25rem] text-sm [overflow-wrap:anywhere] ${mono ? 'font-mono' : ''} ${
           value ? '' : 'italic text-muted-foreground'
         }`}
       >
