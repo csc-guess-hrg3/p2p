@@ -100,6 +100,22 @@ export class IntegrationService {
       ORDER BY nome`;
   }
 
+  /** Um fornecedor pelo código (todos os campos da view). Null se não achar. */
+  async getSupplierByCodigo(
+    company: string,
+    codigo: string,
+  ): Promise<ErpSupplier | null> {
+    const c = this.assertCompany(company);
+    const rows = await this.prisma.$queryRaw<ErpSupplier[]>`
+      SELECT codigo, nome, razao_social AS razaoSocial, cnpj_cpf AS cnpjCpf,
+             tipo_pessoa AS tipoPessoa, email, telefone, tipo,
+             condicao_pgto AS condicaoPgto, banco, agencia, conta,
+             chave_pix AS chavePix, inativo
+      FROM dbo.v_p2p_suppliers
+      WHERE empresa = ${c} AND codigo = ${codigo}`;
+    return rows[0] ?? null;
+  }
+
   /** Plano de contas da empresa. */
   async getAccounts(company: string, onlyActive = true): Promise<ErpAccount[]> {
     const c = this.assertCompany(company);

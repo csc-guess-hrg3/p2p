@@ -130,6 +130,14 @@ const BranchDetailPage = lazyPage(
   () => import('@/pages/admin/BranchDetailPage'),
   'BranchDetailPage',
 );
+const SuppliersPage = lazyPage(
+  () => import('@/pages/suppliers/SuppliersPage'),
+  'SuppliersPage',
+);
+const SupplierDetailPage = lazyPage(
+  () => import('@/pages/suppliers/SupplierDetailPage'),
+  'SupplierDetailPage',
+);
 
 function RouteFallback() {
   return (
@@ -206,6 +214,17 @@ function App() {
                     path="solicitacoes-verba/:id"
                     element={<FundRequestDetailPage />}
                   />
+
+                  {/* Fornecedores — módulo (De-Para Linx). Admin/Revisor. */}
+                  <Route
+                    element={<RequireProfile roles={['ADMIN', 'REVIEWER']} />}
+                  >
+                    <Route path="fornecedores" element={<SuppliersPage />} />
+                    <Route
+                      path="fornecedores/:codigo"
+                      element={<SupplierDetailPage />}
+                    />
+                  </Route>
 
                   {/* Recebimentos — Admin/Manager/Operador + equipes com RECEIVING. */}
                   <Route

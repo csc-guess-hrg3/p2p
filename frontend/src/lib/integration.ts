@@ -14,9 +14,15 @@ export interface ErpSupplier {
   nome: string;
   razaoSocial: string | null;
   cnpjCpf: string | null;
+  tipoPessoa: 'PJ' | 'PF' | null;
   email: string | null;
   telefone: string | null;
+  tipo: string | null;
   condicaoPgto: string | null;
+  banco: string | null;
+  agencia: string | null;
+  conta: string | null;
+  chavePix: string | null;
   inativo: boolean;
 }
 
