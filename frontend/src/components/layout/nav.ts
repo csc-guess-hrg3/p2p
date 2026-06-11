@@ -14,6 +14,7 @@ import {
   Barcode,
   Landmark,
   Gavel,
+  Truck,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -144,6 +145,12 @@ export const NAV_SECTIONS: NavSection[] = [
     icon: PackageCheck,
     roles: ['ADMIN', 'MANAGER', 'OPERATOR'],
     module: 'RECEIVING',
+  },
+  {
+    to: '/fornecedores',
+    label: 'Fornecedores',
+    icon: Truck,
+    roles: ['ADMIN', 'REVIEWER'],
   },
   // ─── Grupo Fiscal ───
   {

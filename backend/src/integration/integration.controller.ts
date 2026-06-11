@@ -61,6 +61,16 @@ export class IntegrationController {
     });
   }
 
+  @Get('suppliers/:codigo')
+  @ApiOperation({ summary: 'Detalhe de um fornecedor pelo código (Linx)' })
+  async supplierByCodigo(
+    @Param('company') company: string,
+    @Param('codigo') codigo: string,
+  ) {
+    const found = await this.integration.getSupplierByCodigo(company, codigo);
+    return found ?? { found: false };
+  }
+
   @Get('supplier-by-cnpj')
   @ApiOperation({
     summary: 'Busca um fornecedor pelo CNPJ. Retorna 404 se não cadastrado.',
