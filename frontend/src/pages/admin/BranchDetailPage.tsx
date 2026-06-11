@@ -1,12 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Building2, MapPin, Mail } from 'lucide-react';
+import { ArrowLeft, Building2, MapPin, Mail, Eye } from 'lucide-react';
 import { useCompany } from '@/lib/company';
-import { useBranchAdmin, useSetBranchEmail } from '@/lib/branches';
+import {
+  useBranchAdmin,
+  useSetBranchEmail,
+  useSetBranchOverride,
+} from '@/lib/branches';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -31,6 +37,7 @@ export function BranchDetailPage() {
   const { companies, activeCompany } = useCompany();
   const { toast } = useToast();
   const setEmailMut = useSetBranchEmail();
+  const setOverrideMut = useSetBranchOverride();
 
   const initialCompanyId =
     searchParams.get('companyId') ?? activeCompany?.id ?? '';
@@ -42,6 +49,43 @@ export function BranchDetailPage() {
   useEffect(() => {
     setEmail(branch?.email ?? '');
   }, [branch?.email]);
+
+  const [alias, setAlias] = useState('');
+  useEffect(() => {
+    setAlias(branch?.aliasName ?? '');
+  }, [branch?.aliasName]);
+
+  async function saveAlias() {
+    if (!companyId || !code) return;
+    const next = alias.trim() || null;
+    if (next === (branch?.aliasName ?? null)) return;
+    try {
+      await setOverrideMut.mutateAsync({ companyId, code, aliasName: next });
+      toast({
+        title: next ? 'Apelido salvo' : 'Apelido removido',
+        description: `${code} aparece como "${next ?? branch?.nome ?? ''}".`,
+        variant: 'success',
+      });
+    } catch {
+      toast({ title: 'Falha ao salvar o apelido', variant: 'destructive' });
+    }
+  }
+
+  async function toggleHidden(next: boolean) {
+    if (!companyId || !code) return;
+    try {
+      await setOverrideMut.mutateAsync({ companyId, code, hidden: next });
+      toast({
+        title: next ? 'Filial ocultada' : 'Filial reexibida',
+        description: next
+          ? 'Não aparece mais nas telas e seletores do P2P.'
+          : 'Voltou a aparecer nas telas e seletores.',
+        variant: 'success',
+      });
+    } catch {
+      toast({ title: 'Falha ao alterar a visibilidade', variant: 'destructive' });
+    }
+  }
 
   async function saveEmail() {
     if (!companyId || !code) return;
@@ -78,14 +122,26 @@ export function BranchDetailPage() {
             {isLoading
               ? 'Carregando…'
               : branch
-                ? `${branch.codigo} — ${branch.nome}`
+                ? `${branch.codigo} — ${branch.nomeExibicao}`
                 : 'Filial não encontrada'}
           </h1>
-          {branch?.inativo && (
-            <span className="mt-1 inline-block rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-destructive">
-              Inativa
-            </span>
-          )}
+          <div className="mt-1 flex items-center gap-2">
+            {branch?.aliasName && (
+              <span className="text-xs text-muted-foreground">
+                apelido de “{branch.nome}”
+              </span>
+            )}
+            {branch?.hidden && (
+              <Badge variant="neutral" className="text-[10px]">
+                Oculta
+              </Badge>
+            )}
+            {branch?.inativo && (
+              <span className="inline-block rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-destructive">
+                Inativa
+              </span>
+            )}
+          </div>
         </div>
         <Select value={companyId} onValueChange={setCompanyId}>
           <SelectTrigger className="h-9 sm:w-60">
@@ -163,6 +219,63 @@ export function BranchDetailPage() {
                 <ReadOnly label="Cidade" value={branch.cidade} />
                 <ReadOnly label="UF" value={branch.uf} />
                 <ReadOnly label="CEP" value={branch.cep} mono />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* De-Para: exibição no portal (F-01 ocultar, F-02 apelido) */}
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Eye className="size-4 text-muted-foreground" />
+                Exibição no portal (De-Para)
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="branch-alias">Apelido (nome amigável)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="branch-alias"
+                    placeholder={branch.nome}
+                    value={alias}
+                    maxLength={200}
+                    onChange={(e) => setAlias(e.target.value)}
+                  />
+                  <Button
+                    onClick={saveAlias}
+                    disabled={
+                      setOverrideMut.isPending ||
+                      alias.trim() === (branch.aliasName ?? '')
+                    }
+                  >
+                    {setOverrideMut.isPending ? 'Salvando…' : 'Salvar'}
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Substitui o nome do ERP nas telas e seletores do P2P. Vazio =
+                  usa o nome do ERP (<span className="italic">{branch.nome}</span>
+                  ). O código <span className="font-mono">{branch.codigo}</span>{' '}
+                  continua sendo o que vai pro ERP.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+                <div className="space-y-0.5">
+                  <Label htmlFor="branch-hidden" className="cursor-pointer">
+                    Ocultar filial
+                  </Label>
+                  <p className="text-[11px] text-muted-foreground">
+                    Esconde esta filial das telas e seletores (ex.: filiais que
+                    não usam o P2P). O histórico é preservado.
+                  </p>
+                </div>
+                <Switch
+                  id="branch-hidden"
+                  checked={branch.hidden}
+                  disabled={setOverrideMut.isPending}
+                  onCheckedChange={toggleHidden}
+                />
               </div>
             </CardContent>
           </Card>
