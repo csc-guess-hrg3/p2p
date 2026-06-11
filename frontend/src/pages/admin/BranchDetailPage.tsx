@@ -195,8 +195,9 @@ export function BranchDetailPage() {
                 />
               </div>
               <p className="pt-1 text-[11px] text-muted-foreground">
-                Origem: ERP (view <code>v_p2p_branches</code>). Para corrigir,
-                ajuste no ERP — o P2P só reflete.
+                Identificação vinda do cadastro central da empresa. Para
+                personalizar como a filial aparece no portal, use “Exibição no
+                portal” abaixo.
               </p>
             </CardContent>
           </Card>
