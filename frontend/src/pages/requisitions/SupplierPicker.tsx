@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertCircle, Building2, CheckCircle2, Plus, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Plus, X } from 'lucide-react';
 import {
   lookupSupplierByCnpj,
   lookupCnpjPublic,
@@ -153,74 +153,64 @@ export function SupplierPicker({ company, value, onChange }: Props) {
 
   return (
     <div className="space-y-2">
-      {/* Toggle de modo */}
-      <div
-        role="tablist"
-        className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1"
-      >
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mode === 'erp'}
-          onClick={() => {
-            // Trocar de modo é sempre destrutivo — os dois caminhos NÃO
-            // coexistem. O solicitante escolhe um caminho de cada vez
-            // pra não ficar dúvida de qual fornecedor está aplicando.
-            if (mode !== 'erp') {
-              setMode('erp');
-              clearSelection();
+      {/* Busca em destaque — fornecedor já cadastrado no ERP. */}
+      {mode === 'erp' && (
+        <div className="space-y-2">
+          <SupplierCombobox
+            company={company}
+            value={value.isExternal ? '' : value.supplierErpCode}
+            selectedName={value.isExternal ? '' : value.supplierName}
+            onChange={(codigo, supplier) =>
+              onChange({
+                supplierErpCode: codigo,
+                supplierCnpj: (supplier.cnpjCpf ?? '').replace(/\D/g, ''),
+                supplierName: supplier.nome,
+                isExternal: false,
+                suggestedPaymentCondition: supplier.condicaoPgto ?? null,
+              })
             }
-          }}
-          className={`flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${
-            mode === 'erp'
-              ? 'bg-background text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          <Building2 className="size-4" />
-          Já cadastrado no ERP
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mode === 'external'}
-          onClick={() => {
-            if (mode !== 'external') {
+            onClear={clearSelection}
+          />
+          {/* Caminho secundário: não está cadastrado → vai pra aprovação. */}
+          <button
+            type="button"
+            onClick={() => {
               setMode('external');
               clearSelection();
-            }
-          }}
-          className={`flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${
-            mode === 'external'
-              ? 'bg-background text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          <Plus className="size-4" />
-          Novo (por CNPJ)
-        </button>
-      </div>
-
-      {mode === 'erp' && (
-        <SupplierCombobox
-          company={company}
-          value={value.isExternal ? '' : value.supplierErpCode}
-          selectedName={value.isExternal ? '' : value.supplierName}
-          onChange={(codigo, supplier) =>
-            onChange({
-              supplierErpCode: codigo,
-              supplierCnpj: (supplier.cnpjCpf ?? '').replace(/\D/g, ''),
-              supplierName: supplier.nome,
-              isExternal: false,
-              suggestedPaymentCondition: supplier.condicaoPgto ?? null,
-            })
-          }
-          onClear={clearSelection}
-        />
+            }}
+            className="flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+          >
+            <Plus className="size-3.5" />
+            Não encontrou? Cadastrar novo fornecedor (vai para aprovação)
+          </button>
+        </div>
       )}
 
       {mode === 'external' && (
-        <div className="space-y-2">
+        <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
+          {/* Cabeçalho do modo "novo" + voltar à busca. */}
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5 text-sm font-medium">
+              <Plus className="size-4 text-primary" />
+              Novo fornecedor
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setMode('erp');
+                clearSelection();
+              }}
+              className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+            >
+              ← buscar um já cadastrado
+            </button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Informe o CNPJ. O fornecedor segue junto da requisição{' '}
+            <b>para validação</b> — quando aprovada, ele é cadastrado no Linx
+            automaticamente. Não cadastramos direto sem aprovação.
+          </p>
+
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-[200px_1fr]">
             <div className="space-y-1">
               <Label className="text-[11px] text-muted-foreground">CNPJ</Label>
