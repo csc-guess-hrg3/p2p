@@ -737,6 +737,7 @@ model Requisition {
   fundRequest    FundRequest?
   attachments    Attachment[]
   quotations     Quotation[]
+  supplierValidation SupplierValidation?
   recurrenceParent   Requisition?  @relation("ReqRecurrence", fields: [recurrenceParentId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   recurrenceChildren Requisition[] @relation("ReqRecurrence")
 
@@ -748,6 +749,33 @@ model Requisition {
   // Cobre listagens "minhas" (ADMIN, sem teamId).
   @@index([companyId, createdAt(sort: Desc)])
   @@map("requisitions")
+}
+
+/**
+ * Validação de fornecedor novo (Revisor) — RN do André (11/jun/2026).
+ * Quando a requisição traz um fornecedor NÃO cadastrado, antes de ir pro
+ * gestor ela passa por validação: o Revisor confere/edita os dados (que
+ * moram na própria Requisition) e Aprova → cadastra no Linx via
+ * `ensureSupplierRegistered`; ou Devolve com justificativa → volta pro
+ * solicitante. 1:1 com a requisição. (Distinção Revisor×Jurídico: futura.)
+ */
+model SupplierValidation {
+  id              String    @id @default(uuid()) @db.UniqueIdentifier
+  companyId       String    @db.UniqueIdentifier
+  requisitionId   String    @unique @db.UniqueIdentifier
+  status          String    @default("PENDING") @db.NVarChar(15) // PENDING | APPROVED | RETURNED
+  supplierCnpj    String    @db.NVarChar(14)
+  supplierErpCode String?   @db.NVarChar(20)  // CLIFOR criado no Linx ao aprovar
+  validatorId     String?   @db.UniqueIdentifier
+  justification   String?   @db.NVarChar(Max) // motivo da devolução
+  decidedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  requisition Requisition @relation(fields: [requisitionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@index([companyId, status])
+  @@map("supplier_validations")
 }
 
 model RequisitionItem {
