@@ -357,8 +357,24 @@ export class LinxErpService {
         consumivel,
       );
     }
+    // Recompõe os totais da CAPA (COMPRAS) a partir das linhas. O trigger da
+    // COMPRAS_CONSUMIVEL NÃO propaga pra capa, então o "saldo a entregar" do
+    // cabeçalho (TOT_QTDE_ENTREGAR/TOT_VALOR_ENTREGAR) ficaria stale —
+    // mostrando saldo que já foi cancelado. Recalcula direto do SUM das linhas
+    // (idempotente; serve pro cancelamento total e parcial).
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE [${erpDb}].dbo.COMPRAS
+          SET TOT_QTDE_ENTREGAR = ISNULL(
+                (SELECT SUM(QTDE_ENTREGAR) FROM [${erpDb}].dbo.COMPRAS_CONSUMIVEL
+                  WHERE PEDIDO = @P1), 0),
+              TOT_VALOR_ENTREGAR = ISNULL(
+                (SELECT SUM(VALOR_ENTREGAR) FROM [${erpDb}].dbo.COMPRAS_CONSUMIVEL
+                  WHERE PEDIDO = @P1), 0)
+        WHERE PEDIDO = @P1`,
+      po.erpPedido,
+    );
     this.logger.log(
-      `PC ${po.number} (Linx ${po.erpPedido}): ${items.length} item(ns) com saldo cancelado no Linx`,
+      `PC ${po.number} (Linx ${po.erpPedido}): ${items.length} item(ns) com saldo cancelado no Linx (capa recalculada)`,
     );
   }
 
