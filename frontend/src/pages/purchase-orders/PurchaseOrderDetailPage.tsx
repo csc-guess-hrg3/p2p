@@ -85,19 +85,20 @@ export function PurchaseOrderDetailPage() {
     po.status === 'APPROVED' ||
     po.status === 'INTEGRATED' ||
     po.status === 'PARTIALLY_RECEIVED';
-  // Cancelamento permitido em estados não finais. O backend ainda bloqueia
-  // se houver item já recebido (RN-OC-03), mas o botão fica visível pra
-  // o usuário ver a mensagem clara em vez de "sumir sem explicação".
-  const canCancel = !['CANCELLED', 'FULLY_RECEIVED', 'INTEGRATED'].includes(
-    po.status,
-  );
+  // Cancelamento permitido em estados não finais — INCLUSIVE INTEGRATED:
+  // o cancelamento agora é propagado ao Linx (header STATUS_COMPRA='C' /
+  // saldo das linhas), então um PC já no ERP pode ser cancelado pelo portal.
+  // O backend ainda bloqueia se houver item já recebido (RN-OC-03), mas o
+  // botão fica visível pra o usuário ver a mensagem clara em vez de "sumir
+  // sem explicação".
+  const canCancel = !['CANCELLED', 'FULLY_RECEIVED'].includes(po.status);
   // Existe saldo aberto pra cancelar item-a-item?
   const hasOpenBalance = (po.items ?? []).some(
     (it) =>
       !it.cancelledAt && Number(it.quantity) - Number(it.receivedQty) > 0,
   );
   const canCancelItems =
-    !['CANCELLED', 'INTEGRATED'].includes(po.status) && hasOpenBalance;
+    !['CANCELLED'].includes(po.status) && hasOpenBalance;
   // Edição: bloqueia se já recebeu ou se está fechado.
   const anyReceived = (po.items ?? []).some(
     (it) => Number(it.receivedQty) > 0,
