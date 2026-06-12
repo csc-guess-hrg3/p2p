@@ -823,7 +823,9 @@ model PurchaseOrder {
   branchName       String    @db.NVarChar(255)
   supplierErpCode  String    @db.NVarChar(50)
   supplierName     String    @db.NVarChar(255)
-  buyerId          String    @db.UniqueIdentifier
+  // NULL para pedidos EXTERNO cujo REQUERIDO_POR (login Linx) não casa um
+  // User do P2P (raríssimo) — a UI mostra "comprador externo".
+  buyerId          String?   @db.UniqueIdentifier
   status           String    @default("DRAFT") @db.NVarChar(25)
   paymentCondition String?   @db.NVarChar(255)
   /**
@@ -864,7 +866,7 @@ model PurchaseOrder {
 
   requisition   Requisition?        @relation(fields: [requisitionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   company       Company             @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  buyer         User                @relation(fields: [buyerId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  buyer         User?               @relation(fields: [buyerId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   items         PurchaseOrderItem[]
   approvalSteps ApprovalStep[]
   receivings    Receiving[]
