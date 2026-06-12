@@ -15,6 +15,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { IntegrationLogStatus } from '../common/enums';
 import { safeDbName } from '../common/erp/safe-db-name';
+import { KeyedMutex } from '../common/util/keyed-mutex';
 import {
   publicErpErrorMessage,
   sanitizeErpErrorDetail,
@@ -47,6 +48,13 @@ import {
 @Injectable()
 export class LinxErpService {
   private readonly logger = new Logger(LinxErpService.name);
+  /**
+   * Serializa o cadastro de fornecedor por `${erpDb}:${cnpj}` — o
+   * check-then-insert no master data do Linx não é atômico; sem isso, dois
+   * converts concorrentes do mesmo fornecedor novo criariam CLIFOR
+   * duplicado. Escopo: processo único (pm2 fork). Ver KeyedMutex.
+   */
+  private readonly supplierLock = new KeyedMutex();
 
   /**
    * Cache lazy da moeda padrão por banco — `dbo.MOEDAS.INDICA_PADRAO=1`.
@@ -1043,70 +1051,78 @@ export class LinxErpService {
     const nomeCurto =
       this.trunc(data.fantasia ?? data.name, 25, 'NOME_CLIFOR') ?? '';
 
-    // Idempotência cross-DB por CGC (armazenado com máscara no Linx).
-    const existing = await this.prisma.$queryRawUnsafe<
-      Array<{ CLIFOR: string }>
-    >(
-      `SELECT TOP 1 CLIFOR FROM [${erpDb}].dbo.CADASTRO_CLI_FOR
-       WHERE REPLACE(REPLACE(REPLACE(REPLACE(CGC_CPF,'.',''),'/',''),'-',''),' ','') = '${cnpj}'`,
-    );
-    if (existing[0]?.CLIFOR) {
-      const clifor = String(existing[0].CLIFOR).trim();
-      // Nome real gravado em FORNECEDORES (pra alinhar COMPRAS.FORNECEDOR).
-      const fornRows = await this.prisma.$queryRawUnsafe<
-        Array<{ FORNECEDOR: string }>
+    // Serializa por CNPJ: o check-then-insert abaixo NÃO é atômico no master
+    // data do ERP; sem isso, dois converts concorrentes do mesmo fornecedor
+    // novo criariam CLIFOR duplicado em CADASTRO_CLI_FOR. O lock in-process
+    // basta no processo único (pm2 fork) — ver KeyedMutex.
+    return this.supplierLock.run(`${erpDb}:${cnpj}`, async () => {
+      // Idempotência cross-DB por CGC (armazenado com máscara no Linx).
+      // CNPJ via @P1 (já é dígitos por replace(/\D/g), mas segue o padrão
+      // parametrizado do resto do arquivo).
+      const existing = await this.prisma.$queryRawUnsafe<
+        Array<{ CLIFOR: string }>
       >(
-        `SELECT TOP 1 FORNECEDOR FROM [${erpDb}].dbo.FORNECEDORES WHERE CLIFOR = @P1`,
-        clifor,
+        `SELECT TOP 1 CLIFOR FROM [${erpDb}].dbo.CADASTRO_CLI_FOR
+         WHERE REPLACE(REPLACE(REPLACE(REPLACE(CGC_CPF,'.',''),'/',''),'-',''),' ','') = @P1`,
+        cnpj,
       );
-      const fornecedorNome = fornRows[0]?.FORNECEDOR
-        ? String(fornRows[0].FORNECEDOR).trim()
-        : nomeCurto;
-      this.logger.warn(
-        `Fornecedor CNPJ ${cnpj} já existia no Linx — reaproveitando CLIFOR ${clifor}`,
-      );
-      return { clifor, reused: true, fornecedorNome };
-    }
+      if (existing[0]?.CLIFOR) {
+        const clifor = String(existing[0].CLIFOR).trim();
+        // Nome real gravado em FORNECEDORES (pra alinhar COMPRAS.FORNECEDOR).
+        const fornRows = await this.prisma.$queryRawUnsafe<
+          Array<{ FORNECEDOR: string }>
+        >(
+          `SELECT TOP 1 FORNECEDOR FROM [${erpDb}].dbo.FORNECEDORES WHERE CLIFOR = @P1`,
+          clifor,
+        );
+        const fornecedorNome = fornRows[0]?.FORNECEDOR
+          ? String(fornRows[0].FORNECEDOR).trim()
+          : nomeCurto;
+        this.logger.warn(
+          `Fornecedor CNPJ ${cnpj} já existia no Linx — reaproveitando CLIFOR ${clifor}`,
+        );
+        return { clifor, reused: true, fornecedorNome };
+      }
 
-    const seqResult = await this.prisma.$queryRawUnsafe<
-      { sequencia: string }[]
-    >(
-      `DECLARE @seq VARCHAR(20);
+      const seqResult = await this.prisma.$queryRawUnsafe<
+        { sequencia: string }[]
+      >(
+        `DECLARE @seq VARCHAR(20);
        EXEC [${erpDb}].dbo.LX_SEQUENCIAL @TABELA_COLUNA = N'FORNECEDORES.CLIFOR',
                                          @SEQUENCIA = @seq OUTPUT;
        SELECT @seq AS sequencia;`,
-    );
-    const raw = seqResult[0]?.sequencia?.trim();
-    if (!raw) {
-      throw new InternalServerErrorException(
-        'LX_SEQUENCIAL não devolveu CLIFOR.',
       );
-    }
-    const clifor = raw.padStart(6, '0').slice(0, 6);
+      const raw = seqResult[0]?.sequencia?.trim();
+      if (!raw) {
+        throw new InternalServerErrorException(
+          'LX_SEQUENCIAL não devolveu CLIFOR.',
+        );
+      }
+      const clifor = raw.padStart(6, '0').slice(0, 6);
 
-    const uf = this.trunc(data.uf, 2, 'UF') ?? 'SP';
-    const razao = this.trunc(data.name, 90, 'RAZAO_SOCIAL');
-    const cgcMasked = isPJ
-      ? `${cnpj.slice(0, 2)}.${cnpj.slice(2, 5)}.${cnpj.slice(5, 8)}/${cnpj.slice(8, 12)}-${cnpj.slice(12)}`
-      : `${cnpj.slice(0, 3)}.${cnpj.slice(3, 6)}.${cnpj.slice(6, 9)}-${cnpj.slice(9)}`;
-    const endereco = this.trunc(
-      data.logradouro
-        ? `${data.logradouro}${data.numero ? ', ' + data.numero : ''}`
-        : null,
-      60,
-      'ENDERECO',
-    );
-    const bairro = this.trunc(data.bairro, 25, 'BAIRRO');
-    const cidade = this.trunc(data.cidade, 25, 'CIDADE');
-    const cep = this.trunc((data.cep ?? '').replace(/\D/g, ''), 9, 'CEP');
-    const tel = this.trunc(
-      (data.telefone ?? '').replace(/\D/g, ''),
-      15,
-      'TELEFONE1',
-    );
+      const uf = this.trunc(data.uf, 2, 'UF') ?? 'SP';
+      const razao = this.trunc(data.name, 90, 'RAZAO_SOCIAL');
+      const cgcMasked = isPJ
+        ? `${cnpj.slice(0, 2)}.${cnpj.slice(2, 5)}.${cnpj.slice(5, 8)}/${cnpj.slice(8, 12)}-${cnpj.slice(12)}`
+        : `${cnpj.slice(0, 3)}.${cnpj.slice(3, 6)}.${cnpj.slice(6, 9)}-${cnpj.slice(9)}`;
+      const endereco = this.trunc(
+        data.logradouro
+          ? `${data.logradouro}${data.numero ? ', ' + data.numero : ''}`
+          : null,
+        60,
+        'ENDERECO',
+      );
+      const bairro = this.trunc(data.bairro, 25, 'BAIRRO');
+      const cidade = this.trunc(data.cidade, 25, 'CIDADE');
+      const cep = this.trunc((data.cep ?? '').replace(/\D/g, ''), 9, 'CEP');
+      const tel = this.trunc(
+        (data.telefone ?? '').replace(/\D/g, ''),
+        15,
+        'TELEFONE1',
+      );
 
-    await this.prisma.$executeRawUnsafe(
-      `INSERT INTO [${erpDb}].dbo.CADASTRO_CLI_FOR
+      await this.prisma.$executeRawUnsafe(
+        `INSERT INTO [${erpDb}].dbo.CADASTRO_CLI_FOR
          (CLIFOR, NOME_CLIFOR, RAZAO_SOCIAL, CGC_CPF, RG_IE,
           UF, COBRANCA_UF, ENTREGA_UF,
           COBRANCA_CGC, ENTREGA_CGC, COBRANCA_IE, ENTREGA_IE,
@@ -1120,37 +1136,38 @@ export class LinxErpService {
           @P6, @P7, @P8, @P9, @P10,
           @P6, @P7, @P8, @P9,
           GETDATE(), @P11, 1, 0)`,
-      clifor,
-      nomeCurto,
-      razao ?? '',
-      cgcMasked,
-      uf,
-      endereco ?? '',
-      bairro ?? '',
-      cidade ?? '',
-      cep ?? '',
-      tel ?? '',
-      isPJ ? 1 : 0,
-    );
+        clifor,
+        nomeCurto,
+        razao ?? '',
+        cgcMasked,
+        uf,
+        endereco ?? '',
+        bairro ?? '',
+        cidade ?? '',
+        cep ?? '',
+        tel ?? '',
+        isPJ ? 1 : 0,
+      );
 
-    const condPgto =
-      this.trunc(data.paymentConditionCode, 3, 'CONDICAO_PGTO') ?? '030';
-    await this.prisma.$executeRawUnsafe(
-      `INSERT INTO [${erpDb}].dbo.FORNECEDORES
+      const condPgto =
+        this.trunc(data.paymentConditionCode, 3, 'CONDICAO_PGTO') ?? '030';
+      await this.prisma.$executeRawUnsafe(
+        `INSERT INTO [${erpDb}].dbo.FORNECEDORES
          (COD_FORNECEDOR, CLIFOR, FORNECEDOR, CGC_CPF, CONDICAO_PGTO,
           FORNECE_MAT_CONSUMO, INATIVO)
        VALUES
          (@P1, @P1, @P2, @P3, @P4, 1, 0)`,
-      clifor,
-      nomeCurto,
-      cgcMasked,
-      condPgto,
-    );
+        clifor,
+        nomeCurto,
+        cgcMasked,
+        condPgto,
+      );
 
-    this.logger.log(
-      `Fornecedor cadastrado no Linx: CLIFOR=${clifor} CNPJ=${cnpj} nome="${nomeCurto}"`,
-    );
-    return { clifor, reused: false, fornecedorNome: nomeCurto };
+      this.logger.log(
+        `Fornecedor cadastrado no Linx: CLIFOR=${clifor} CNPJ=${cnpj} nome="${nomeCurto}"`,
+      );
+      return { clifor, reused: false, fornecedorNome: nomeCurto };
+    });
   }
 
   /**
