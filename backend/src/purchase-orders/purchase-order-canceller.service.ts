@@ -6,7 +6,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { PurchaseOrderStatus, UserProfile } from '../common/enums';
+import { LinxErpService } from '../integration/linx-erp.service';
+import {
+  IntegrationLogStatus,
+  PurchaseOrderStatus,
+  UserProfile,
+} from '../common/enums';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { assertPoTeamAccess } from './po-access';
 
@@ -20,12 +25,63 @@ import { assertPoTeamAccess } from './po-access';
  *   se todos os itens ficarem fechados (recebidos ou cancelados), o PC
  *   inteiro vai pra CANCELLED.
  *
- * Não toca no Linx ainda (item "STATUS_COMPRA back-write" — Rodada 4).
+ * Propaga o cancelamento ao Linx (H-2) — best-effort: cancela no P2P e,
+ * se o ERP falhar, registra em integration_log pra reconciliação manual,
+ * sem bloquear o cancelamento. Total → header STATUS_COMPRA='C'; parcial →
+ * QTDE_CANCEL_PEDIDO por linha.
  */
 @Injectable()
 export class PurchaseOrderCancellerService {
   private readonly logger = new Logger(PurchaseOrderCancellerService.name);
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly linx: LinxErpService,
+  ) {}
+
+  /**
+   * Best-effort: roda o back-write no Linx e, se falhar, registra um
+   * integration_log pra reconciliação manual (o pedido pode ter ficado
+   * ativo no ERP). NUNCA relança — o cancelamento no P2P já está feito.
+   */
+  private async propagarCancelamento(
+    po: {
+      id: string;
+      companyId: string;
+      erpPedido: string | null;
+      number: string;
+    },
+    write: () => Promise<void>,
+  ): Promise<void> {
+    if (!po.erpPedido) return;
+    try {
+      await write();
+    } catch (err) {
+      this.logger.error(
+        `PC ${po.number}: falha ao propagar cancelamento ao Linx ` +
+          `(erpPedido=${po.erpPedido}) — pedido pode seguir ativo no ERP: ${(err as Error).message}`,
+      );
+      try {
+        const company = await this.prisma.company.findUnique({
+          where: { id: po.companyId },
+          select: { code: true },
+        });
+        await this.prisma.integrationLog.create({
+          data: {
+            companyId: po.companyId,
+            source: company?.code === 'HRG3' ? 'ERP_HRG3' : 'ERP_GUESS',
+            jobType: 'CANCEL_PO',
+            status: IntegrationLogStatus.FAILED,
+            recordsProcessed: 0,
+            errorDetails:
+              `Cancelamento do PC ${po.number} (erpPedido ${po.erpPedido}) não ` +
+              `propagado ao Linx — requer cancelamento manual no ERP: ${(err as Error).message}`,
+          },
+        });
+      } catch {
+        // logging do log falhou — já registramos o erro principal acima.
+      }
+    }
+  }
 
   /** Cancelamento total — bloqueado se houver recebimento. */
   async cancel(
@@ -82,7 +138,35 @@ export class PurchaseOrderCancellerService {
         });
       }
     });
+
+    // Propaga ao Linx (H-2): header → cancelado + zera o saldo das linhas
+    // (nada recebido neste caminho). Best-effort — não bloqueia o P2P.
+    await this.propagarCancelamento(po, async () => {
+      await this.linx.markPedidoCancelado(po, cancellationReason, user);
+      await this.linx.cancelarSaldoItens(po, this.toCancelLines(po.items));
+    });
+
     return this.loadPO(user, id);
+  }
+
+  /** Monta as linhas de cancelamento (saldo em aberto) pro back-write Linx. */
+  private toCancelLines(
+    items: Array<{
+      itemErpCode: string | null;
+      itemDescription: string;
+      quantity: { toString(): string };
+      receivedQty: { toString(): string };
+      unitPrice: { toString(): string };
+    }>,
+  ): Array<{ consumivel: string; qtdeCancel: number; valorCancel: number }> {
+    return items.map((it) => {
+      const saldo = Number(it.quantity) - Number(it.receivedQty);
+      return {
+        consumivel: it.itemErpCode ?? it.itemDescription,
+        qtdeCancel: saldo,
+        valorCancel: Number((saldo * Number(it.unitPrice)).toFixed(2)),
+      };
+    });
   }
 
   /** Cancelamento parcial — cancela só o saldo dos itens informados. */
@@ -164,10 +248,22 @@ export class PurchaseOrderCancellerService {
         });
       }
     });
+
+    const finalPo = await this.loadPO(user, id);
+    // Propaga ao Linx (H-2): cancela o saldo das linhas dos itens informados;
+    // se o cancelamento parcial fechou o pedido inteiro, marca o header como
+    // cancelado também. Best-effort — não bloqueia o P2P.
+    await this.propagarCancelamento(finalPo, async () => {
+      await this.linx.cancelarSaldoItens(finalPo, this.toCancelLines(targets));
+      if (finalPo.status === PurchaseOrderStatus.CANCELLED) {
+        await this.linx.markPedidoCancelado(finalPo, reason, user);
+      }
+    });
+
     this.logger.log(
       `PC ${po.number}: ${targets.length} itens cancelados por ${user.name} — ${reason}`,
     );
-    return this.loadPO(user, id);
+    return finalPo;
   }
 
   /**
