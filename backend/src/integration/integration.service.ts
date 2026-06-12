@@ -14,6 +14,7 @@ import {
   ErpPaymentCondition,
   ErpRateio,
   ErpSupplier,
+  ErpSupplierPublic,
 } from './integration.types';
 
 /**
@@ -75,7 +76,7 @@ export class IntegrationService {
   async getSuppliers(
     company: string,
     options: { onlyActive?: boolean; search?: string } = {},
-  ): Promise<ErpSupplier[]> {
+  ): Promise<ErpSupplierPublic[]> {
     const c = this.assertCompany(company);
     const { onlyActive = true, search } = options;
     let searchFilter = Prisma.empty;
@@ -90,17 +91,23 @@ export class IntegrationService {
         searchFilter = Prisma.sql`AND (nome LIKE ${term} OR razao_social LIKE ${term})`;
       }
     }
-    return this.prisma.$queryRaw<ErpSupplier[]>`
+    // Sem banco/agencia/conta/chave_pix: a listagem/autocomplete é acessível
+    // a qualquer perfil da empresa (busca de fornecedor na requisição).
+    // Dados bancários só saem no detalhe (getSupplierByCodigo) com perfil.
+    return this.prisma.$queryRaw<ErpSupplierPublic[]>`
       SELECT codigo, nome, razao_social AS razaoSocial, cnpj_cpf AS cnpjCpf,
              tipo_pessoa AS tipoPessoa, email, telefone, tipo,
-             condicao_pgto AS condicaoPgto, banco, agencia, conta,
-             chave_pix AS chavePix, inativo
+             condicao_pgto AS condicaoPgto, inativo
       FROM dbo.v_p2p_suppliers
       WHERE empresa = ${c} ${this.activeFilter(onlyActive)} ${searchFilter}
       ORDER BY nome`;
   }
 
-  /** Um fornecedor pelo código (todos os campos da view). Null se não achar. */
+  /**
+   * Um fornecedor pelo código, COM dados bancários — só deve ser exposto
+   * via endpoint com checagem de perfil (ver IntegrationController).
+   * Null se não achar.
+   */
   async getSupplierByCodigo(
     company: string,
     codigo: string,
@@ -338,13 +345,14 @@ export class IntegrationService {
   async findSupplier(
     company: string,
     codigo: string,
-  ): Promise<ErpSupplier | null> {
+  ): Promise<ErpSupplierPublic | null> {
     const c = this.assertCompany(company);
-    const rows = await this.prisma.$queryRaw<ErpSupplier[]>`
+    // Sem dados bancários — lookup usado no fluxo de requisição (qualquer
+    // perfil). Detalhe com banco é getSupplierByCodigo (gated por perfil).
+    const rows = await this.prisma.$queryRaw<ErpSupplierPublic[]>`
       SELECT codigo, nome, razao_social AS razaoSocial, cnpj_cpf AS cnpjCpf,
              tipo_pessoa AS tipoPessoa, email, telefone, tipo,
-             condicao_pgto AS condicaoPgto, banco, agencia, conta,
-             chave_pix AS chavePix, inativo
+             condicao_pgto AS condicaoPgto, inativo
       FROM dbo.v_p2p_suppliers
       WHERE empresa = ${c} AND codigo = ${codigo}`;
     return rows[0] ?? null;
@@ -358,15 +366,16 @@ export class IntegrationService {
   async findSupplierByCnpj(
     company: string,
     cnpjDigits: string,
-  ): Promise<ErpSupplier | null> {
+  ): Promise<ErpSupplierPublic | null> {
     const c = this.assertCompany(company);
     const clean = cnpjDigits.replace(/\D/g, '');
     if (clean.length < 11) return null;
-    const rows = await this.prisma.$queryRaw<ErpSupplier[]>`
+    // Sem dados bancários — o solicitante digita o CNPJ no cadastro de
+    // cotação; só precisamos de nome + condição de pagamento, não de banco.
+    const rows = await this.prisma.$queryRaw<ErpSupplierPublic[]>`
       SELECT codigo, nome, razao_social AS razaoSocial, cnpj_cpf AS cnpjCpf,
              tipo_pessoa AS tipoPessoa, email, telefone, tipo,
-             condicao_pgto AS condicaoPgto, banco, agencia, conta,
-             chave_pix AS chavePix, inativo
+             condicao_pgto AS condicaoPgto, inativo
       FROM dbo.v_p2p_suppliers
       WHERE empresa = ${c}
         AND REPLACE(REPLACE(REPLACE(cnpj_cpf, '.', ''), '/', ''), '-', '') = ${clean}`;

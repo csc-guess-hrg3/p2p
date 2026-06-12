@@ -27,7 +27,12 @@ export interface ErpCostCenter {
   inativo: boolean;
 }
 
-export interface ErpSupplier {
+/**
+ * Campos públicos de um fornecedor — SEM dados bancários. É o que sai na
+ * listagem/autocomplete e nos lookups do fluxo de requisição, acessíveis a
+ * qualquer perfil da empresa.
+ */
+export interface ErpSupplierPublic {
   codigo: string;
   nome: string;
   razaoSocial: string | null;
@@ -37,11 +42,21 @@ export interface ErpSupplier {
   telefone: string | null;
   tipo: string | null;
   condicaoPgto: string | null;
+  inativo: boolean;
+}
+
+/**
+ * Fornecedor completo — inclui dados bancários e chave PIX. Esses campos só
+ * podem sair no endpoint de DETALHE com checagem de perfil (ADMIN/REVIEWER);
+ * nunca na listagem/autocomplete. Troca de dados bancários de fornecedor é
+ * o vetor clássico de fraude em procure-to-pay — quanto menos gente vê,
+ * menor a superfície.
+ */
+export interface ErpSupplier extends ErpSupplierPublic {
   banco: string | null;
   agencia: string | null;
   conta: string | null;
   chavePix: string | null;
-  inativo: boolean;
 }
 
 export interface ErpAccount {

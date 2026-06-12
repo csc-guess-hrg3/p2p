@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { IntegrationService } from './integration.service';
+import type { ErpSupplierPublic } from './integration.types';
 import { CnpjPublicService } from './cnpj-public.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CompanyAccessGuard } from './company-access.guard';
@@ -66,9 +67,30 @@ export class IntegrationController {
   async supplierByCodigo(
     @Param('company') company: string,
     @Param('codigo') codigo: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     const found = await this.integration.getSupplierByCodigo(company, codigo);
-    return found ?? { found: false };
+    if (!found) return { found: false };
+    // Dados bancários/PIX só para perfis que gerenciam fornecedores
+    // (ADMIN/REVIEWER). Demais perfis veem o cadastro sem o financeiro —
+    // troca de conta bancária de fornecedor é vetor de fraude P2P.
+    const canSeeBankData =
+      user.profile === UserProfile.ADMIN ||
+      user.profile === UserProfile.REVIEWER;
+    if (canSeeBankData) return found;
+    const publicView: ErpSupplierPublic = {
+      codigo: found.codigo,
+      nome: found.nome,
+      razaoSocial: found.razaoSocial,
+      cnpjCpf: found.cnpjCpf,
+      tipoPessoa: found.tipoPessoa,
+      email: found.email,
+      telefone: found.telefone,
+      tipo: found.tipo,
+      condicaoPgto: found.condicaoPgto,
+      inativo: found.inativo,
+    };
+    return publicView;
   }
 
   @Get('supplier-by-cnpj')
