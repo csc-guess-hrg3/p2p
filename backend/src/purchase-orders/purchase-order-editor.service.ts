@@ -97,7 +97,7 @@ export class PurchaseOrderEditorService {
     await this.approvals.resetForPurchaseOrder(id);
     const next = await this.approvals.startApproval({
       companyId: po.companyId,
-      teamId: null, // PC herda equipe da requisição original
+      teamId: po.requisition.teamId, // PC herda a equipe da requisição original
       entityType: ApprovalEntityType.PURCHASE_ORDER,
       purchaseOrderId: id,
       amount: recomputedTotal ?? Number(po.totalAmount),

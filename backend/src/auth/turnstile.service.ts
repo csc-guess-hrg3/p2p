@@ -90,12 +90,19 @@ export class TurnstileService {
       }
     } catch (err) {
       if (err instanceof UnauthorizedException) throw err;
-      // Falha de rede com Cloudflare — registra mas LIBERA o login (fail-open).
-      // O argumento é que: ataque distribuído + Cloudflare-down é cenário
-      // raro; bloquear todo mundo aqui geraria denial of service por si só.
-      // Throttle + lockout continuam protegendo nesse caso degradado.
+      // Falha de rede com Cloudflare → FAIL-CLOSED. Se o CAPTCHA está
+      // configurado (secret presente), é porque este ambiente é exposto e
+      // PRECISA da verificação anti-bot; liberar o login quando a verificação
+      // não pôde ser feita abre um bypass trivial (basta o atacante induzir
+      // a falha de rede pro edge da Cloudflare). Preferimos recusar e pedir
+      // retry. Tradeoff: numa indisponibilidade real e prolongada da
+      // Cloudflare o login degrada — nesse caso, remover a secret reativa o
+      // modo aberto de forma consciente. Throttle + lockout seguem ativos.
       this.logger.error(
-        `Falha de rede ao validar Turnstile (fail-open): ${(err as Error).message}`,
+        `Falha ao validar Turnstile — bloqueando login (fail-closed): ${(err as Error).message}`,
+      );
+      throw new UnauthorizedException(
+        'Não foi possível concluir a verificação anti-bot agora. Tente novamente em instantes.',
       );
     }
   }

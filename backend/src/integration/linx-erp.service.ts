@@ -179,6 +179,53 @@ export class LinxErpService {
   }
 
   /**
+   * Conta os itens já gravados de um PEDIDO no Linx (COMPRAS_CONSUMIVEL).
+   * Usado pelo recovery para distinguir um pedido COMPLETO (re-acoplável)
+   * de um pedido manco deixado por uma compensação C7 que também falhou.
+   */
+  private async countPedidoItens(
+    erpDb: string,
+    pedido: string,
+  ): Promise<number> {
+    const safeDb = safeDbName(erpDb);
+    const rows = await this.prisma.$queryRawUnsafe<{ n: number }[]>(
+      `SELECT COUNT(*) AS n FROM [${safeDb}].dbo.COMPRAS_CONSUMIVEL WHERE PEDIDO = @P1`,
+      pedido,
+    );
+    return Number(rows[0]?.n ?? 0);
+  }
+
+  /**
+   * Compensação: remove um PEDIDO parcial do Linx (itens primeiro por FK,
+   * cabeçalho depois). Usada tanto na falha parcial de gravação (C7) quanto
+   * na limpeza de um pedido manco achado no recovery. Não relança — devolve
+   * `false` se a remoção falhar (pendente de limpeza manual) e loga o erro.
+   */
+  private async compensarPedido(
+    erpDb: string,
+    pedido: string,
+  ): Promise<boolean> {
+    const safeDb = safeDbName(erpDb);
+    try {
+      await this.prisma.$executeRawUnsafe(
+        `DELETE FROM [${safeDb}].dbo.COMPRAS_CONSUMIVEL WHERE PEDIDO = @P1`,
+        pedido,
+      );
+      await this.prisma.$executeRawUnsafe(
+        `DELETE FROM [${safeDb}].dbo.COMPRAS WHERE PEDIDO = @P1`,
+        pedido,
+      );
+      return true;
+    } catch (compErr) {
+      this.logger.error(
+        `C7: falha na compensação do PEDIDO ${pedido} (${safeDb}) — ` +
+          `pedido parcial pendente de limpeza manual: ${(compErr as Error).message}`,
+      );
+      return false;
+    }
+  }
+
+  /**
    * Volta um pedido aprovado pra "em estudo" no Linx — usado quando o
    * comprador edita o PC e o fluxo de aprovação precisa rodar de novo.
    * Grava entrada em COMPRAS_STATUS_LOG pra rastreio.
@@ -327,10 +374,25 @@ export class LinxErpService {
     // local falhou, encontramos o PEDIDO pelo OBS e seguimos sem duplicar.
     const recovered = await this.findExistingPedidoByOBS(erpDb, obsTag);
     if (recovered) {
-      this.logger.warn(
-        `PO ${po.number}: PEDIDO ${recovered} já existe no Linx — re-acoplando sem duplicar.`,
+      // Só re-acopla se o pedido recuperado estiver COMPLETO. Um retry
+      // anterior pode ter gravado o cabeçalho, falhado num item e visto a
+      // própria compensação C7 falhar — restaria um pedido manco no Linx.
+      // Marcar o PC como integrado apontando pra um pedido sem todos os
+      // itens corromperia a escrituração. Conferimos a contagem de itens.
+      const itensGravados = await this.countPedidoItens(erpDb, recovered);
+      if (itensGravados >= po.items.length) {
+        this.logger.warn(
+          `PO ${po.number}: PEDIDO ${recovered} já existe no Linx ` +
+            `(${itensGravados} itens) — re-acoplando sem duplicar.`,
+        );
+        return { pedido: recovered };
+      }
+      this.logger.error(
+        `PO ${po.number}: PEDIDO ${recovered} recuperado está incompleto ` +
+          `(${itensGravados}/${po.items.length} itens) — removendo e recriando do zero.`,
       );
-      return { pedido: recovered };
+      await this.compensarPedido(erpDb, recovered);
+      // Segue o fluxo normal abaixo: recria o pedido completo.
     }
 
     const aprovador = user.name ?? user.adUsername ?? '';
@@ -504,23 +566,10 @@ export class LinxErpService {
       // aqui; relemos via uma cópia tipada explicitamente como string.
       const pedidoParaCompensar = pedidoCriado as string | null;
       if (pedidoParaCompensar) {
-        const pedidoStr: string = pedidoParaCompensar;
-        try {
-          await this.prisma.$executeRawUnsafe(
-            `DELETE FROM [${erpDb}].dbo.COMPRAS_CONSUMIVEL WHERE PEDIDO = @P1`,
-            pedidoStr,
-          );
-          await this.prisma.$executeRawUnsafe(
-            `DELETE FROM [${erpDb}].dbo.COMPRAS WHERE PEDIDO = @P1`,
-            pedidoStr,
-          );
+        const ok = await this.compensarPedido(erpDb, pedidoParaCompensar);
+        if (ok) {
           this.logger.warn(
-            `C7: compensação aplicada — PEDIDO ${pedidoStr} removido do Linx após falha parcial em ${po.number}`,
-          );
-        } catch (compErr) {
-          // Falha na compensação: loga com urgência — requer intervenção manual.
-          this.logger.error(
-            `C7: falha na compensação do PEDIDO ${pedidoStr} (${erpDb}) — pedido parcial pendente de limpeza manual: ${(compErr as Error).message}`,
+            `C7: compensação aplicada — PEDIDO ${pedidoParaCompensar} removido do Linx após falha parcial em ${po.number}`,
           );
         }
       }
