@@ -90,6 +90,38 @@ describe('LinxErpService.gravarPedidoCompra', () => {
     expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
   });
 
+  it('pedido EXTERNO (requisitionId null) NÃO busca requisição — usa defaults da config', async () => {
+    prisma.company.findUniqueOrThrow.mockResolvedValue({
+      id: 'company-test',
+      code: 'GUESS',
+      erpDbName: 'GUESS_PRODUCAO',
+      erpConfig: {
+        codTransacao: 'COMPRAS_003',
+        tabelaFilha: 'COMPRAS_CONSUMIVEL',
+        tipoCompraDefault: 'COMPRA DIVERSAS',
+        ctbTipoOperacaoDefault: 202,
+        naturezaEntradaDefault: '202.01',
+        moeda: 'R$',
+      },
+    });
+    prisma.purchaseOrder.findUniqueOrThrow.mockResolvedValue({
+      erpStagingId: 'PO-po-1',
+    });
+    prisma.$queryRawUnsafe
+      .mockResolvedValueOnce([{ FORNECEDOR: 'Fornecedor' }]) // FORNECEDORES
+      .mockResolvedValueOnce([]) // recovery: nenhum pré-existente
+      .mockResolvedValueOnce([]); // LX_SEQUENCIAL vazio → aborta cedo
+
+    // Sem requisição, NÃO pode lançar "Requisição não encontrada" — falha só
+    // mais à frente (sequencial mockado vazio), o que já basta pro teste.
+    await expect(
+      service.gravarPedidoCompra(makePo({ requisitionId: null }), TEST_USER),
+    ).rejects.toBeTruthy();
+
+    // O caminho EXTERNO não consulta a requisição.
+    expect(prisma.requisition.findUnique).not.toHaveBeenCalled();
+  });
+
   it('re-acopla quando o PEDIDO já existe no Linx (recovery por OBS)', async () => {
     prisma.company.findUniqueOrThrow.mockResolvedValue({
       id: 'company-test',
@@ -113,7 +145,9 @@ describe('LinxErpService.gravarPedidoCompra', () => {
       erpStagingId: 'PO-po-1',
     });
     // 1ª chamada $queryRawUnsafe: lookup de FORNECEDORES (supplierErpCode setado).
-    prisma.$queryRawUnsafe.mockResolvedValueOnce([{ FORNECEDOR: 'Fornecedor' }]);
+    prisma.$queryRawUnsafe.mockResolvedValueOnce([
+      { FORNECEDOR: 'Fornecedor' },
+    ]);
     // 2ª: recovery — encontra PEDIDO existente pelo OBS.
     prisma.$queryRawUnsafe.mockResolvedValueOnce([{ PEDIDO: '00060500' }]);
 

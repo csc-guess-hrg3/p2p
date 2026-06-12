@@ -805,7 +805,19 @@ model RequisitionItemRateio {
 model PurchaseOrder {
   id               String    @id @default(uuid()) @db.UniqueIdentifier
   number           String    @unique @db.NVarChar(20)
-  requisitionId    String    @db.UniqueIdentifier  // 1 requisição pode gerar N pedidos
+  /**
+   * Origem do pedido (cutover): P2P = nascido no portal a partir de uma
+   * requisição; EXTERNO = importado do Linx (não tem requisição P2P). Default
+   * P2P mantém todos os registros nativos existentes corretos sem backfill.
+   */
+  origin           String    @default("P2P") @db.NVarChar(10) // P2P | EXTERNO
+  // 1 requisição pode gerar N pedidos. NULL para pedidos EXTERNO (sem requisição).
+  requisitionId    String?   @db.UniqueIdentifier
+  /**
+   * Escopo de equipe próprio do PO. Para P2P espelha a equipe da requisição;
+   * para EXTERNO fica NULL (visibilidade cai na regra por empresa/admin).
+   */
+  teamId           String?   @db.UniqueIdentifier
   companyId        String    @db.UniqueIdentifier
   branchErpCode    String    @db.NVarChar(50)
   branchName       String    @db.NVarChar(255)
@@ -850,7 +862,7 @@ model PurchaseOrder {
   updatedAt        DateTime  @updatedAt
   deletedAt        DateTime?
 
-  requisition   Requisition         @relation(fields: [requisitionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  requisition   Requisition?        @relation(fields: [requisitionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   company       Company             @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   buyer         User                @relation(fields: [buyerId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   items         PurchaseOrderItem[]
@@ -864,6 +876,9 @@ model PurchaseOrder {
   @@index([expectedDelivery, status])
   // findAll padrão: WHERE companyId ORDER BY createdAt DESC.
   @@index([companyId, createdAt(sort: Desc)])
+  @@index([origin])
+  // Idempotência do import de pedidos EXTERNO (lookup por erpPedido na empresa).
+  @@index([companyId, erpPedido])
   @@map("purchase_orders")
 }
 
