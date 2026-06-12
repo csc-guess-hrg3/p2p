@@ -264,6 +264,105 @@ export class LinxErpService {
   }
 
   /**
+   * Propaga o CANCELAMENTO TOTAL de um PC ao Linx — sem isso, um pedido
+   * cancelado no P2P fica ativo (STATUS_COMPRA='A') no ERP e segue
+   * entregável/faturável fora da governança do P2P (H-2).
+   *
+   * Convenção derivada do próprio Linx (HML, 120 casos reais): pedido
+   * cancelado = STATUS_COMPRA='C ', STATUS_APROVACAO='R', LX_STATUS_COMPRA=1.
+   * O header é o gate autoritativo (alguns 'C' antigos têm saldo de linha
+   * não-zerado e mesmo assim contam como cancelados). Mesmo padrão de
+   * UPDATE+log do `markPedidoEmEstudo` — fora de $transaction (trigger
+   * LXU_COMPRAS abre a sua). Lança em falha; o chamador trata best-effort.
+   */
+  async markPedidoCancelado(
+    po: {
+      id: string;
+      companyId: string;
+      erpPedido: string | null;
+      number: string;
+    },
+    reason: string,
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    if (!po.erpPedido) return;
+    const company = await this.prisma.company.findUniqueOrThrow({
+      where: { id: po.companyId },
+    });
+    const erpDb = safeDbName(company.erpDbName);
+    const usuario = (user.adUsername ?? user.name ?? '').slice(0, 25);
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE [${erpDb}].dbo.COMPRAS
+          SET STATUS_COMPRA = 'C ',
+              STATUS_APROVACAO = 'R',
+              LX_STATUS_COMPRA = 1
+        WHERE PEDIDO = @P1`,
+      po.erpPedido,
+    );
+    await this.prisma.$executeRawUnsafe(
+      `INSERT INTO [${erpDb}].dbo.COMPRAS_STATUS_LOG
+         (PEDIDO, DATA_ALTERACAO_STATUS, STATUS_COMPRA, USUARIO)
+       VALUES (@P1, GETDATE(), N'C ', @P2)`,
+      po.erpPedido,
+      usuario,
+    );
+    this.logger.log(
+      `PC ${po.number} (Linx ${po.erpPedido}) cancelado no Linx — ${reason}`,
+    );
+  }
+
+  /**
+   * Propaga o CANCELAMENTO PARCIAL (cancelar saldo de itens) ao Linx. O
+   * header permanece 'A' (confirmado no HML: linhas com QTDE_CANCEL_PEDIDO>0
+   * têm headerSC='A'); o que muda é a linha em COMPRAS_CONSUMIVEL: o saldo
+   * cancelado entra em QTDE_CANCEL_PEDIDO e sai de QTDE_ENTREGAR/VALOR_ENTREGAR.
+   *
+   * Match por (PEDIDO, CONSUMIVEL=itemErpCode) — dentro de um PEDIDO cada
+   * CONSUMIVEL é único (a bucketização separa itens repetidos em PCs
+   * distintos). Cada UPDATE é isolado (trigger LXU_COMPRAS_CONSUMIVEL abre
+   * a sua transação). Lança em falha; o chamador trata best-effort.
+   */
+  async cancelarSaldoItens(
+    po: {
+      id: string;
+      companyId: string;
+      erpPedido: string | null;
+      number: string;
+    },
+    items: Array<{
+      consumivel: string;
+      qtdeCancel: number;
+      valorCancel: number;
+    }>,
+  ): Promise<void> {
+    if (!po.erpPedido || items.length === 0) return;
+    const company = await this.prisma.company.findUniqueOrThrow({
+      where: { id: po.companyId },
+    });
+    const erpDb = safeDbName(company.erpDbName);
+    for (const it of items) {
+      const consumivel = this.trunc(it.consumivel, 50, 'CONSUMIVEL') ?? '';
+      if (!consumivel || it.qtdeCancel <= 0) continue;
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE [${erpDb}].dbo.COMPRAS_CONSUMIVEL
+            SET QTDE_CANCEL_PEDIDO = ISNULL(QTDE_CANCEL_PEDIDO, 0) + @P2,
+                QTDE_ENTREGAR = CASE WHEN ISNULL(QTDE_ENTREGAR, 0) - @P2 < 0
+                                     THEN 0 ELSE ISNULL(QTDE_ENTREGAR, 0) - @P2 END,
+                VALOR_ENTREGAR = CASE WHEN ISNULL(VALOR_ENTREGAR, 0) - @P3 < 0
+                                      THEN 0 ELSE ISNULL(VALOR_ENTREGAR, 0) - @P3 END
+          WHERE PEDIDO = @P1 AND RTRIM(CONSUMIVEL) = @P4`,
+        po.erpPedido,
+        it.qtdeCancel,
+        it.valorCancel,
+        consumivel,
+      );
+    }
+    this.logger.log(
+      `PC ${po.number} (Linx ${po.erpPedido}): ${items.length} item(ns) com saldo cancelado no Linx`,
+    );
+  }
+
+  /**
    * Grava o PC no Linx. Devolve o número de PEDIDO gerado.
    * Idempotência: se `purchaseOrder.erpPedido` já existir, nada é feito;
    * se o INSERT já ocorreu mas o UPDATE local falhou, recuperamos via OBS.
