@@ -357,8 +357,24 @@ export class LinxErpService {
         consumivel,
       );
     }
+    // Recompõe os totais da CAPA (COMPRAS) a partir das linhas. O trigger da
+    // COMPRAS_CONSUMIVEL NÃO propaga pra capa, então o "saldo a entregar" do
+    // cabeçalho (TOT_QTDE_ENTREGAR/TOT_VALOR_ENTREGAR) ficaria stale —
+    // mostrando saldo que já foi cancelado. Recalcula direto do SUM das linhas
+    // (idempotente; serve pro cancelamento total e parcial).
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE [${erpDb}].dbo.COMPRAS
+          SET TOT_QTDE_ENTREGAR = ISNULL(
+                (SELECT SUM(QTDE_ENTREGAR) FROM [${erpDb}].dbo.COMPRAS_CONSUMIVEL
+                  WHERE PEDIDO = @P1), 0),
+              TOT_VALOR_ENTREGAR = ISNULL(
+                (SELECT SUM(VALOR_ENTREGAR) FROM [${erpDb}].dbo.COMPRAS_CONSUMIVEL
+                  WHERE PEDIDO = @P1), 0)
+        WHERE PEDIDO = @P1`,
+      po.erpPedido,
+    );
     this.logger.log(
-      `PC ${po.number} (Linx ${po.erpPedido}): ${items.length} item(ns) com saldo cancelado no Linx`,
+      `PC ${po.number} (Linx ${po.erpPedido}): ${items.length} item(ns) com saldo cancelado no Linx (capa recalculada)`,
     );
   }
 
@@ -387,18 +403,24 @@ export class LinxErpService {
       );
     }
 
-    // Resolve requisição para puxar os campos fiscais (tipoCompra/CTB/natureza).
-    const req = await this.prisma.requisition.findUnique({
-      where: { id: po.requisitionId },
-    });
-    if (!req)
+    // Resolve a requisição (quando há) para puxar os campos fiscais
+    // (tipoCompra/CTB/natureza). Pedidos EXTERNO (importados do Linx) NÃO têm
+    // requisição (requisitionId null) — usam direto os defaults da
+    // CompanyErpConfig. O throw só vale quando há requisitionId mas a
+    // requisição sumiu (FK pendurada), não para o caminho EXTERNO.
+    const req = po.requisitionId
+      ? await this.prisma.requisition.findUnique({
+          where: { id: po.requisitionId },
+        })
+      : null;
+    if (po.requisitionId && !req)
       throw new NotFoundException('Requisição de origem não encontrada.');
 
     const cfg = company.erpConfig;
     const erpDb = safeDbName(company.erpDbName); // HML_GUESS | GUESS_PRODUCAO | DB_HRG3
-    const tipoCompra = req.tipoCompra ?? cfg.tipoCompraDefault;
-    const ctb = req.ctbTipoOperacao ?? cfg.ctbTipoOperacaoDefault;
-    const natureza = req.naturezaEntrada ?? cfg.naturezaEntradaDefault;
+    const tipoCompra = req?.tipoCompra ?? cfg.tipoCompraDefault;
+    const ctb = req?.ctbTipoOperacao ?? cfg.ctbTipoOperacaoDefault;
+    const natureza = req?.naturezaEntrada ?? cfg.naturezaEntradaDefault;
 
     // COMPRAS.FORNECEDOR é FK para FORNECEDORES.FORNECEDOR (o NOME gravado
     // no cadastro, NÃO o clifor — ver trigger LXI_COMPRAS). Buscamos o
