@@ -24,6 +24,13 @@ import {
   sanitizeErpErrorDetail,
 } from '../common/erp/erp-error-sanitizer';
 
+/**
+ * Tolerância (em reais) ao comparar o total negociado com o valor aprovado
+ * na requisição — só absorve ruído de arredondamento de centavos. Acima
+ * disso, a diferença precisa revalidar a alçada (não é um "desconto" livre).
+ */
+const PRICE_OVER_EPSILON = 0.01;
+
 /** Linha de rateio congelada na requisição que será reaproveitada no PC. */
 interface RateioSnapshotLine {
   kind: string;
@@ -379,6 +386,27 @@ export class PurchaseOrderConverterService {
       };
     });
 
+    // Guardrail de alçada (RN-ALC): o preço negociado informado no convert
+    // NÃO pode estourar o valor que o gestor aprovou na requisição. A cadeia
+    // de aprovação foi dimensionada sobre `req.totalAmount` no submit; deixar
+    // o comprador elevar o `unitPrice` livremente aqui (DTO é @Min(0), sem
+    // teto) e gravar o PC já APPROVED no Linx seria bypass total de alçada no
+    // ponto mais sensível (escrita em COMPRAS). Acima do aprovado (+ epsilon
+    // de centavos) bloqueia: a diferença tem que voltar pra aprovação.
+    const negotiatedTotal = Number(
+      enrichedItems.reduce((s, it) => s + it.totalPrice, 0).toFixed(2),
+    );
+    const approvedTotal = Number(req.totalAmount);
+    if (negotiatedTotal > approvedTotal + PRICE_OVER_EPSILON) {
+      throw new BadRequestException(
+        `O total negociado (R$ ${negotiatedTotal.toFixed(2)}) excede o valor ` +
+          `aprovado na requisição (R$ ${approvedTotal.toFixed(2)}). Edite a ` +
+          `requisição com os preços negociados e reenvie para aprovação antes ` +
+          `de converter — assim a alçada correta revalida o gasto. ` +
+          `(Preços abaixo do aprovado podem ser convertidos normalmente.)`,
+      );
+    }
+
     // Divide em buckets — cada bucket vira um PC sem colisão de PK Linx.
     const buckets = this.bucketizeForPk(enrichedItems);
     const isAdvance = req.tipoNotaFiscal === RequisitionNfType.NF_FUTURA;
@@ -388,200 +416,224 @@ export class PurchaseOrderConverterService {
     const now = new Date();
     const created: Array<{ id: string; number: string; status: string }> = [];
 
-    // Cria cada PC do bucket em uma transação separada — bucket pequeno
-    // (1..N) e isolado por requisição, então segurança é OK.
-    for (const bucket of buckets) {
-      const number = await this.numbering.next(company.code, 'OC');
-      const svNumber = isAdvance
-        ? await this.numbering.next(company.code, 'SV')
-        : null;
-      const bucketTotal = bucket.reduce((s, x) => s + Number(x.totalPrice), 0);
-      const poItems = bucket.map((it) => ({
-        requisitionItemId: it.requisitionItemId,
-        itemErpCode: it.itemErpCode,
-        itemDescription: it.itemDescription,
-        quantity: it.quantity,
-        unit: it.unit,
-        unitPrice: it.unitPrice,
-        totalPrice: it.totalPrice,
-        accountingAccount: it.accountingAccount,
-        accountName: it.accountName,
-        branchRateioCode: it.branchRateioCode,
-        branchRateioDesc: it.branchRateioDesc,
-        costCenterRateioCode: it.costCenterRateioCode,
-        costCenterRateioDesc: it.costCenterRateioDesc,
-        notes: it.notes,
-        rateios: {
-          create: this.recomputeRateios(it.rateios, it.totalPrice),
-        },
-      }));
-
-      const po = await this.prisma.$transaction(
-        async (tx) => {
-          const c = await tx.purchaseOrder.create({
-            data: {
-              number,
-              requisitionId: req.id,
-              companyId: req.companyId,
-              branchErpCode: req.branchErpCode,
-              branchName: req.branchName,
-              supplierErpCode,
-              supplierName: req.supplierName,
-              buyerId: user.id,
-              status: PurchaseOrderStatus.APPROVED,
-              approvedAt: now,
-              paymentCondition: dto.paymentCondition ?? null,
-              transportadora,
-              deliveryAddress: dto.deliveryAddress ?? null,
-              expectedDelivery,
-              totalAmount: Number(bucketTotal.toFixed(2)),
-              items: { create: poItems },
-            },
-            include: { items: true },
-          });
-          if (isAdvance) {
-            await tx.fundRequest.create({
-              data: {
-                number: svNumber as string,
-                companyId: req.companyId,
-                requisitionId: req.id,
-                purchaseOrderId: c.id,
-                requesterId: user.id,
-                title: req.title,
-                status: FundRequestStatus.APPROVED,
-                approvedAt: now,
-                totalAmount: c.totalAmount,
-                items: {
-                  create: c.items.map((it) => ({
-                    itemErpCode: it.itemErpCode,
-                    description: it.itemDescription,
-                    beneficiaryName: req.supplierName,
-                    accountingAccount: it.accountingAccount,
-                    accountName: it.accountName,
-                    branchRateioCode: it.branchRateioCode,
-                    branchRateioDesc: it.branchRateioDesc,
-                    costCenterRateioCode: it.costCenterRateioCode,
-                    costCenterRateioDesc: it.costCenterRateioDesc,
-                    amount: it.totalPrice,
-                    dueDate: svDueDate,
-                  })),
-                },
-              },
-            });
-          }
-          return tx.purchaseOrder.findUniqueOrThrow({
-            where: { id: c.id },
-            include: {
-              items: { include: { rateios: true } },
-              fundRequest: true,
-            },
-          });
-        },
-        { maxWait: 15000, timeout: 30000 },
-      );
-
-      // Gravação automática no Linx — sem botão, sem e-mail.
-      // Falha aqui aborta o convert inteiro (rollback dos PCs criados).
-      try {
-        const { pedido } = await this.linx.gravarPedidoCompra(po, user);
-        await this.prisma.purchaseOrder.update({
-          where: { id: po.id },
-          data: {
-            status: PurchaseOrderStatus.INTEGRATED,
-            integratedAt: new Date(),
-            erpPedido: pedido,
-          },
-        });
-        // Se o PC tem SV vinculada (NF_FUTURA), grava a SV em seguida.
-        // A SV já está APROVADA + com vencimento preenchido aqui (decidido
-        // no diálogo de conversão), então temos todas as informações
-        // necessárias pra integrar com o Linx automaticamente — sem
-        // depender do envio de e-mail nem de ação manual posterior.
-        //
-        // Falha do envio de SV NÃO derruba o convert: o PC continua íntegro
-        // no Linx, a SV fica com `lastErpError` setado, e o usuário pode
-        // reintegrar pela tela de detalhe da SV.
-        if (po.fundRequest) {
-          const svFull = await this.prisma.fundRequest.findUniqueOrThrow({
-            where: { id: po.fundRequest.id },
-            include: { items: true },
-          });
-          try {
-            await this.linx.gravarSolicitacaoVerba(svFull);
-            await this.prisma.fundRequest.update({
-              where: { id: svFull.id },
-              data: { status: FundRequestStatus.INTEGRATED },
-            });
-          } catch (svErr) {
-            // O catch interno de gravarSolicitacaoVerba já gravou
-            // lastErpError + integration_log. Aqui só logamos e seguimos
-            // — o convert do PC NÃO é abortado por causa da SV.
-            this.logger.warn(
-              `PC ${po.number}: SV ${svFull.number} não integrada — ${(svErr as Error).message}`,
-            );
-          }
-        }
-        created.push({
-          id: po.id,
-          number: po.number,
-          status: PurchaseOrderStatus.INTEGRATED,
-        });
-      } catch (err) {
-        // Rollback dos PCs já criados — soft delete pra preservar histórico.
-        //
-        // ATENÇÃO (audit M14): os PCs já em `created` FORAM gravados no Linx
-        // (têm `erpPedido` real em COMPRAS). O soft-delete abaixo só afeta o
-        // P2P — esses pedidos ficam ÓRFÃOS no ERP, pois não há cancelamento
-        // automático no Linx. Antes de desfazer no P2P, registramos os
-        // órfãos em integration_logs pra reconciliação/cancelamento manual.
-        if (created.length > 0) {
-          try {
-            const orphans = await this.prisma.purchaseOrder.findMany({
-              where: { id: { in: created.map((c) => c.id) } },
-              select: { number: true, erpPedido: true },
-            });
-            const orphanList =
-              orphans
-                .filter((o) => o.erpPedido)
-                .map((o) => `${o.number} (erpPedido ${o.erpPedido})`)
-                .join('; ') || '(nenhum com erpPedido)';
-            await this.prisma.integrationLog.create({
-              data: {
-                companyId: req.companyId,
-                source: company.code === 'HRG3' ? 'ERP_HRG3' : 'ERP_GUESS',
-                jobType: 'CONVERT_PO_ROLLBACK',
-                status: IntegrationLogStatus.PARTIAL,
-                recordsProcessed: orphans.length,
-                errorDetails:
-                  `Conversão da requisição ${req.number} abortada por falha no Linx ` +
-                  `(${(err as Error).message}). PCs já gravados no ERP e soft-deletados no ` +
-                  `P2P — ÓRFÃOS no Linx, requerem cancelamento manual: ${orphanList}.`,
-              },
-            });
-          } catch (logErr) {
-            this.logger.error(
-              `Falha ao registrar PCs órfãos da conversão da req ${req.number}: ${(logErr as Error).message}`,
-            );
-          }
-        }
-        for (const c of created) {
-          await this.prisma.purchaseOrder.update({
-            where: { id: c.id },
-            data: { deletedAt: new Date() },
-          });
-        }
-        await this.prisma.purchaseOrder.update({
-          where: { id: po.id },
-          data: { deletedAt: new Date() },
-        });
-        this.translateLinxError(err);
-      }
-    }
-
-    await this.prisma.requisition.update({
-      where: { id: req.id },
+    // Claim atômico: APPROVED → CONVERTED de uma vez. Fecha o TOCTOU — dois
+    // converts concorrentes (duplo-clique / retentativa de rede) não passam
+    // ambos: só um vence o updateMany (count === 1); o outro é barrado antes
+    // de gravar qualquer PC no Linx. Revertido para APPROVED se a conversão
+    // falhar, pra permitir nova tentativa.
+    const claim = await this.prisma.requisition.updateMany({
+      where: { id: req.id, status: RequisitionStatus.APPROVED },
       data: { status: RequisitionStatus.CONVERTED },
     });
+    if (claim.count !== 1) {
+      throw new BadRequestException(
+        'Esta requisição já está em conversão ou já foi convertida.',
+      );
+    }
+
+    try {
+      // Cria cada PC do bucket em uma transação separada — bucket pequeno
+      // (1..N) e isolado por requisição, então segurança é OK.
+      for (const bucket of buckets) {
+        const number = await this.numbering.next(company.code, 'OC');
+        const svNumber = isAdvance
+          ? await this.numbering.next(company.code, 'SV')
+          : null;
+        const bucketTotal = bucket.reduce(
+          (s, x) => s + Number(x.totalPrice),
+          0,
+        );
+        const poItems = bucket.map((it) => ({
+          requisitionItemId: it.requisitionItemId,
+          itemErpCode: it.itemErpCode,
+          itemDescription: it.itemDescription,
+          quantity: it.quantity,
+          unit: it.unit,
+          unitPrice: it.unitPrice,
+          totalPrice: it.totalPrice,
+          accountingAccount: it.accountingAccount,
+          accountName: it.accountName,
+          branchRateioCode: it.branchRateioCode,
+          branchRateioDesc: it.branchRateioDesc,
+          costCenterRateioCode: it.costCenterRateioCode,
+          costCenterRateioDesc: it.costCenterRateioDesc,
+          notes: it.notes,
+          rateios: {
+            create: this.recomputeRateios(it.rateios, it.totalPrice),
+          },
+        }));
+
+        const po = await this.prisma.$transaction(
+          async (tx) => {
+            const c = await tx.purchaseOrder.create({
+              data: {
+                number,
+                requisitionId: req.id,
+                companyId: req.companyId,
+                branchErpCode: req.branchErpCode,
+                branchName: req.branchName,
+                supplierErpCode,
+                supplierName: req.supplierName,
+                buyerId: user.id,
+                status: PurchaseOrderStatus.APPROVED,
+                approvedAt: now,
+                paymentCondition: dto.paymentCondition ?? null,
+                transportadora,
+                deliveryAddress: dto.deliveryAddress ?? null,
+                expectedDelivery,
+                totalAmount: Number(bucketTotal.toFixed(2)),
+                items: { create: poItems },
+              },
+              include: { items: true },
+            });
+            if (isAdvance) {
+              await tx.fundRequest.create({
+                data: {
+                  number: svNumber as string,
+                  companyId: req.companyId,
+                  requisitionId: req.id,
+                  purchaseOrderId: c.id,
+                  requesterId: user.id,
+                  title: req.title,
+                  status: FundRequestStatus.APPROVED,
+                  approvedAt: now,
+                  totalAmount: c.totalAmount,
+                  items: {
+                    create: c.items.map((it) => ({
+                      itemErpCode: it.itemErpCode,
+                      description: it.itemDescription,
+                      beneficiaryName: req.supplierName,
+                      accountingAccount: it.accountingAccount,
+                      accountName: it.accountName,
+                      branchRateioCode: it.branchRateioCode,
+                      branchRateioDesc: it.branchRateioDesc,
+                      costCenterRateioCode: it.costCenterRateioCode,
+                      costCenterRateioDesc: it.costCenterRateioDesc,
+                      amount: it.totalPrice,
+                      dueDate: svDueDate,
+                    })),
+                  },
+                },
+              });
+            }
+            return tx.purchaseOrder.findUniqueOrThrow({
+              where: { id: c.id },
+              include: {
+                items: { include: { rateios: true } },
+                fundRequest: true,
+              },
+            });
+          },
+          { maxWait: 15000, timeout: 30000 },
+        );
+
+        // Gravação automática no Linx — sem botão, sem e-mail.
+        // Falha aqui aborta o convert inteiro (rollback dos PCs criados).
+        try {
+          const { pedido } = await this.linx.gravarPedidoCompra(po, user);
+          await this.prisma.purchaseOrder.update({
+            where: { id: po.id },
+            data: {
+              status: PurchaseOrderStatus.INTEGRATED,
+              integratedAt: new Date(),
+              erpPedido: pedido,
+            },
+          });
+          // Se o PC tem SV vinculada (NF_FUTURA), grava a SV em seguida.
+          // A SV já está APROVADA + com vencimento preenchido aqui (decidido
+          // no diálogo de conversão), então temos todas as informações
+          // necessárias pra integrar com o Linx automaticamente — sem
+          // depender do envio de e-mail nem de ação manual posterior.
+          //
+          // Falha do envio de SV NÃO derruba o convert: o PC continua íntegro
+          // no Linx, a SV fica com `lastErpError` setado, e o usuário pode
+          // reintegrar pela tela de detalhe da SV.
+          if (po.fundRequest) {
+            const svFull = await this.prisma.fundRequest.findUniqueOrThrow({
+              where: { id: po.fundRequest.id },
+              include: { items: true },
+            });
+            try {
+              await this.linx.gravarSolicitacaoVerba(svFull);
+              await this.prisma.fundRequest.update({
+                where: { id: svFull.id },
+                data: { status: FundRequestStatus.INTEGRATED },
+              });
+            } catch (svErr) {
+              // O catch interno de gravarSolicitacaoVerba já gravou
+              // lastErpError + integration_log. Aqui só logamos e seguimos
+              // — o convert do PC NÃO é abortado por causa da SV.
+              this.logger.warn(
+                `PC ${po.number}: SV ${svFull.number} não integrada — ${(svErr as Error).message}`,
+              );
+            }
+          }
+          created.push({
+            id: po.id,
+            number: po.number,
+            status: PurchaseOrderStatus.INTEGRATED,
+          });
+        } catch (err) {
+          // Rollback dos PCs já criados — soft delete pra preservar histórico.
+          //
+          // ATENÇÃO (audit M14): os PCs já em `created` FORAM gravados no Linx
+          // (têm `erpPedido` real em COMPRAS). O soft-delete abaixo só afeta o
+          // P2P — esses pedidos ficam ÓRFÃOS no ERP, pois não há cancelamento
+          // automático no Linx. Antes de desfazer no P2P, registramos os
+          // órfãos em integration_logs pra reconciliação/cancelamento manual.
+          if (created.length > 0) {
+            try {
+              const orphans = await this.prisma.purchaseOrder.findMany({
+                where: { id: { in: created.map((c) => c.id) } },
+                select: { number: true, erpPedido: true },
+              });
+              const orphanList =
+                orphans
+                  .filter((o) => o.erpPedido)
+                  .map((o) => `${o.number} (erpPedido ${o.erpPedido})`)
+                  .join('; ') || '(nenhum com erpPedido)';
+              await this.prisma.integrationLog.create({
+                data: {
+                  companyId: req.companyId,
+                  source: company.code === 'HRG3' ? 'ERP_HRG3' : 'ERP_GUESS',
+                  jobType: 'CONVERT_PO_ROLLBACK',
+                  status: IntegrationLogStatus.PARTIAL,
+                  recordsProcessed: orphans.length,
+                  errorDetails:
+                    `Conversão da requisição ${req.number} abortada por falha no Linx ` +
+                    `(${(err as Error).message}). PCs já gravados no ERP e soft-deletados no ` +
+                    `P2P — ÓRFÃOS no Linx, requerem cancelamento manual: ${orphanList}.`,
+                },
+              });
+            } catch (logErr) {
+              this.logger.error(
+                `Falha ao registrar PCs órfãos da conversão da req ${req.number}: ${(logErr as Error).message}`,
+              );
+            }
+          }
+          for (const c of created) {
+            await this.prisma.purchaseOrder.update({
+              where: { id: c.id },
+              data: { deletedAt: new Date() },
+            });
+          }
+          await this.prisma.purchaseOrder.update({
+            where: { id: po.id },
+            data: { deletedAt: new Date() },
+          });
+          this.translateLinxError(err);
+        }
+      }
+    } catch (convertErr) {
+      // Falha na conversão: o claim atômico deixou a requisição CONVERTED;
+      // devolve pra APPROVED pra permitir nova tentativa. Os PCs já criados
+      // foram soft-deletados no catch por bucket acima.
+      await this.prisma.requisition.updateMany({
+        where: { id: req.id, status: RequisitionStatus.CONVERTED },
+        data: { status: RequisitionStatus.APPROVED },
+      });
+      throw convertErr;
+    }
 
     // Devolve o primeiro PC (compatível com o frontend que navega
     // pra /pedidos/:id após converter). Anexa `siblings` quando houver
