@@ -120,11 +120,23 @@ export class StoreAuthService {
       );
     }
 
-    const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
     const existing = await this.prisma.user.findUnique({
       where: { cpf: norm },
-      select: { id: true },
+      select: { id: true, passwordHash: true, deletedAt: true },
     });
+
+    // Anti-takeover: uma conta já ativada (tem senha e não está removida)
+    // NÃO pode ser reconfigurada por este endpoint público — senão qualquer
+    // um que saiba o CPF do vendedor (dado semipúblico) reseta a senha e
+    // assume a conta. Primeiro acesso só vale enquanto não há senha; troca
+    // de senha de conta ativa é por fluxo dedicado de recuperação.
+    if (existing && existing.passwordHash && existing.deletedAt === null) {
+      throw new BadRequestException(
+        'Este CPF já tem acesso configurado. Use a tela de login ou a recuperação de senha.',
+      );
+    }
+
+    const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
     const userId = await this.prisma.$transaction(async (tx) => {
       let id: string;
