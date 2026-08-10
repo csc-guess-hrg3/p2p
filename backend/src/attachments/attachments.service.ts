@@ -108,7 +108,9 @@ export class AttachmentsService {
         companyCode: p.company.code,
         status: p.status,
         ownerId: p.buyerId,
-        teamId: p.requisition?.teamId ?? null,
+        // P2P herda a equipe da requisição; EXTERNO usa o teamId próprio
+        // (geralmente null → escopo de empresa).
+        teamId: p.teamId ?? p.requisition?.teamId ?? null,
       };
     }
     if (kind === 'receiving') {
@@ -170,7 +172,7 @@ export class AttachmentsService {
   private assertCanMutate(
     user: AuthenticatedUser,
     kind: ParentKind,
-    parent: { status: string; ownerId: string },
+    parent: { status: string; ownerId: string | null },
   ) {
     if (!this.editableStatuses[kind].has(parent.status)) {
       throw new ForbiddenException(
