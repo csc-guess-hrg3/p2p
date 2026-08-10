@@ -11,6 +11,7 @@ import type { Request, Response, NextFunction } from 'express';
 import * as Sentry from '@sentry/nestjs';
 import { AppModule } from './app.module';
 import { ApiExceptionFilter } from './common/filters/api-exception.filter';
+import { isCsrfAllowed } from './common/security/csrf';
 
 /**
  * A3 — Error tracking via Sentry.
@@ -131,6 +132,31 @@ async function bootstrap() {
   app.enableCors({
     origin: allowedOrigins,
     credentials: true, // necessário para cookies httpOnly
+  });
+
+  // CSRF (defesa de intenção além do SameSite): a auth é por cookie httpOnly,
+  // então um POST/PATCH/DELETE disparado por site malicioso no navegador da
+  // vítima carregaria o cookie. Em mutações exigimos que a origem (Origin ou,
+  // na falta, Referer) seja same-origin ou esteja na allowlist do CORS —
+  // ataque cross-site carrega a origem do atacante e é recusado. Clientes
+  // sem Origin/Referer (server-to-server) passam: CSRF exige um navegador.
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (
+      isCsrfAllowed({
+        method: req.method,
+        origin: req.headers.origin,
+        referer: req.headers.referer,
+        host: req.headers.host,
+        allowedOrigins,
+      })
+    ) {
+      return next();
+    }
+    return res.status(403).json({
+      statusCode: 403,
+      error: 'Forbidden',
+      message: 'Origem não permitida para esta requisição (proteção CSRF).',
+    });
   });
 
   // Swagger só fora de produção — em PROD expõe inventário de endpoints
