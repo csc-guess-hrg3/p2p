@@ -7,6 +7,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+import { ExternalRealmGuard } from './common/guards/external-realm.guard';
 import { HealthModule } from './health/health.module';
 import { CryptoModule } from './common/crypto/crypto.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -87,6 +88,9 @@ import { AdminModule } from './admin/admin.module';
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // DEPOIS do JwtAuthGuard (req.user já populado): isolamento de realm —
+    // nega usuários da Área Externa em toda rota interna por padrão.
+    { provide: APP_GUARD, useClass: ExternalRealmGuard },
   ],
 })
 export class AppModule {}

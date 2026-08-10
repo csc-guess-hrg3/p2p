@@ -21,6 +21,7 @@ import { LdapAuthGuard } from './guards/ldap-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
+import { AllowExternal } from '../common/decorators/external-access.decorator';
 import type { AuthenticatedUser, TokenPair } from './auth.types';
 
 const ACCESS_MAX_AGE_MS = 8 * 60 * 60 * 1000; // 8h
@@ -348,6 +349,10 @@ export class AuthController {
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
+  // Compartilhada: internos E externos leem o próprio perfil (o front decide o
+  // layout pelo realm devolvido). Sem @AllowExternal, o ExternalRealmGuard
+  // negaria o usuário externo aqui.
+  @AllowExternal()
   @ApiOperation({ summary: 'Dados do usuário autenticado' })
   async me(@CurrentUser() user: AuthenticatedUser) {
     // canSwitchEnv não vive no JWT (pra Admin poder revogar sem forçar

@@ -18,6 +18,33 @@ export const UserStatus = {
 } as const;
 export type UserStatus = (typeof UserStatus)[keyof typeof UserStatus];
 
+/**
+ * Realm de autenticação — separa o aplicativo INTERNO (usuários corporativos
+ * via AD/local) da ÁREA EXTERNA (portal de terceiros: representantes,
+ * fornecedores, etc.). O ExternalRealmGuard nega EXTERNAL em toda rota interna
+ * por padrão (default-deny) e só libera onde marcado explicitamente.
+ */
+export const UserRealm = {
+  INTERNAL: 'INTERNAL',
+  EXTERNAL: 'EXTERNAL',
+} as const;
+export type UserRealm = (typeof UserRealm)[keyof typeof UserRealm];
+
+/**
+ * Categoria de usuário externo (Área Externa). Fixa no código de propósito:
+ * cada categoria nova exige código próprio (provider de auth, escopo, catálogo
+ * de relatórios), então uma tabela cadastrável em runtime não economiza dev.
+ * VENDEDOR_LOJA é o realm externo que já existia (login por CPF, em
+ * deprecação); REPRESENTANTE é a 1ª categoria da Área Externa. FORNECEDOR entra
+ * quando construído.
+ */
+export const ExternalCategory = {
+  REPRESENTANTE: 'REPRESENTANTE',
+  VENDEDOR_LOJA: 'VENDEDOR_LOJA',
+} as const;
+export type ExternalCategory =
+  (typeof ExternalCategory)[keyof typeof ExternalCategory];
+
 export const RequisitionNfType = {
   SEM_NF: 'SEM_NF',
   NF_FUTURA: 'NF_FUTURA',

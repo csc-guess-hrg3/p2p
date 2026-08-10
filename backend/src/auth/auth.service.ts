@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { SignOptions } from 'jsonwebtoken';
@@ -109,6 +105,10 @@ export class AuthService {
       status: user.status,
       teamId: user.teamId,
       companyIds: user.companies.map((c) => c.companyId),
+      // realm/categoria derivam do User no banco — login E refresh emitem o
+      // mesmo realm por construção (o refresh re-chama issueTokens(userId)).
+      realm: user.realm,
+      externalCategory: user.externalCategory,
     };
 
     const accessToken = await this.jwt.signAsync(payload);
