@@ -26,10 +26,12 @@ import { IntegrationLogStatus, PurchaseOrderStatus } from '../common/enums';
  *   3. Mapeia os items do PC P2P aos do Linx pelo itemErpCode (ordenado
  *      pra estabilidade) e:
  *      - Atualiza `purchase_order_items.receivedQty` (do P2P) com
- *        QTDE_ENTREGUE do Linx (fonte da verdade — Linx tem a baixa
- *        real via entrada de NF).
- *      - Atualiza `purchase_order_items.cancelledQty` com
- *        QTDE_CANCEL_PEDIDO.
+ *        QTDE_ENTREGUE do Linx, mas NUNCA regride: usa o maior entre o
+ *        valor do Linx e o local (o operador pode confirmar o recebimento
+ *        no P2P antes de a NF ser lançada no Linx). Se o Linx vem menor,
+ *        mantém o local e registra a divergência no integration_log.
+ *      - Atualiza `purchase_order_items.cancelledQty` pela mesma regra
+ *        (merge com QTDE_CANCEL_PEDIDO, nunca regride).
  *   4. Recalcula o status do PC:
  *      - Se TODOS os items têm cancelledQty == quantity → CANCELLED
  *      - Senão se SUM(receivedQty + cancelledQty) >= SUM(quantity) → FULLY_RECEIVED
@@ -282,10 +284,17 @@ export class ErpBackSyncService {
 
     for (const [companyId, pos] of byCompany) {
       const company = pos[0].company;
+      // Divergências Linx<P2P desta empresa (recebimento/cancelamento que o
+      // ERP ainda não escriturou). Escopo por empresa pra trilha confiável.
+      const divergences: string[] = [];
       try {
         for (const po of pos) {
           try {
-            const wasUpdated = await this.syncOne(po, company.erpDbName);
+            const wasUpdated = await this.syncOne(
+              po,
+              company.erpDbName,
+              divergences,
+            );
             if (wasUpdated) updated++;
           } catch (err) {
             errors++;
@@ -294,21 +303,31 @@ export class ErpBackSyncService {
             );
           }
         }
+        if (divergences.length > 0) {
+          this.logger.warn(
+            `erp-back-sync ${company.code}: ${divergences.length} divergência(s) ` +
+              `recebimento/cancelamento Linx<P2P — mantido o P2P: ${divergences.join(' | ')}`,
+          );
+        }
+        const detailParts = [
+          errors > 0 ? `${errors} pedido(s) falharam (ver warns no log)` : null,
+          divergences.length > 0
+            ? `${divergences.length} divergência(s) Linx<P2P (mantido P2P): ${divergences.join(' | ')}`
+            : null,
+        ].filter(Boolean);
         await this.prisma.integrationLog.create({
           data: {
             companyId,
             source: company.code === 'HRG3' ? 'ERP_HRG3' : 'ERP_GUESS',
             jobType: 'BACK_SYNC',
             status:
-              errors === 0
+              errors === 0 && divergences.length === 0
                 ? IntegrationLogStatus.SUCCESS
                 : IntegrationLogStatus.PARTIAL,
             recordsProcessed: pos.length,
             durationMs: Date.now() - started,
             errorDetails:
-              errors > 0
-                ? `${errors} pedido(s) falharam (ver warns no log)`
-                : null,
+              detailParts.length > 0 ? detailParts.join(' ; ') : null,
           },
         });
       } catch (err) {
@@ -353,6 +372,7 @@ export class ErpBackSyncService {
       }>;
     },
     erpDbName: string,
+    divergences: string[],
   ): Promise<boolean> {
     if (!po.erpPedido) return false;
     const db = safeDbName(erpDbName);
@@ -397,10 +417,27 @@ export class ErpBackSyncService {
         linxRows.find((r) => r.codigo === it.itemErpCode) ??
         linxRows.find((r) => r.consumivel === it.itemErpCode);
       if (!row) continue;
-      const newReceived = Number(row.qtde_entregue ?? 0).toFixed(4);
-      const newCancelled = Number(row.qtde_cancel_pedido ?? 0).toFixed(4);
-      const oldReceived = Number(it.receivedQty.toString()).toFixed(4);
-      const oldCancelled = Number(it.cancelledQty.toString()).toFixed(4);
+      const linxReceived = Number(row.qtde_entregue ?? 0);
+      const linxCancelled = Number(row.qtde_cancel_pedido ?? 0);
+      const localReceived = Number(it.receivedQty.toString());
+      const localCancelled = Number(it.cancelledQty.toString());
+
+      // Nunca regredir: o recebimento/cancelamento pode ter sido confirmado
+      // no P2P antes de a NF ser lançada no Linx. Se o Linx vem MENOR que o
+      // local, é divergência transitória (o Linx ainda não escriturou) —
+      // mantemos o maior (merge) em vez de zerar dado operacional de
+      // recebimento silenciosamente, e registramos a divergência.
+      if (linxReceived < localReceived || linxCancelled < localCancelled) {
+        divergences.push(
+          `PC ${po.number} item ${it.itemErpCode}: Linx atrás do P2P ` +
+            `(recebido Linx=${linxReceived} vs P2P=${localReceived}; ` +
+            `cancelado Linx=${linxCancelled} vs P2P=${localCancelled}) — mantido o P2P`,
+        );
+      }
+      const newReceived = Math.max(linxReceived, localReceived).toFixed(4);
+      const newCancelled = Math.max(linxCancelled, localCancelled).toFixed(4);
+      const oldReceived = localReceived.toFixed(4);
+      const oldCancelled = localCancelled.toFixed(4);
       if (newReceived !== oldReceived || newCancelled !== oldCancelled) {
         await this.prisma.purchaseOrderItem.update({
           where: { id: it.id },
