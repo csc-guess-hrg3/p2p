@@ -147,4 +147,6 @@ export const TEST_USER = {
   status: 'ACTIVE',
   teamId: 'team-test',
   companyIds: ['company-test'],
+  realm: 'INTERNAL',
+  externalCategory: null,
 };

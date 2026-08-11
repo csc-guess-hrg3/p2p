@@ -97,7 +97,9 @@ export class PurchaseOrderEditorService {
     await this.approvals.resetForPurchaseOrder(id);
     const next = await this.approvals.startApproval({
       companyId: po.companyId,
-      teamId: po.requisition.teamId, // PC herda a equipe da requisição original
+      // Herda a equipe da requisição de origem; PC EXTERNO (sem requisição)
+      // usa a do próprio PC — pode ser null (startApproval trata como auto-aprovado).
+      teamId: po.requisition?.teamId ?? po.teamId ?? null,
       entityType: ApprovalEntityType.PURCHASE_ORDER,
       purchaseOrderId: id,
       amount: recomputedTotal ?? Number(po.totalAmount),

@@ -67,6 +67,11 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       status: user.status,
       teamId: user.teamId,
       companyIds: user.companies.map((c) => c.companyId),
+      // realm/categoria SEMPRE do banco (fresco), nunca do payload — um token
+      // legado sem realm, ou um refresh, resolve o valor atual do User. É o
+      // que sustenta o isolamento do ExternalRealmGuard.
+      realm: user.realm,
+      externalCategory: user.externalCategory,
     };
   }
 }

@@ -9,6 +9,10 @@ export interface JwtPayload {
   status: string;
   teamId: string | null;
   companyIds: string[];
+  /** INTERNAL (app corporativo) | EXTERNAL (Área Externa / portal). */
+  realm: string;
+  /** Categoria do usuário externo (REPRESENTANTE | VENDEDOR_LOJA | ...); null se INTERNAL. */
+  externalCategory: string | null;
 }
 
 /** Usuário autenticado anexado à request após o JwtAuthGuard. */
@@ -21,6 +25,10 @@ export interface AuthenticatedUser {
   status: string;
   teamId: string | null;
   companyIds: string[];
+  /** INTERNAL (app corporativo) | EXTERNAL (Área Externa / portal). */
+  realm: string;
+  /** Categoria do usuário externo (REPRESENTANTE | VENDEDOR_LOJA | ...); null se INTERNAL. */
+  externalCategory: string | null;
 }
 
 /** Par de tokens emitido no login/refresh. */

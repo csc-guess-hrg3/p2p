@@ -19,6 +19,8 @@
 // Valores válidos (constantes em src/common/enums.ts):
 //   UserProfile:          ADMIN | MANAGER | OPERATOR | REVIEWER
 //   UserStatus:           ACTIVE | INACTIVE | PENDING_SETUP
+//   UserRealm:            INTERNAL | EXTERNAL
+//   ExternalCategory:     REPRESENTANTE | VENDEDOR_LOJA
 //   RequisitionNfType:    SEM_NF | NF_FUTURA | NF_EXISTENTE
 //   RequisitionStatus:    DRAFT | SUBMITTED | IN_APPROVAL | APPROVED | REJECTED | CONVERTED | CANCELLED
 //   PurchaseOrderStatus:  DRAFT | IN_APPROVAL | APPROVED | SENT_TO_SUPPLIER |
@@ -77,6 +79,7 @@ model Company {
   branchExtensions      BranchExtension[]
   fiscalDocuments       FiscalDocument[]
   fiscalDocumentSyncStates FiscalDocumentSyncState[]
+  externalScopes        ExternalScopeAssignment[]
 
   @@map("companies")
 }
@@ -509,6 +512,12 @@ model User {
   cpf           String?   @unique @db.NVarChar(11)        // só dígitos
   passwordHash  String?   @db.NVarChar(255)
   passwordSetAt DateTime?
+  // Área Externa: separa o app INTERNO (AD/local) do portal de TERCEIROS.
+  // realm=EXTERNAL é negado nas rotas internas pelo ExternalRealmGuard
+  // (default-deny) e só enxerga a categoria/relatórios dele. externalCategory
+  // = REPRESENTANTE | VENDEDOR_LOJA | ... (null quando INTERNAL).
+  realm            String  @default("INTERNAL") @db.NVarChar(10)
+  externalCategory String? @db.NVarChar(30)
   /**
    * Proteção contra força bruta: contador de tentativas seguidas que
    * falharam (zera em login bem-sucedido). Quando `lockedUntil` está no
@@ -550,6 +559,7 @@ model User {
   position            Position?          @relation(fields: [positionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   branchAssignments   UserBranchAssignment[]
   passwordTokens      PasswordSetupToken[]
+  externalScopes      ExternalScopeAssignment[]
 
   @@map("users")
 }
@@ -565,6 +575,31 @@ model UserCompany {
 
   @@unique([userId, companyId])
   @@map("user_companies")
+}
+
+/**
+ * Escopo row-level de um usuário EXTERNO (Área Externa). Define QUAIS chaves
+ * do ERP aquele usuário pode ver — genérico por categoria via (scopeType,
+ * scopeKey): representante → ('REP_ERP_CODE', <código>); fornecedor futuro →
+ * ('SUPPLIER_CNPJ', <cnpj>). Todo relatório da Área Externa filtra
+ * OBRIGATORIAMENTE pelos scopeKeys resolvidos aqui (fresco do banco); sem
+ * escopo → retorno vazio, nunca "tudo". Populado no cadastro a partir do Linx
+ * (REPRESENTANTES). Suporta N chaves por usuário (multi-código).
+ */
+model ExternalScopeAssignment {
+  id        String   @id @default(uuid()) @db.UniqueIdentifier
+  userId    String   @db.UniqueIdentifier
+  companyId String   @db.UniqueIdentifier
+  scopeType String   @db.NVarChar(30)  // 'REP_ERP_CODE' | 'SUPPLIER_CNPJ' | ...
+  scopeKey  String   @db.NVarChar(60)  // código do representante / cnpj / ...
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onUpdate: NoAction, onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@unique([userId, companyId, scopeType, scopeKey])
+  @@index([scopeType, scopeKey])
+  @@map("external_scope_assignments")
 }
 
 model Delegation {
