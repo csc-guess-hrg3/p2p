@@ -16,6 +16,10 @@ export interface AuthUser {
    * menu/rota que o perfil sozinho não veria. Ex.: 'PA', 'FISCAL_QUEUE'.
    */
   extraModules?: string[];
+  /** INTERNAL (app interno) | EXTERNAL (Área Externa / portal). */
+  realm?: string;
+  /** Categoria do usuário externo (REPRESENTANTE | VENDEDOR_LOJA); null se interno. */
+  externalCategory?: string | null;
 }
 
 export interface Company {

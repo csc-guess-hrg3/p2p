@@ -39,6 +39,7 @@ import { ProductOrdersPaModule } from './product-orders-pa/product-orders-pa.mod
 import { NotificationsModule } from './notifications/notifications.module';
 import { AdminModule } from './admin/admin.module';
 import { RepresentantesModule } from './representantes/representantes.module';
+import { PortalModule } from './portal/portal.module';
 
 @Module({
   imports: [
@@ -83,6 +84,7 @@ import { RepresentantesModule } from './representantes/representantes.module';
     NotificationsModule,
     AdminModule,
     RepresentantesModule,
+    PortalModule,
   ],
   controllers: [AppController],
   providers: [
