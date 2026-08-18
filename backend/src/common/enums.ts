@@ -45,6 +45,18 @@ export const ExternalCategory = {
 export type ExternalCategory =
   (typeof ExternalCategory)[keyof typeof ExternalCategory];
 
+/**
+ * Tipo de chave de escopo de um usuário EXTERNO (ExternalScopeAssignment).
+ * Representante escopa pelo código do Linx; fornecedor (futuro) pelo CNPJ.
+ * Todo relatório da Área Externa filtra OBRIGATORIAMENTE por essas chaves.
+ */
+export const ExternalScopeType = {
+  REP_ERP_CODE: 'REP_ERP_CODE',
+  SUPPLIER_CNPJ: 'SUPPLIER_CNPJ',
+} as const;
+export type ExternalScopeType =
+  (typeof ExternalScopeType)[keyof typeof ExternalScopeType];
+
 export const RequisitionNfType = {
   SEM_NF: 'SEM_NF',
   NF_FUTURA: 'NF_FUTURA',

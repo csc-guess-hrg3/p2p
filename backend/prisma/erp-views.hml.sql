@@ -396,3 +396,17 @@ SELECT 'GUESS' AS empresa, RTRIM(TRANSPORTADORA) AS nome
 FROM HML_GUESS.dbo.TRANSPORTADORAS
 WHERE ISNULL(INATIVO, 0) = 0;
 GO
+
+-- ---------- REPRESENTANTES (Área Externa / SH-42) ----------
+-- Código = COD_REPRESENTANTE; nome = REPRESENTANTE. Sem e-mail no cadastro
+-- (vem do fluxo de "solicitar cadastro"). HML é single-db (só GUESS).
+CREATE OR ALTER VIEW dbo.v_p2p_representantes AS
+SELECT 'GUESS' AS empresa,
+       LTRIM(RTRIM(r.COD_REPRESENTANTE))                        AS cod_representante,
+       RTRIM(r.REPRESENTANTE)                                   AS nome,
+       REPLACE(REPLACE(LTRIM(RTRIM(r.CGC_CPF)),'.',''),'-','')  AS documento
+FROM HML_GUESS.dbo.REPRESENTANTES r
+WHERE ISNULL(r.INATIVO, 0) = 0
+  AND r.COD_REPRESENTANTE IS NOT NULL
+  AND LEN(LTRIM(RTRIM(r.COD_REPRESENTANTE))) > 0;
+GO

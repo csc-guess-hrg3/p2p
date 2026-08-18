@@ -38,6 +38,7 @@ import { QuotationsModule } from './quotations/quotations.module';
 import { ProductOrdersPaModule } from './product-orders-pa/product-orders-pa.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AdminModule } from './admin/admin.module';
+import { RepresentantesModule } from './representantes/representantes.module';
 
 @Module({
   imports: [
@@ -81,6 +82,7 @@ import { AdminModule } from './admin/admin.module';
     ProductOrdersPaModule,
     NotificationsModule,
     AdminModule,
+    RepresentantesModule,
   ],
   controllers: [AppController],
   providers: [
