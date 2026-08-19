@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { randomUUID } from 'node:crypto';
 import type { SignOptions } from 'jsonwebtoken';
 import { PrismaService } from '../prisma/prisma.service';
 import { UserProfile, UserStatus } from '../common/enums';
@@ -107,6 +108,7 @@ export class AuthService {
   async issueTokens(
     userId: string,
     impersonatedBy: string | null = null,
+    impersonationSessionId: string | null = null,
   ): Promise<TokenPair> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -128,11 +130,16 @@ export class AuthService {
       realm: user.realm,
       externalCategory: user.externalCategory,
       impersonatedBy: impersonatedBy ?? null,
+      impersonationSessionId: impersonationSessionId ?? null,
     };
 
     const accessToken = await this.jwt.signAsync(payload);
     const refreshToken = await this.jwt.signAsync(
-      { sub: user.id, impersonatedBy: impersonatedBy ?? null },
+      {
+        sub: user.id,
+        impersonatedBy: impersonatedBy ?? null,
+        impersonationSessionId: impersonationSessionId ?? null,
+      },
       {
         secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
         expiresIn: (this.config.get<string>('JWT_REFRESH_EXPIRES_IN') ??
@@ -173,15 +180,18 @@ export class AuthService {
   async refresh(refreshToken: string): Promise<TokenPair> {
     let sub: string;
     let impersonatedBy: string | null = null;
+    let impersonationSessionId: string | null = null;
     try {
       const decoded = await this.jwt.verifyAsync<{
         sub: string;
         impersonatedBy?: string | null;
+        impersonationSessionId?: string | null;
       }>(refreshToken, {
         secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
       });
       sub = decoded.sub;
       impersonatedBy = decoded.impersonatedBy ?? null;
+      impersonationSessionId = decoded.impersonationSessionId ?? null;
     } catch (err) {
       this.logger.debug(`Refresh inválido: ${(err as Error).message}`);
       throw new UnauthorizedException('Refresh token inválido ou expirado.');
@@ -195,25 +205,40 @@ export class AuthService {
       );
     }
 
-    // Simulação em andamento: o admin real PRECISA continuar sendo ADMIN ativo
-    // pra renovar — se foi rebaixado/desativado durante a simulação, encerra a
-    // sessão (não deixa a simulação "sobreviver" a uma revogação).
+    // Simulação: além do alvo (sub) ACTIVE, o admin precisa continuar ADMIN
+    // ativo E a sessão ser a ATUAL (sair/re-simular invalida o token antigo —
+    // senão o refresh reabriria a simulação depois do "sair").
     if (impersonatedBy) {
-      const admin = await this.prisma.user.findUnique({
-        where: { id: impersonatedBy },
-      });
-      if (
-        !admin ||
-        admin.deletedAt ||
-        admin.status !== UserStatus.ACTIVE ||
-        admin.profile !== UserProfile.ADMIN
-      ) {
-        throw new UnauthorizedException(
-          'Simulação encerrada: o administrador não está mais válido.',
-        );
-      }
+      await this.assertImpersonationValid(
+        impersonatedBy,
+        impersonationSessionId,
+      );
     }
-    return this.issueTokens(sub, impersonatedBy);
+    return this.issueTokens(sub, impersonatedBy, impersonationSessionId);
+  }
+
+  /**
+   * Verifica que a simulação continua válida: admin ADMIN ativo e o `sessionId`
+   * é o registrado nele (não foi encerrado nem substituído). Usada pelo refresh
+   * e pela JwtStrategy (revalidação a cada request enquanto simula).
+   */
+  async assertImpersonationValid(
+    adminId: string,
+    sessionId: string | null,
+  ): Promise<void> {
+    const admin = await this.prisma.user.findUnique({ where: { id: adminId } });
+    if (
+      !admin ||
+      admin.deletedAt ||
+      admin.status !== UserStatus.ACTIVE ||
+      admin.profile !== UserProfile.ADMIN ||
+      !sessionId ||
+      admin.activeImpersonationSessionId !== sessionId
+    ) {
+      throw new UnauthorizedException(
+        'Simulação encerrada ou administrador não é mais válido.',
+      );
+    }
   }
 
   /**
@@ -247,11 +272,17 @@ export class AuthService {
       throw new NotFoundException('Usuário para simular inválido ou inativo.');
     }
 
+    const sessionId = randomUUID();
+    // Registra a sessão ATIVA no admin — é o que torna a simulação revogável.
+    await this.prisma.user.update({
+      where: { id: admin.id },
+      data: { activeImpersonationSessionId: sessionId },
+    });
     await this.auditImpersonation('IMPERSONATE_START', admin, target);
     this.logger.log(
       `Simulação: ${admin.email} → ${target.email} (${target.id}).`,
     );
-    return this.issueTokens(target.id, admin.id);
+    return this.issueTokens(target.id, admin.id, sessionId);
   }
 
   /**
@@ -269,6 +300,11 @@ export class AuthService {
     if (!admin || admin.deletedAt || admin.status !== UserStatus.ACTIVE) {
       throw new UnauthorizedException('Sessão de simulação inválida.');
     }
+    // Encerra a sessão: qualquer token de simulação antigo deixa de casar.
+    await this.prisma.user.update({
+      where: { id: admin.id },
+      data: { activeImpersonationSessionId: null },
+    });
     const target = await this.prisma.user.findUnique({
       where: { id: targetId },
       include: { companies: true },
@@ -276,7 +312,7 @@ export class AuthService {
     if (target) {
       await this.auditImpersonation('IMPERSONATE_STOP', admin, target);
     }
-    return this.issueTokens(admin.id, null);
+    return this.issueTokens(admin.id, null, null);
   }
 
   /** Registra início/fim de simulação na trilha de auditoria. */
@@ -290,17 +326,19 @@ export class AuthService {
       companies: { companyId: string }[];
     },
   ): Promise<void> {
-    const companyId =
-      admin.companies[0]?.companyId ?? target.companies[0]?.companyId;
-    if (!companyId) return; // sem empresa não há como escopar o log; raro p/ admin
     try {
       await this.prisma.auditLog.create({
         data: {
-          companyId,
+          // companyId agora é opcional — START/STOP nunca some por falta de empresa.
+          companyId:
+            admin.companies[0]?.companyId ??
+            target.companies[0]?.companyId ??
+            null,
           userId: admin.id, // o ATOR real é o admin
           action,
           entityType: 'User',
           entityId: target.id,
+          entityRef: target.id,
           after: JSON.stringify({
             simulacao: action === 'IMPERSONATE_START' ? 'início' : 'fim',
             admin: admin.name,

@@ -14,56 +14,28 @@ type U = Record<string, unknown>;
 function build() {
   const users: Record<string, U | undefined> = {
     admin: {
-      id: 'admin',
-      name: 'Admin',
-      email: 'a@x',
-      profile: 'ADMIN',
-      status: 'ACTIVE',
-      realm: 'INTERNAL',
-      externalCategory: null,
-      adUsername: 'admin',
-      teamId: null,
-      deletedAt: null,
-      companies: [{ companyId: 'c1' }],
+      id: 'admin', name: 'Admin', email: 'a@x', profile: 'ADMIN',
+      status: 'ACTIVE', realm: 'INTERNAL', externalCategory: null,
+      adUsername: 'admin', teamId: null, deletedAt: null,
+      activeImpersonationSessionId: 'sess1', companies: [{ companyId: 'c1' }],
     },
     rep: {
-      id: 'rep',
-      name: 'KALIFA',
-      email: 'r@x',
-      profile: 'OPERATOR',
-      status: 'ACTIVE',
-      realm: 'EXTERNAL',
-      externalCategory: 'REPRESENTANTE',
-      adUsername: null,
-      teamId: null,
-      deletedAt: null,
-      companies: [],
+      id: 'rep', name: 'KALIFA', email: 'r@x', profile: 'OPERATOR',
+      status: 'ACTIVE', realm: 'EXTERNAL', externalCategory: 'REPRESENTANTE',
+      adUsername: null, teamId: null, deletedAt: null,
+      activeImpersonationSessionId: null, companies: [],
     },
     inativo: {
-      id: 'inativo',
-      name: 'X',
-      email: 'x@x',
-      profile: 'OPERATOR',
-      status: 'INACTIVE',
-      realm: 'INTERNAL',
-      externalCategory: null,
-      adUsername: null,
-      teamId: null,
-      deletedAt: null,
-      companies: [],
+      id: 'inativo', name: 'X', email: 'x@x', profile: 'OPERATOR',
+      status: 'INACTIVE', realm: 'INTERNAL', externalCategory: null,
+      adUsername: null, teamId: null, deletedAt: null,
+      activeImpersonationSessionId: null, companies: [],
     },
     exadmin: {
-      id: 'exadmin',
-      name: 'Ex',
-      email: 'e@x',
-      profile: 'OPERATOR',
-      status: 'ACTIVE',
-      realm: 'INTERNAL',
-      externalCategory: null,
-      adUsername: null,
-      teamId: null,
-      deletedAt: null,
-      companies: [{ companyId: 'c1' }],
+      id: 'exadmin', name: 'Ex', email: 'e@x', profile: 'OPERATOR',
+      status: 'ACTIVE', realm: 'INTERNAL', externalCategory: null,
+      adUsername: null, teamId: null, deletedAt: null,
+      activeImpersonationSessionId: null, companies: [{ companyId: 'c1' }],
     },
   };
   const signed: { payload: U; opts?: U }[] = [];
@@ -71,6 +43,13 @@ function build() {
     user: {
       findUnique: jest.fn(({ where }: { where: { id: string } }) =>
         Promise.resolve(users[where.id] ?? null),
+      ),
+      update: jest.fn(
+        ({ where, data }: { where: { id: string }; data: U }) => {
+          const u = users[where.id];
+          if (u) Object.assign(u, data);
+          return Promise.resolve(u ?? {});
+        },
       ),
     },
     auditLog: { create: jest.fn().mockResolvedValue({}) },
@@ -88,7 +67,7 @@ function build() {
     jwt as unknown as JwtService,
     config as unknown as ConfigService,
   );
-  return { svc, prisma, jwt, signed };
+  return { svc, prisma, jwt, signed, users };
 }
 
 /** O 1º signAsync é o access token — seu payload carrega o impersonatedBy. */
@@ -103,15 +82,17 @@ function auditData(create: jest.Mock): Record<string, unknown> {
 }
 
 describe('AuthService — simulação de login', () => {
-  it('impersonate: admin → alvo emite token com identidade do alvo + impersonatedBy=admin, e audita START', async () => {
+  it('impersonate: emite token do alvo + impersonatedBy=admin + sessionId, registra a sessão e audita START', async () => {
     const { svc, prisma, signed } = build();
     await svc.impersonate('admin', 'rep');
     expect(accessPayload(signed).sub).toBe('rep');
     expect(accessPayload(signed).impersonatedBy).toBe('admin');
-    const start = auditData(prisma.auditLog.create);
-    expect(start.action).toBe('IMPERSONATE_START');
-    expect(start.userId).toBe('admin');
-    expect(start.entityId).toBe('rep');
+    expect(typeof accessPayload(signed).impersonationSessionId).toBe('string');
+    // registrou a sessão ativa no admin
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'admin' } }),
+    );
+    expect(auditData(prisma.auditLog.create).action).toBe('IMPERSONATE_START');
   });
 
   it('impersonate: chamador não-admin → 403', async () => {
@@ -135,20 +116,38 @@ describe('AuthService — simulação de login', () => {
     );
   });
 
-  it('exitImpersonation: volta a ser o admin (sem claim) e audita STOP', async () => {
-    const { svc, prisma, signed } = build();
+  it('exitImpersonation: limpa a sessão do admin, audita STOP e volta sem claim', async () => {
+    const { svc, prisma, signed, users } = build();
     await svc.exitImpersonation('admin', 'rep');
     expect(accessPayload(signed).sub).toBe('admin');
     expect(accessPayload(signed).impersonatedBy ?? null).toBeNull();
+    // sessão zerada => tokens de simulação antigos deixam de casar
+    expect(users.admin?.activeImpersonationSessionId).toBeNull();
     expect(auditData(prisma.auditLog.create).action).toBe('IMPERSONATE_STOP');
   });
 
-  it('refresh: preserva a simulação quando o admin ainda é ADMIN ativo', async () => {
+  it('refresh: preserva a simulação quando admin é ADMIN ativo E o sessionId é o atual', async () => {
     const { svc, jwt, signed } = build();
-    jwt.verifyAsync.mockResolvedValue({ sub: 'rep', impersonatedBy: 'admin' });
+    jwt.verifyAsync.mockResolvedValue({
+      sub: 'rep',
+      impersonatedBy: 'admin',
+      impersonationSessionId: 'sess1',
+    });
     await svc.refresh('r');
     expect(accessPayload(signed).sub).toBe('rep');
     expect(accessPayload(signed).impersonatedBy).toBe('admin');
+  });
+
+  it('refresh: recusa se a sessão foi encerrada/substituída (sessionId != atual)', async () => {
+    const { svc, jwt } = build();
+    jwt.verifyAsync.mockResolvedValue({
+      sub: 'rep',
+      impersonatedBy: 'admin',
+      impersonationSessionId: 'sessAntiga',
+    });
+    await expect(svc.refresh('r')).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
   });
 
   it('refresh: encerra se o admin da simulação não é mais ADMIN', async () => {
@@ -156,9 +155,20 @@ describe('AuthService — simulação de login', () => {
     jwt.verifyAsync.mockResolvedValue({
       sub: 'rep',
       impersonatedBy: 'exadmin',
+      impersonationSessionId: 'qualquer',
     });
     await expect(svc.refresh('r')).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
+  });
+
+  it('assertImpersonationValid: passa com admin+sessão corretos; falha em mismatch', async () => {
+    const { svc } = build();
+    await expect(
+      svc.assertImpersonationValid('admin', 'sess1'),
+    ).resolves.toBeUndefined();
+    await expect(
+      svc.assertImpersonationValid('admin', 'outra'),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });

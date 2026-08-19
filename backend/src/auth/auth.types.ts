@@ -19,6 +19,12 @@ export interface JwtPayload {
    * `impersonatedBy` só serve p/ auditoria e p/ sair da simulação.
    */
   impersonatedBy?: string | null;
+  /**
+   * Id da sessão de simulação (revogação). O token só é aceito enquanto casar
+   * com `users.activeImpersonationSessionId` do admin — sair/re-simular invalida
+   * tokens antigos.
+   */
+  impersonationSessionId?: string | null;
 }
 
 /** Usuário autenticado anexado à request após o JwtAuthGuard. */
