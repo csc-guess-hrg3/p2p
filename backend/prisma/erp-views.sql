@@ -681,3 +681,30 @@ SELECT 'HRG3', RTRIM(TRANSPORTADORA)
 FROM DB_HRG3.dbo.TRANSPORTADORAS
 WHERE ISNULL(INATIVO, 0) = 0;
 GO
+
+-- ---------- REPRESENTANTES (Área Externa / SH-42) ----------
+-- Login e escopo do representante externo. O código é COD_REPRESENTANTE
+-- (a W_VENDEDORES_REPRESENTANTES do Linx confirma: COD_REPRESENTANTE + REPRESENTANTE=nome).
+-- Nome = REPRESENTANTES.REPRESENTANTE (casa CADASTRO_CLI_FOR.NOME_CLIFOR).
+-- NÃO há e-mail no cadastro do representante (e-mail vive em CONTATO, sem vínculo
+-- direto); o e-mail do link de senha vem do fluxo de "solicitar cadastro", não daqui.
+-- Filtra inativos e códigos em branco.
+CREATE OR ALTER VIEW dbo.v_p2p_representantes AS
+SELECT 'GUESS' AS empresa,
+       LTRIM(RTRIM(r.COD_REPRESENTANTE))                        AS cod_representante,
+       RTRIM(r.REPRESENTANTE)                                   AS nome,
+       REPLACE(REPLACE(LTRIM(RTRIM(r.CGC_CPF)),'.',''),'-','')  AS documento
+FROM GUESS_PRODUCAO.dbo.REPRESENTANTES r
+WHERE ISNULL(r.INATIVO, 0) = 0
+  AND r.COD_REPRESENTANTE IS NOT NULL
+  AND LEN(LTRIM(RTRIM(r.COD_REPRESENTANTE))) > 0
+UNION ALL
+SELECT 'HRG3',
+       LTRIM(RTRIM(r.COD_REPRESENTANTE)),
+       RTRIM(r.REPRESENTANTE),
+       REPLACE(REPLACE(LTRIM(RTRIM(r.CGC_CPF)),'.',''),'-','')
+FROM DB_HRG3.dbo.REPRESENTANTES r
+WHERE ISNULL(r.INATIVO, 0) = 0
+  AND r.COD_REPRESENTANTE IS NOT NULL
+  AND LEN(LTRIM(RTRIM(r.COD_REPRESENTANTE))) > 0;
+GO
