@@ -173,8 +173,14 @@ function App() {
       <BrowserRouter>
         <AuthProvider>
           <CompanyProvider>
-            <ImpersonationBanner />
-            <Suspense fallback={<RouteFallback />}>
+            {/* Coluna de altura fixa: a faixa de simulação fica no topo e a
+                área roteada ocupa o resto. Sem isso, o portal externo (que
+                usa scroll do documento) fica preso pelo overflow:hidden global
+                do #root — some a barra de rolagem. */}
+            <div className="flex h-screen flex-col">
+              <ImpersonationBanner />
+              <div className="flex min-h-0 flex-1 flex-col">
+                <Suspense fallback={<RouteFallback />}>
               <Routes>
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/definir-senha" element={<SetupPasswordPage />} />
@@ -381,7 +387,9 @@ function App() {
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
-            </Suspense>
+                </Suspense>
+              </div>
+            </div>
             <Toaster />
           </CompanyProvider>
         </AuthProvider>

@@ -33,7 +33,7 @@ export function ImpersonationBanner() {
   };
 
   return (
-    <div className="sticky top-0 z-[70] flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-amber-500 px-4 py-1.5 text-center text-sm font-medium text-amber-950">
+    <div className="sticky top-0 z-[70] flex shrink-0 flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-amber-500 px-4 py-1.5 text-center text-sm font-medium text-amber-950">
       <UserCog className="size-4 shrink-0" />
       <span>
         Você está vendo como <b>{user.name}</b> · {papel}
