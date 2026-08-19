@@ -104,9 +104,6 @@ function StatusChip({ c }: { c: ClienteListItem }) {
   if (c.vencido > 0) {
     cls = 'bg-destructive/10 text-destructive';
     txt = `${formatMoney(c.vencido)} vencido`;
-  } else if (c.pontualidade && c.pontualidade.toUpperCase() === 'PENDENTE') {
-    cls = 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
-    txt = 'Pontualidade pendente';
   } else if (!c.aReceber) {
     cls = 'bg-muted text-muted-foreground';
     txt = 'Sem títulos';
