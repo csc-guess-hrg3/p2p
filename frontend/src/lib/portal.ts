@@ -21,6 +21,10 @@ export interface ClienteListItem {
   pontualidade: string;
   aReceber: number;
   vencido: number;
+  /** Data de cadastro do cliente (ISO yyyy-mm-dd) ou null. */
+  dataCadastro: string | null;
+  /** Última compra = emissão do último faturamento (ISO yyyy-mm-dd) ou null. */
+  ultimaCompra: string | null;
 }
 
 export interface ColumnMeta {
