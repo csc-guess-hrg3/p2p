@@ -130,14 +130,23 @@ export class FinancialAlertsService {
       WHERE EMISSAO < '${iso(d60)}'
     `);
 
-    // RN-FIN-03: DDA pendente que vence D+1 (amanhã).
+    // RN-FIN-03: DDA PENDENTE que vence D+1 (amanhã).
+    // Correção: o status real do DDA é LX_STATUS_CONCILIACAO (0=pendente,
+    // 8=baixado) — o filtro antigo por LANCAMENTO não distinguia (nessa view
+    // LANCAMENTO é sempre nulo) e inflava a contagem com títulos já baixados.
+    // Dedup no subselect por (DUPLICATA,CNPJ,VENCIMENTO,VALOR_TITULO) porque a
+    // view duplica cada movimento 2x (mesmo padrão da listagem de DDA).
     const r3 = await this.prisma.$queryRawUnsafe<
       Array<{ qtd: number; total: number | string }>
     >(`
-      SELECT COUNT(*) AS qtd, COALESCE(SUM(VALOR_TITULO), 0) AS total
-      FROM [${db}].dbo.W_HRG3_CTB_A_PAGAR_DDA_MONITORAMENTO
-      WHERE (LANCAMENTO IS NULL OR LANCAMENTO = 0)
-        AND CONVERT(date, VENCIMENTO) = '${iso(dPlus1)}'
+      SELECT COUNT(*) AS qtd, COALESCE(SUM(valorTitulo), 0) AS total
+      FROM (
+        SELECT d.VALOR_TITULO AS valorTitulo
+        FROM [${db}].dbo.W_HRG3_CTB_A_PAGAR_DDA_MONITORAMENTO d
+        WHERE d.LX_STATUS_CONCILIACAO = 0
+          AND CONVERT(date, d.VENCIMENTO) = '${iso(dPlus1)}'
+        GROUP BY d.DUPLICATA, d.CNPJ, d.VENCIMENTO, d.VALOR_TITULO
+      ) t
     `);
 
     return {
