@@ -10,6 +10,7 @@ import { ExternalLayout } from '@/components/layout/ExternalLayout';
 import { LoginPage } from '@/pages/LoginPage';
 import { Toaster } from '@/components/ui/toaster';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { ImpersonationBanner } from '@/components/ImpersonationBanner';
 
 function lazyPage<T extends ComponentType>(
   loader: () => Promise<Record<string, T>>,
@@ -172,6 +173,7 @@ function App() {
       <BrowserRouter>
         <AuthProvider>
           <CompanyProvider>
+            <ImpersonationBanner />
             <Suspense fallback={<RouteFallback />}>
               <Routes>
                 <Route path="/login" element={<LoginPage />} />

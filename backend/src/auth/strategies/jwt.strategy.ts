@@ -72,6 +72,9 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       // que sustenta o isolamento do ExternalRealmGuard.
       realm: user.realm,
       externalCategory: user.externalCategory,
+      // Simulação: o ADMIN real vem do payload (não do banco — é próprio da
+      // sessão). A identidade EFETIVA acima é a do alvo; isto é só a trilha.
+      impersonatedBy: payload.impersonatedBy ?? null,
     };
   }
 }

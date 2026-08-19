@@ -1153,6 +1153,8 @@ model AuditLog {
   id         String   @id @default(uuid()) @db.UniqueIdentifier
   companyId  String   @db.UniqueIdentifier
   userId     String   @db.UniqueIdentifier
+  /** Simulação de login: id do ADMIN real quando a ação foi feita "vendo como" o userId. */
+  impersonatedById String? @db.UniqueIdentifier
   action     String   @db.NVarChar(50)
   entityType String   @db.NVarChar(100)
   entityId   String   @db.UniqueIdentifier
@@ -1165,6 +1167,7 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([userId, createdAt])
   @@index([companyId, createdAt])
+  @@index([impersonatedById, createdAt])
   @@map("audit_logs")
 }
 

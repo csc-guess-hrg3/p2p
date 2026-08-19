@@ -1,7 +1,10 @@
 import {
+  BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
+  Param,
   Post,
   Req,
   Res,
@@ -22,6 +25,9 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
 import { AllowExternal } from '../common/decorators/external-access.decorator';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { UserProfile } from '../common/enums';
 import type { AuthenticatedUser, TokenPair } from './auth.types';
 
 const ACCESS_MAX_AGE_MS = 8 * 60 * 60 * 1000; // 8h
@@ -190,6 +196,51 @@ export class AuthController {
       return tokens;
     }
     return { ok: true as const };
+  }
+
+  /**
+   * Sair da SIMULAÇÃO DE LOGIN — volta a ser o admin real. Reachável por
+   * usuário EFETIVO externo (quando o admin está simulando um representante),
+   * por isso @AllowExternal.
+   */
+  @Post('impersonate/exit')
+  @AllowExternal()
+  @ApiOperation({ summary: 'Sair da simulação de login' })
+  async exitImpersonation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (!user.impersonatedBy) {
+      throw new BadRequestException('Você não está simulando ninguém.');
+    }
+    const tokens = await this.authService.exitImpersonation(
+      user.impersonatedBy,
+      user.id,
+    );
+    return this.applySession(res, tokens);
+  }
+
+  /**
+   * Iniciar a SIMULAÇÃO DE LOGIN: o admin passa a "ver como" o usuário. Só
+   * ADMIN; bloqueia aninhar (sair da simulação atual antes de iniciar outra).
+   * A identidade efetiva vira a do alvo; a trilha registra o admin real.
+   */
+  @Post('impersonate/:userId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserProfile.ADMIN)
+  @ApiOperation({ summary: 'Simular login de um usuário (admin)' })
+  async impersonate(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('userId') userId: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (user.impersonatedBy) {
+      throw new ForbiddenException(
+        'Saia da simulação atual antes de iniciar outra.',
+      );
+    }
+    const tokens = await this.authService.impersonate(user.id, userId);
+    return this.applySession(res, tokens);
   }
 
   /**

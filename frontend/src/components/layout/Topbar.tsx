@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   BookOpen,
@@ -7,7 +8,9 @@ import {
   LogOut,
   Menu,
   User as UserIcon,
+  UserCog,
 } from 'lucide-react';
+import { SimularLoginDialog } from '@/components/SimularLoginDialog';
 import { getEnvironment } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useCompany } from '@/lib/company';
@@ -79,6 +82,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
   const { user, logout } = useAuth();
   const { companies, activeCompany, setActiveCompany } = useCompany();
   const navigate = useNavigate();
+  const [simularOpen, setSimularOpen] = useState(false);
 
   function handleLogout() {
     logout();
@@ -86,6 +90,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
   }
 
   return (
+    <>
     <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b bg-background px-4 md:px-6">
       <div className="flex min-w-0 items-center gap-2">
         <button
@@ -166,6 +171,12 @@ export function Topbar({ onMenuClick }: TopbarProps) {
               {user?.email}
             </div>
             <DropdownMenuSeparator />
+            {user?.profile === 'ADMIN' && !user?.impersonatedBy && (
+              <DropdownMenuItem onSelect={() => setSimularOpen(true)}>
+                <UserCog className="size-4" />
+                Simular login
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onSelect={handleLogout}>
               <LogOut className="size-4" />
               Sair
@@ -174,5 +185,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
         </DropdownMenu>
       </div>
     </header>
+    <SimularLoginDialog open={simularOpen} onOpenChange={setSimularOpen} />
+    </>
   );
 }

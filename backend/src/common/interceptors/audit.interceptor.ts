@@ -106,7 +106,10 @@ export class AuditInterceptor implements NestInterceptor {
     await this.prisma.auditLog.create({
       data: {
         companyId,
+        // userId = identidade EFETIVA (o alvo, se em simulação). O admin real
+        // fica em impersonatedById — trilha "admin agindo como X".
         userId: user.id,
+        impersonatedById: user.impersonatedBy ?? null,
         action,
         entityType,
         entityId,
