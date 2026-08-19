@@ -21,6 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { TableStatusRow } from '@/components/TableStatusRow';
 import { Pagination } from '@/components/ui/pagination';
 import { usePagination } from '@/lib/use-pagination';
 import { Button } from '@/components/ui/button';
@@ -40,7 +41,7 @@ export function ReceivingsListPage() {
   const [status, setStatus] = useState('ALL');
   const [search, setSearch] = useState('');
 
-  const { data, isLoading } = useReceivings({
+  const { data, isLoading, isError } = useReceivings({
     companyId: activeCompany?.id,
     status: status === 'ALL' ? undefined : status,
     search: search || undefined,
@@ -123,20 +124,13 @@ export function ReceivingsListPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading && (
-              <TableRow>
-                <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                  Carregando…
-                </TableCell>
-              </TableRow>
-            )}
-            {!isLoading && rows.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                  Nenhum recebimento encontrado.
-                </TableCell>
-              </TableRow>
-            )}
+            <TableStatusRow
+              colSpan={6}
+              isLoading={isLoading}
+              isError={isError}
+              isEmpty={rows.length === 0}
+              emptyLabel="Nenhum recebimento encontrado."
+            />
             {pag.pageRows.map((r) => (
               <TableRow
                 key={r.id}

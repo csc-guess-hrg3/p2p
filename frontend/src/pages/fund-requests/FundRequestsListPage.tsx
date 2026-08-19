@@ -24,6 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { TableStatusRow } from '@/components/TableStatusRow';
 import { Pagination } from '@/components/ui/pagination';
 import { usePagination } from '@/lib/use-pagination';
 import { Button } from '@/components/ui/button';
@@ -98,7 +99,7 @@ export function FundRequestsListPage() {
   const [status, setStatus] = useState('ALL');
   const [search, setSearch] = useState('');
 
-  const { data, isLoading } = useFundRequests({
+  const { data, isLoading, isError } = useFundRequests({
     companyId: activeCompany?.id,
     status: status === 'ALL' ? undefined : status,
     search: search || undefined,
@@ -189,26 +190,13 @@ export function FundRequestsListPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading && (
-              <TableRow>
-                <TableCell
-                  colSpan={8}
-                  className="py-8 text-center text-muted-foreground"
-                >
-                  Carregando…
-                </TableCell>
-              </TableRow>
-            )}
-            {!isLoading && rows.length === 0 && (
-              <TableRow>
-                <TableCell
-                  colSpan={8}
-                  className="py-8 text-center text-muted-foreground"
-                >
-                  Nenhuma solicitação de verba encontrada.
-                </TableCell>
-              </TableRow>
-            )}
+            <TableStatusRow
+              colSpan={8}
+              isLoading={isLoading}
+              isError={isError}
+              isEmpty={rows.length === 0}
+              emptyLabel="Nenhuma solicitação de verba encontrada."
+            />
             {pag.pageRows.map((sv) => (
               <TableRow
                 key={sv.id}
