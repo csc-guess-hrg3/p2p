@@ -4,7 +4,9 @@ import { AuthProvider } from '@/lib/auth';
 import { CompanyProvider } from '@/lib/company';
 import { RequireAuth } from '@/components/auth/RequireAuth';
 import { RequireProfile } from '@/components/auth/RequireProfile';
+import { RequireExternal } from '@/components/auth/RequireExternal';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { ExternalLayout } from '@/components/layout/ExternalLayout';
 import { LoginPage } from '@/pages/LoginPage';
 import { Toaster } from '@/components/ui/toaster';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -21,6 +23,23 @@ function lazyPage<T extends ComponentType>(
 const SetupPasswordPage = lazyPage(
   () => import('@/pages/SetupPasswordPage'),
   'SetupPasswordPage',
+);
+// Área Externa (portal do representante) — shell isolado do app interno.
+const ExternalLoginPage = lazyPage(
+  () => import('@/pages/externo/ExternalLoginPage'),
+  'ExternalLoginPage',
+);
+const PortalHomePage = lazyPage(
+  () => import('@/pages/externo/PortalHomePage'),
+  'PortalHomePage',
+);
+const ConsultaClientesListPage = lazyPage(
+  () => import('@/pages/externo/consulta-clientes/ConsultaClientesListPage'),
+  'ConsultaClientesListPage',
+);
+const ClienteDetailPage = lazyPage(
+  () => import('@/pages/externo/consulta-clientes/ClienteDetailPage'),
+  'ClienteDetailPage',
 );
 const DashboardPage = lazyPage(() => import('@/pages/DashboardPage'), 'DashboardPage');
 const RequisitionsListPage = lazyPage(
@@ -157,6 +176,23 @@ function App() {
               <Routes>
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/definir-senha" element={<SetupPasswordPage />} />
+
+                {/* Área Externa — portal do representante (fora do app interno) */}
+                <Route path="/externo/login" element={<ExternalLoginPage />} />
+                <Route path="/externo" element={<RequireExternal />}>
+                  <Route element={<ExternalLayout />}>
+                    <Route index element={<PortalHomePage />} />
+                    <Route
+                      path="consulta-clientes"
+                      element={<ConsultaClientesListPage />}
+                    />
+                    <Route
+                      path="consulta-clientes/:codigo"
+                      element={<ClienteDetailPage />}
+                    />
+                  </Route>
+                </Route>
+
                 <Route element={<RequireAuth />}>
                   <Route element={<AppLayout />}>
                   <Route index element={<DashboardPage />} />

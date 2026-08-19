@@ -35,5 +35,10 @@ export function RequireAuth() {
   if (!user) {
     return <Navigate to="/login" replace />;
   }
+  // Usuário da Área Externa não entra no app interno — vai pro portal.
+  // (Conforto; a barreira dura é o ExternalRealmGuard no backend.)
+  if (user.realm === 'EXTERNAL') {
+    return <Navigate to="/externo" replace />;
+  }
   return <Outlet />;
 }
