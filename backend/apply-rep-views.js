@@ -57,6 +57,21 @@ const prod = cfg.apps.find((a) => a.name === 'p2p-api-prod').env;
       console.log(`${v}: ERRO ${e.message}`);
     }
   }
+  // Sub-grid: pedidos da nota (não escopado por rep). Amostra p/ GE MEGA STORE.
+  try {
+    const grid = (
+      await pool.request().query(
+        `SELECT PEDIDO, entrega, emissao_pedido, pedido_cliente
+           FROM dbo.v_p2p_nota_pedidos
+          WHERE NOME_CLIFOR = 'GE MEGA STORE            '
+          ORDER BY PEDIDO, entrega`,
+      )
+    ).recordset;
+    console.log(`v_p2p_nota_pedidos (GE MEGA STORE): ${grid.length} linha(s)`);
+    console.log(JSON.stringify(grid.slice(0, 5)));
+  } catch (e) {
+    console.log(`v_p2p_nota_pedidos: ERRO ${e.message}`);
+  }
 
   await pool.close();
 })().catch((e) => {

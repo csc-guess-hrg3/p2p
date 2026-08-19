@@ -261,3 +261,22 @@ FROM   CLIENTES_ATACADO
           )
  INNER JOIN (SELECT RTRIM(REPRESENTANTE) AS nm, MIN(LTRIM(RTRIM(COD_REPRESENTANTE))) AS cod FROM REPRESENTANTES WHERE ISNULL(INATIVO,0)=0 GROUP BY RTRIM(REPRESENTANTE) HAVING COUNT(*)=1) R_REP ON R_REP.nm = RTRIM(PROP_REPRESENTANTES.REPRESENTANTE)
 GO
+
+-- ===== v_p2p_nota_pedidos =====
+-- Sub-grid "Pedidos da Nota" (aba Faturamentos). Mapa nota -> pedidos.
+-- NÃO é escopado por rep: o acesso é liberado pelo serviço, que só consulta
+-- por (NF_SAIDA,SERIE_NF,FILIAL) DEPOIS de validar que a nota é do rep/cliente
+-- na v_p2p_rep_faturamentos. Origem: itens da nota (FATURAMENTO_PROD) + cabeçalho
+-- do pedido (VENDAS). Uma linha por (pedido, data de entrega programada).
+CREATE OR ALTER VIEW dbo.v_p2p_nota_pedidos AS
+SELECT DISTINCT
+       f.NF_SAIDA, f.SERIE_NF, f.FILIAL, f.NOME_CLIFOR,
+       fp.PEDIDO,
+       fp.ENTREGA AS entrega,
+       v.EMISSAO AS emissao_pedido,
+       LTRIM(RTRIM(ISNULL(v.PEDIDO_CLIENTE, ''))) AS pedido_cliente
+FROM DBO.FATURAMENTO f
+JOIN DBO.FATURAMENTO_PROD fp
+  ON fp.NF_SAIDA = f.NF_SAIDA AND fp.SERIE_NF = f.SERIE_NF AND fp.FILIAL = f.FILIAL
+LEFT JOIN DBO.VENDAS v ON v.PEDIDO = fp.PEDIDO
+GO

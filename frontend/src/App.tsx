@@ -33,9 +33,13 @@ const PortalHomePage = lazyPage(
   () => import('@/pages/externo/PortalHomePage'),
   'PortalHomePage',
 );
-const PortalReportPage = lazyPage(
-  () => import('@/pages/externo/PortalReportPage'),
-  'PortalReportPage',
+const ConsultaClientesListPage = lazyPage(
+  () => import('@/pages/externo/consulta-clientes/ConsultaClientesListPage'),
+  'ConsultaClientesListPage',
+);
+const ClienteDetailPage = lazyPage(
+  () => import('@/pages/externo/consulta-clientes/ClienteDetailPage'),
+  'ClienteDetailPage',
 );
 const DashboardPage = lazyPage(() => import('@/pages/DashboardPage'), 'DashboardPage');
 const RequisitionsListPage = lazyPage(
@@ -179,8 +183,12 @@ function App() {
                   <Route element={<ExternalLayout />}>
                     <Route index element={<PortalHomePage />} />
                     <Route
-                      path="relatorios/:key"
-                      element={<PortalReportPage />}
+                      path="consulta-clientes"
+                      element={<ConsultaClientesListPage />}
+                    />
+                    <Route
+                      path="consulta-clientes/:codigo"
+                      element={<ClienteDetailPage />}
                     />
                   </Route>
                 </Route>

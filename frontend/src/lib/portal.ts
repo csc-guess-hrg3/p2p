@@ -1,46 +1,134 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from './api';
 
-/** Um relatório disponível no portal (metadados). */
-export interface PortalReportListItem {
+// ─── tipos ───
+
+export interface PortalArea {
   key: string;
   title: string;
   description: string;
 }
 
-export interface PortalReportColumn {
+export interface ColumnMeta {
   name: string;
-  type: string;
+  label: string;
 }
-
-/** Resultado de um relatório: colunas (ordem/tipo) + linhas cruas. */
-export interface PortalReportResult {
-  key: string;
-  title: string;
-  description: string;
-  columns: PortalReportColumn[];
+export interface Grid {
+  columns: ColumnMeta[];
   rows: Record<string, unknown>[];
-  rowCount: number;
-  /** true se atingiu o teto de linhas (paginação real vem na fase de exibição). */
-  capped: boolean;
-  generatedAt: string;
 }
 
-/** Lista os relatórios da categoria do usuário externo logado. */
-export function usePortalReports() {
+export interface Dados1 {
+  cliente: string;
+  codigo: unknown;
+  groups: { title: string; fields: { label: string; value: unknown }[] }[];
+}
+
+export interface Faturamentos extends Grid {
+  cliente: string;
+  totais: { label: string; value: number }[];
+}
+
+export interface AgingBucket {
+  d7: number;
+  d30: number;
+  maior30: number;
+  total: number;
+}
+export interface Financeiro {
+  cliente: string;
+  aging: { vencidos: AgingBucket; aVencer: AgingBucket; total: number };
+  titulos: Grid;
+}
+
+// ─── hooks ───
+
+export function useAreas() {
   return useQuery({
-    queryKey: ['portal', 'reports'],
-    queryFn: async () =>
-      (await api.get<PortalReportListItem[]>('/portal/reports')).data,
+    queryKey: ['portal', 'areas'],
+    queryFn: async () => (await api.get<PortalArea[]>('/portal/areas')).data,
   });
 }
 
-/** Roda um relatório (escopado no backend ao próprio usuário). */
-export function usePortalReport(key: string | undefined) {
+const CC = '/portal/consulta-clientes';
+
+export function useClientes() {
   return useQuery({
-    queryKey: ['portal', 'report', key],
-    enabled: !!key,
+    queryKey: ['cc', 'clientes'],
+    queryFn: async () => (await api.get<Grid>(`${CC}/clientes`)).data,
+  });
+}
+
+export function useClienteDados(codigo: string | undefined) {
+  return useQuery({
+    queryKey: ['cc', 'dados', codigo],
+    enabled: !!codigo,
     queryFn: async () =>
-      (await api.get<PortalReportResult>(`/portal/reports/${key}`)).data,
+      (await api.get<Dados1>(`${CC}/clientes/${codigo}/dados`)).data,
+  });
+}
+
+export function useClienteFaturamentos(codigo: string | undefined) {
+  return useQuery({
+    queryKey: ['cc', 'faturamentos', codigo],
+    enabled: !!codigo,
+    queryFn: async () =>
+      (await api.get<Faturamentos>(`${CC}/clientes/${codigo}/faturamentos`))
+        .data,
+  });
+}
+
+export function usePedidosNota(
+  codigo: string | undefined,
+  nota: { nf: string; serie: string; filial: string } | null,
+) {
+  return useQuery({
+    queryKey: ['cc', 'pedidos', codigo, nota?.nf, nota?.serie, nota?.filial],
+    enabled: !!codigo && !!nota,
+    queryFn: async () =>
+      (
+        await api.get<Grid>(`${CC}/clientes/${codigo}/pedidos-nota`, {
+          params: nota ?? {},
+        })
+      ).data,
+  });
+}
+
+export function useClienteFinanceiro(codigo: string | undefined) {
+  return useQuery({
+    queryKey: ['cc', 'financeiro', codigo],
+    enabled: !!codigo,
+    queryFn: async () =>
+      (await api.get<Financeiro>(`${CC}/clientes/${codigo}/financeiro`)).data,
+  });
+}
+
+// ─── formatação de célula ───
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}T/;
+
+/** Formata um valor cru p/ exibição. Inteiro = identificador (sem milhar). */
+export function formatCell(v: unknown): string {
+  if (v === null || v === undefined || v === '') return '—';
+  if (typeof v === 'boolean') return v ? 'Sim' : 'Não';
+  if (typeof v === 'number') {
+    return Number.isInteger(v)
+      ? String(v)
+      : v.toLocaleString('pt-BR', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+  }
+  if (typeof v === 'string' && ISO_DATE.test(v)) {
+    return new Date(v).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+  }
+  return String(v);
+}
+
+/** Moeda BRL. */
+export function formatMoney(v: number): string {
+  return v.toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
   });
 }

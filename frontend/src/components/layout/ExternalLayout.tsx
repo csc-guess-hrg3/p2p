@@ -1,17 +1,17 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { LogOut } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
-import { usePortalReports } from '@/lib/portal';
+import { useAreas } from '@/lib/portal';
 import { Button } from '@/components/ui/button';
 
 /**
- * Shell ISOLADO do portal externo — nada do app interno (sidebar, empresas,
- * módulos). Só a marca, os relatórios do usuário e o logout.
+ * Shell ISOLADO do portal externo — nada do app interno. Só a marca, as áreas
+ * do usuário e o logout.
  */
 export function ExternalLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const reports = usePortalReports();
+  const areas = useAreas();
 
   const onLogout = async () => {
     await logout();
@@ -21,7 +21,7 @@ export function ExternalLayout() {
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <header className="border-b bg-card">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3">
           <div className="flex items-center gap-3">
             <span className="text-lg font-semibold tracking-tight">GUESS</span>
             <span className="hidden text-sm text-muted-foreground sm:inline">
@@ -39,20 +39,15 @@ export function ExternalLayout() {
           </div>
         </div>
 
-        {/* Nav dos relatórios */}
-        <nav className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-2 pb-2">
+        <nav className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-2 pb-2">
           <PortalNavLink to="/externo" end label="Início" />
-          {(reports.data ?? []).map((r) => (
-            <PortalNavLink
-              key={r.key}
-              to={`/externo/relatorios/${r.key}`}
-              label={r.title}
-            />
+          {(areas.data ?? []).map((a) => (
+            <PortalNavLink key={a.key} to={`/externo/${a.key}`} label={a.title} />
           ))}
         </nav>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6">
         <Outlet />
       </main>
 
