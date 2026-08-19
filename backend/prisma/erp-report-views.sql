@@ -252,14 +252,25 @@ FROM   CLIENTES_ATACADO
               ON CADASTRO_CLI_FOR.ID_EXCECAO_GRUPO = 
                  CTB_EXCECAO_GRUPO.ID_EXCECAO_GRUPO 
 
-				 INNER JOIN PROP_REPRESENTANTES
-       ON PROP_REPRESENTANTES.PROPRIEDADE = '00094'
-      AND EXISTS (
-            SELECT 1
-            FROM STRING_SPLIT(PROP_REPRESENTANTES.VALOR_PROPRIEDADE, ',') AS UFs
-            WHERE LTRIM(RTRIM(UFs.value)) = LTRIM(RTRIM(CADASTRO_CLI_FOR.UF))
-          )
- INNER JOIN (SELECT RTRIM(REPRESENTANTE) AS nm, MIN(LTRIM(RTRIM(COD_REPRESENTANTE))) AS cod FROM REPRESENTANTES WHERE ISNULL(INATIVO,0)=0 GROUP BY RTRIM(REPRESENTANTE) HAVING COUNT(*)=1) R_REP ON R_REP.nm = RTRIM(PROP_REPRESENTANTES.REPRESENTANTE)
+       -- Escopo TRANSACIONAL: só os clientes que o rep DE FATO atende — tem
+       -- faturamento (nome ativo único) OU título a receber (COD nativo).
+       -- Substitui o escopo territorial por UF (que expunha cadastro de cliente
+       -- de outro rep na mesma UF). Alinha Clientes/Dados1 com Faturamentos/Financeiro.
+       INNER JOIN (
+         SELECT cod, nm FROM (
+           SELECT rr.cod AS cod, RTRIM(F.NOME_CLIFOR) AS nm
+             FROM DBO.FATURAMENTO F
+             INNER JOIN (SELECT RTRIM(REPRESENTANTE) AS rnm,
+                                MIN(LTRIM(RTRIM(COD_REPRESENTANTE))) AS cod
+                           FROM DBO.REPRESENTANTES WHERE ISNULL(INATIVO,0)=0
+                          GROUP BY RTRIM(REPRESENTANTE) HAVING COUNT(*)=1) rr
+                     ON rr.rnm = RTRIM(F.REPRESENTANTE)
+           UNION
+           SELECT LTRIM(RTRIM(A.COD_REPRESENTANTE)) AS cod, RTRIM(C2.NOME_CLIFOR) AS nm
+             FROM DBO.CTB_A_RECEBER_FATURA A
+             INNER JOIN DBO.CADASTRO_CLI_FOR C2 ON C2.COD_CLIFOR = A.COD_CLIFOR
+         ) u GROUP BY cod, nm
+       ) R_REP ON R_REP.nm = RTRIM(CADASTRO_CLI_FOR.NOME_CLIFOR)
 GO
 
 -- ===== v_p2p_nota_pedidos =====
