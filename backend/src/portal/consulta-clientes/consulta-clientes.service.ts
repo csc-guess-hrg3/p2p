@@ -10,7 +10,6 @@ import {
   sqlLiteral,
 } from '../row-normalize';
 import {
-  CLIENTES_GRID,
   DADOS1_GROUPS,
   FATURAMENTOS_GRID,
   FATURAMENTOS_TOTAIS,
@@ -32,6 +31,20 @@ export interface ColumnMeta {
 export interface Grid {
   columns: ColumnMeta[];
   rows: Record<string, unknown>[];
+}
+
+/** Item da lista "Meus clientes" (aba Clientes) — resumo + saldo a receber. */
+export interface ClienteListItem {
+  codigo: string;
+  nome: string;
+  razaoSocial: string;
+  cidade: string;
+  uf: string;
+  tipo: string;
+  limite: number;
+  pontualidade: string;
+  aReceber: number;
+  vencido: number;
 }
 
 @Injectable()
@@ -84,33 +97,60 @@ export class ConsultaClientesService {
 
   // ─── abas ───
 
-  /** Aba Clientes — grade dos clientes do rep. */
-  async clientes(user: AuthenticatedUser): Promise<Grid> {
+  /** Aba Clientes — "Meus clientes": resumo + saldo a receber por cliente. */
+  async clientes(
+    user: AuthenticatedUser,
+  ): Promise<{ clientes: ClienteListItem[] }> {
     const codes = await this.repCodes(user);
-    const columns = this.meta(CLIENTES_GRID);
-    if (!codes.length) return { columns, rows: [] };
-    const select = CLIENTES_GRID.map((c) => `[${c.col}]`).join(', ');
+    if (!codes.length) return { clientes: [] };
+    const inl = this.inList(codes);
+    // Junta o saldo a receber (e o vencido) de cada cliente — o "pulso" na lista.
     const rows = await this.prisma.$queryRawUnsafe<Record<string, unknown>[]>(
-      `SELECT TOP ${CAP} ${select} FROM ${CLIENTES}
-        WHERE cod_representante IN (${this.inList(codes)})
-        ORDER BY NOME_CLIFOR, CLIFOR`,
+      `SELECT TOP ${CAP} c.CLIFOR, c.NOME_CLIFOR, c.RAZAO_SOCIAL, c.CIDADE, c.UF,
+              c.TIPO, c.LIMITE_CREDITO, c.PONTUALIDADE,
+              ISNULL(f.receber, 0) AS receber, ISNULL(f.vencido, 0) AS vencido
+         FROM ${CLIENTES} c
+         LEFT JOIN (
+           SELECT LTRIM(RTRIM(NOME_CLIFOR)) AS nm,
+                  SUM(VALOR_A_RECEBER) AS receber,
+                  SUM(CASE WHEN DATEDIFF(DD,[VENCIMENTO_REAL],GETDATE()) > 0
+                           THEN VALOR_A_RECEBER ELSE 0 END) AS vencido
+             FROM ${FINANCEIRO} WHERE cod_representante IN (${inl})
+            GROUP BY LTRIM(RTRIM(NOME_CLIFOR))
+         ) f ON f.nm = LTRIM(RTRIM(c.NOME_CLIFOR))
+        WHERE c.cod_representante IN (${inl})
+        ORDER BY c.NOME_CLIFOR, c.CLIFOR`,
     );
     // Uma linha por cliente — a view pode repetir CLIFOR (fan-out por filial).
     const seen = new Set<string>();
-    const dedup: Record<string, unknown>[] = [];
-    for (const r of rows.map(normalizeRow)) {
-      const k = typeof r.CLIFOR === 'string' ? r.CLIFOR : '';
-      if (seen.has(k)) continue;
-      seen.add(k);
-      dedup.push(r);
+    const clientes: ClienteListItem[] = [];
+    for (const raw of rows) {
+      const r = normalizeRow(raw);
+      const codigo = typeof r.CLIFOR === 'string' ? r.CLIFOR : '';
+      if (!codigo || seen.has(codigo)) continue;
+      seen.add(codigo);
+      clientes.push({
+        codigo,
+        nome: typeof r.NOME_CLIFOR === 'string' ? r.NOME_CLIFOR : '',
+        razaoSocial: typeof r.RAZAO_SOCIAL === 'string' ? r.RAZAO_SOCIAL : '',
+        cidade: typeof r.CIDADE === 'string' ? r.CIDADE : '',
+        uf: typeof r.UF === 'string' ? r.UF : '',
+        tipo: typeof r.TIPO === 'string' ? r.TIPO : '',
+        limite: Number(r.LIMITE_CREDITO) || 0,
+        pontualidade: typeof r.PONTUALIDADE === 'string' ? r.PONTUALIDADE : '',
+        aReceber: Number(r.receber) || 0,
+        vencido: Number(r.vencido) || 0,
+      });
     }
-    return { columns, rows: dedup };
+    return { clientes };
   }
 
-  /** Aba Dados 1 — ficha do cliente, agrupada. */
+  /** Aba Dados 1 — ficha do cliente (header estruturado + grupos). */
   async dados1(user: AuthenticatedUser, codigo: string) {
     const raw = await this.clientRow(user, codigo);
     const row = normalizeRow(raw);
+    const s = (k: string): string =>
+      typeof row[k] === 'string' ? (row[k] as string) : '';
     const groups = DADOS1_GROUPS.map((g) => ({
       title: g.title,
       fields: g.fields.map((f) => ({
@@ -118,7 +158,22 @@ export class ConsultaClientesService {
         value: row[f.col] ?? null,
       })),
     }));
-    return { cliente: this.clientNome(raw), codigo: row.CLIFOR, groups };
+    const cliente = {
+      nome: this.clientNome(raw),
+      codigo: s('CLIFOR'),
+      razaoSocial: s('RAZAO_SOCIAL'),
+      cnpj: s('CGC_CPF'),
+      ie: s('RG_IE'),
+      cidade: s('CIDADE'),
+      uf: s('UF'),
+      tipo: s('TIPO'),
+      email: s('EMAIL'),
+      ddd: s('DDD1'),
+      telefone: s('TELEFONE1'),
+      pontualidade: s('PONTUALIDADE'),
+      limite: Number(row.LIMITE_CREDITO) || 0,
+    };
+    return { cliente, groups };
   }
 
   /** Aba Faturamentos — notas do cliente + totais. */

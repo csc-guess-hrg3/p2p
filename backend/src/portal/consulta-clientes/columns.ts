@@ -12,54 +12,6 @@ export interface Group {
   fields: Col[];
 }
 
-/** Aba Clientes — grade dos clientes do representante. */
-export const CLIENTES_GRID: Col[] = [
-  { col: 'CLIFOR', label: 'Código' },
-  { col: 'NOME_CLIFOR', label: 'Cliente' },
-  { col: 'PONTUALIDADE', label: 'Pontualidade' },
-  { col: 'REGIAO', label: 'Região' },
-  { col: 'MATRIZ_CLIENTE', label: 'Matriz Cliente' },
-  { col: 'FILIAL', label: 'Filial' },
-  { col: 'TIPO_BLOQUEIO', label: 'Tipo Bloqueio' },
-  { col: 'BLOQUEIO_FATURAMENTO', label: 'Bloqueio Faturamento' },
-  { col: 'BLOQUEIO_EXPEDICAO', label: 'Bloqueio Expedição' },
-  { col: 'BLOQUEIO_PEDIDOS', label: 'Bloqueio Pedidos' },
-  { col: 'SEM_CREDITO', label: 'Sem Crédito' },
-  { col: 'LIMITE_CREDITO', label: 'Limite Crédito' },
-  { col: 'PJ_PF', label: 'Pessoa Jurídica' },
-  { col: 'RAZAO_SOCIAL', label: 'Razão Social' },
-  { col: 'CGC_CPF', label: 'CGC / Cpf' },
-  { col: 'RG_IE', label: 'Rg / Ie' },
-  { col: 'ENDERECO', label: 'Endereço' },
-  { col: 'NUMERO', label: 'Número' },
-  { col: 'COMPLEMENTO', label: 'Complemento' },
-  { col: 'BAIRRO', label: 'Bairro' },
-  { col: 'CIDADE', label: 'Cidade' },
-  { col: 'CEP', label: 'Cep' },
-  { col: 'UF', label: 'Uf' },
-  { col: 'PAIS', label: 'País' },
-  { col: 'DDI', label: 'Ddi' },
-  { col: 'DDD1', label: 'Ddd' },
-  { col: 'TELEFONE1', label: 'Telefone' },
-  { col: 'CADASTRAMENTO', label: 'Cadastramento' },
-  { col: 'CONDICAO_PGTO', label: 'Condição Pgto' },
-  { col: 'NOME_BANCO', label: 'Banco' },
-  { col: 'NUMERO_PEDIDOS', label: 'Número Pedidos' },
-  { col: 'DATA_MAIOR_PEDIDO', label: 'Data Maior Pedido' },
-  { col: 'MAIOR_PEDIDO', label: 'Maior Pedido' },
-  { col: 'MAIOR_SALDO', label: 'Maior Saldo' },
-  { col: 'DATA_MAIOR_SALDO', label: 'Data Maior Saldo' },
-  { col: 'NUMERO_ATRASOS', label: 'Número Atrasos' },
-  { col: 'MAIOR_ATRASO', label: 'Maior Atraso' },
-  { col: 'NUMERO_DEVOLUCOES', label: 'Número Devoluções' },
-  { col: 'MAIOR_DEVOLUCAO', label: 'Maior Devolução' },
-  { col: 'TRANSPORTADORA', label: 'Transportadora' },
-  { col: 'CONTATO', label: 'Contato' },
-  { col: 'TIPO', label: 'Tipo' },
-  { col: 'CONCEITO', label: 'Conceito' },
-  { col: 'PRIORIDADE', label: 'Prioridade' },
-];
-
 /** Aba Dados 1 — ficha do cliente selecionado, agrupada. */
 export const DADOS1_GROUPS: Group[] = [
   {

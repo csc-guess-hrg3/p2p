@@ -77,8 +77,7 @@ describe('ConsultaClientesService', () => {
   it('clientes: sem escopo → vazio e NÃO consulta a view', async () => {
     const { svc, prisma } = build({ codes: [] });
     const out = await svc.clientes(rep());
-    expect(out.rows).toEqual([]);
-    expect(out.columns.length).toBeGreaterThan(0);
+    expect(out.clientes).toEqual([]);
     expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
   });
 
@@ -102,7 +101,8 @@ describe('ConsultaClientesService', () => {
   it('dados1: monta os grupos da ficha do cliente', async () => {
     const { svc } = build({ clientRow: CLIENT });
     const out = await svc.dados1(rep(), '008103');
-    expect(out.cliente).toBe('GE MEGA STORE'); // rtrim
+    expect(out.cliente.nome).toBe('GE MEGA STORE'); // rtrim
+    expect(out.cliente.cnpj).toBe('93049401000117');
     const cadastro = out.groups.find((g) => g.title === 'Cliente')!;
     expect(cadastro.fields.find((f) => f.label === 'Razão Social')?.value).toBe(
       'GE MEGA STORE',
