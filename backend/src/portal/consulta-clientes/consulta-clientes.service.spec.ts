@@ -129,7 +129,7 @@ describe('ConsultaClientesService', () => {
       (s) => /v_p2p_rep_faturamentos/.test(s) && /SELECT TOP/.test(s),
     )!;
     expect(dataSql).toMatch(/IN \('007713'\)/);
-    expect(dataSql).toMatch(/RTRIM\(NOME_CLIFOR\) = 'GE MEGA STORE'/);
+    expect(dataSql).toMatch(/LTRIM\(RTRIM\(NOME_CLIFOR\)\) = 'GE MEGA STORE'/);
     const valor = out.totais.find((t) => t.label === 'Valor Total')?.value;
     expect(valor).toBe(7817.08);
   });
@@ -164,17 +164,13 @@ describe('ConsultaClientesService', () => {
   });
 
   it('financeiro: monta a matriz de aging (vencidos × a vencer)', async () => {
-    const d = (offsetDays: number) => {
-      const t = new Date();
-      t.setUTCDate(t.getUTCDate() + offsetDays);
-      return t;
-    };
+    // DIAS_VENC = DATEDIFF(DD, vencimento, hoje): >0 vencido, <=0 a vencer.
     const { svc } = build({
       clientRow: CLIENT,
       financeiro: [
-        { VENCIMENTO_REAL: d(-40), VALOR_A_RECEBER: 100 }, // vencido > 30
-        { VENCIMENTO_REAL: d(-5), VALOR_A_RECEBER: 50 }, // vencido <= 7
-        { VENCIMENTO_REAL: d(20), VALOR_A_RECEBER: 200 }, // a vencer <= 30
+        { DIAS_VENC: 40, VALOR_A_RECEBER: 100 }, // vencido > 30
+        { DIAS_VENC: 5, VALOR_A_RECEBER: 50 }, // vencido <= 7
+        { DIAS_VENC: -20, VALOR_A_RECEBER: 200 }, // a vencer <= 30
       ],
     });
     const out = await svc.financeiro(rep(), '008103');

@@ -26,7 +26,7 @@ export interface Dados1 {
 
 export interface Faturamentos extends Grid {
   cliente: string;
-  totais: { label: string; value: number }[];
+  totais: { label: string; value: number; money: boolean }[];
 }
 
 export interface AgingBucket {

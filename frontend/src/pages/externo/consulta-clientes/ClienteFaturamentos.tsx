@@ -3,6 +3,7 @@ import {
   useClienteFaturamentos,
   usePedidosNota,
   formatCell,
+  formatMoney,
 } from '@/lib/portal';
 import { DataGrid } from '@/components/externo/DataGrid';
 
@@ -61,7 +62,9 @@ export function ClienteFaturamentos({ codigo }: { codigo: string | undefined }) 
           {fat.data.totais.map((t) => (
             <div key={t.label} className="text-right">
               <div className="text-xs text-muted-foreground">{t.label}</div>
-              <div className="font-semibold">{formatCell(t.value)}</div>
+              <div className="font-semibold">
+                {t.money ? formatMoney(t.value) : formatCell(t.value)}
+              </div>
             </div>
           ))}
         </div>

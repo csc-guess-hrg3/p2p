@@ -24,7 +24,6 @@ const FATURAMENTOS = '[GUESS_PRODUCAO].[dbo].[v_p2p_rep_faturamentos]';
 const FINANCEIRO = '[GUESS_PRODUCAO].[dbo].[v_p2p_rep_financeiro]';
 const NOTA_PEDIDOS = '[GUESS_PRODUCAO].[dbo].[v_p2p_nota_pedidos]';
 const CAP = 5000;
-const DAY = 24 * 60 * 60 * 1000;
 
 export interface ColumnMeta {
   name: string;
@@ -96,7 +95,16 @@ export class ConsultaClientesService {
         WHERE cod_representante IN (${this.inList(codes)})
         ORDER BY NOME_CLIFOR, CLIFOR`,
     );
-    return { columns, rows: rows.map(normalizeRow) };
+    // Uma linha por cliente — a view pode repetir CLIFOR (fan-out por filial).
+    const seen = new Set<string>();
+    const dedup: Record<string, unknown>[] = [];
+    for (const r of rows.map(normalizeRow)) {
+      const k = typeof r.CLIFOR === 'string' ? r.CLIFOR : '';
+      if (seen.has(k)) continue;
+      seen.add(k);
+      dedup.push(r);
+    }
+    return { columns, rows: dedup };
   }
 
   /** Aba Dados 1 — ficha do cliente, agrupada. */
@@ -133,7 +141,7 @@ export class ConsultaClientesService {
     const rows = await this.prisma.$queryRawUnsafe<Record<string, unknown>[]>(
       `SELECT TOP ${CAP} ${select} FROM ${FATURAMENTOS}
         WHERE cod_representante IN (${this.inList(codes)})
-          AND RTRIM(NOME_CLIFOR) = ${sqlLiteral(nome)}
+          AND LTRIM(RTRIM(NOME_CLIFOR)) = ${sqlLiteral(nome)}
         ORDER BY EMISSAO DESC`,
     );
     const norm = rows.map(normalizeRow);
@@ -160,7 +168,7 @@ export class ConsultaClientesService {
     const ok = await this.prisma.$queryRawUnsafe<{ n: number }[]>(
       `SELECT COUNT(*) n FROM ${FATURAMENTOS}
         WHERE cod_representante IN (${this.inList(codes)})
-          AND RTRIM(NOME_CLIFOR) = ${sqlLiteral(nome)}
+          AND LTRIM(RTRIM(NOME_CLIFOR)) = ${sqlLiteral(nome)}
           AND RTRIM(NF_SAIDA) = ${nfL} AND RTRIM(SERIE_NF) = ${serieL}
           AND RTRIM(FILIAL) = ${filialL}`,
     );
@@ -172,6 +180,7 @@ export class ConsultaClientesService {
          FROM ${NOTA_PEDIDOS}
         WHERE RTRIM(NF_SAIDA) = ${nfL} AND RTRIM(SERIE_NF) = ${serieL}
           AND RTRIM(FILIAL) = ${filialL}
+          AND LTRIM(RTRIM(NOME_CLIFOR)) = ${sqlLiteral(nome)}
         ORDER BY PEDIDO, entrega`,
     );
     return { columns, rows: rows.map(normalizeRow) };
@@ -192,9 +201,11 @@ export class ConsultaClientesService {
       .map((c) => `[${c}]`)
       .join(', ');
     const rows = await this.prisma.$queryRawUnsafe<Record<string, unknown>[]>(
-      `SELECT TOP ${CAP} ${select} FROM ${FINANCEIRO}
+      `SELECT TOP ${CAP} ${select},
+              DATEDIFF(DD, [VENCIMENTO_REAL], GETDATE()) AS DIAS_VENC
+         FROM ${FINANCEIRO}
         WHERE cod_representante IN (${this.inList(codes)})
-          AND RTRIM(NOME_CLIFOR) = ${sqlLiteral(nome)}
+          AND LTRIM(RTRIM(NOME_CLIFOR)) = ${sqlLiteral(nome)}
         ORDER BY VENCIMENTO_REAL`,
     );
     const norm = rows.map(normalizeRow);
@@ -218,26 +229,26 @@ export class ConsultaClientesService {
     return cols.map((c) => ({
       label: c.label,
       value: Math.round((t[c.col] + Number.EPSILON) * 100) / 100,
+      // QTDE_TOTAL é contagem; os demais são moeda (o front formata como R$).
+      money: c.col !== 'QTDE_TOTAL',
     }));
   }
 
-  /** Matriz de posição: Vencidos (7/30/>30) e A Vencer (7/30/>30) por VALOR_A_RECEBER. */
+  /**
+   * Matriz de posição: Vencidos (7/30/>30) e A Vencer (7/30/>30) por
+   * VALOR_A_RECEBER. Usa DIAS_VENC = DATEDIFF(DD, VENCIMENTO, GETDATE()) vindo
+   * do SQL — mesmo relógio da coluna POSICAO da view (evita divergência de fuso
+   * Node × SQL Server à noite). >0 = vencido; <=0 = a vencer.
+   */
   private aging(rows: Record<string, unknown>[]) {
     const venc = { d7: 0, d30: 0, maior30: 0, total: 0 };
     const aVenc = { d7: 0, d30: 0, maior30: 0, total: 0 };
-    const hoje = new Date();
-    const hoje0 = Date.UTC(
-      hoje.getUTCFullYear(),
-      hoje.getUTCMonth(),
-      hoje.getUTCDate(),
-    );
     for (const r of rows) {
       const valor = Number(normalizeValue(r.VALOR_A_RECEBER)) || 0;
-      const vRaw = r.VENCIMENTO_REAL;
-      if (!valor || !vRaw) continue;
-      const d = new Date(vRaw as string | Date);
-      const v0 = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-      const dias = Math.floor((hoje0 - v0) / DAY);
+      const diasRaw = r.DIAS_VENC;
+      if (!valor || diasRaw === null || diasRaw === undefined) continue;
+      const dias = Number(diasRaw);
+      if (Number.isNaN(dias)) continue;
       const bucket = dias > 0 ? venc : aVenc;
       const n = Math.abs(dias);
       if (n <= 7) bucket.d7 += valor;
