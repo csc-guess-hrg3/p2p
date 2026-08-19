@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { isAxiosError } from 'axios';
 import {
   ArrowLeft,
@@ -8,6 +8,7 @@ import {
   MapPin,
   Plus,
   Search,
+  UserCog,
   UserX,
 } from 'lucide-react';
 import { UserCompaniesDialog } from './UserCompaniesDialog';
@@ -22,6 +23,7 @@ import {
 } from '@/lib/users';
 import { usePositions } from '@/lib/positions';
 import { useTeams } from '@/lib/teams';
+import { useAuth } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -65,12 +67,15 @@ const STATUS_LABEL: Record<string, string> = {
 
 export function UsersPage() {
   const { toast } = useToast();
+  const { user: currentUser, impersonate } = useAuth();
+  const navigate = useNavigate();
   const [status, setStatus] = useState('ALL');
   const [search, setSearch] = useState('');
   const [companiesFor, setCompaniesFor] = useState<AdminUser | null>(null);
   const [branchesFor, setBranchesFor] = useState<AdminUser | null>(null);
   const [addLocalOpen, setAddLocalOpen] = useState(false);
   const [deactivateTarget, setDeactivateTarget] = useState<AdminUser | null>(null);
+  const [simulatingId, setSimulatingId] = useState<string | null>(null);
 
   const { data, isLoading } = useUsers({
     status: status === 'ALL' ? undefined : status,
@@ -113,6 +118,30 @@ export function UsersPage() {
         description: u.name,
         variant: 'destructive',
       });
+    }
+  }
+
+  // Simulação de login: o admin passa a "ver como" o usuário e cai na tela
+  // inicial DELE (portal externo p/ representante, app interno p/ os demais).
+  // Toda ação a partir daí é auditada como "admin agindo como X"; a faixa de
+  // topo permite voltar. Backend recusa simular a si mesmo ou inativo.
+  async function verComo(u: AdminUser) {
+    setSimulatingId(u.id);
+    try {
+      const target = await impersonate(u.id);
+      navigate(target.realm === 'EXTERNAL' ? '/externo' : '/', {
+        replace: true,
+      });
+    } catch (err) {
+      const msg = isAxiosError(err)
+        ? (err.response?.data as { message?: string })?.message
+        : null;
+      toast({
+        title: 'Não foi possível simular',
+        description: msg || 'Tente novamente.',
+        variant: 'destructive',
+      });
+      setSimulatingId(null);
     }
   }
 
@@ -303,6 +332,19 @@ export function UsersPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-1">
+                      {u.status === 'ACTIVE' &&
+                        u.id !== currentUser?.id &&
+                        !currentUser?.impersonatedBy && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => verComo(u)}
+                            disabled={simulatingId === u.id}
+                            title="Ver como este usuário (simular login)"
+                          >
+                            <UserCog className="size-4" />
+                          </Button>
+                        )}
                       <Button
                         size="sm"
                         variant="ghost"
