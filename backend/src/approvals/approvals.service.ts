@@ -178,6 +178,11 @@ export class ApprovalsService {
     await this.prisma.approvalStep.deleteMany({ where: { purchaseOrderId } });
   }
 
+  /** Remove o fluxo de aprovação de uma SV (reinício após edição/ressubmissão). */
+  async resetForFundRequest(fundRequestId: string): Promise<void> {
+    await this.prisma.approvalStep.deleteMany({ where: { fundRequestId } });
+  }
+
   /**
    * Lista os steps pendentes que o usuário pode decidir agora.
    *
@@ -686,6 +691,7 @@ export class ApprovalsService {
     entityType: string;
     requisitionId: string | null;
     purchaseOrderId: string | null;
+    fundRequestId: string | null;
     decidedById?: string | null;
     assignedApproverId?: string | null;
   }): Promise<void> {
@@ -743,6 +749,27 @@ export class ApprovalsService {
       } catch (err) {
         this.logger.warn(
           `PC ${step.purchaseOrderId}: falha ao reabrir Linx pra 'A' após aprovação: ${(err as Error).message}`,
+        );
+      }
+    } else if (step.entityType === ApprovalEntityType.FUND_REQUEST) {
+      // SV AVULSA aprovada → grava no Linx (CTB_SOLICITACAO_VERBA). A SV de
+      // adiantamento já é gravada no convert; a avulsa integra AQUI, na
+      // aprovação final. Idempotente (gravarSolicitacaoVerba re-acopla por
+      // erpSolicitacao/OBS). Best-effort: falha fica em lastErpError e o
+      // usuário reprocessa por /fund-requests/:id/retry-erp.
+      try {
+        const sv = await this.prisma.fundRequest.findUniqueOrThrow({
+          where: { id: step.fundRequestId as string },
+          include: { items: true },
+        });
+        await this.linx.gravarSolicitacaoVerba(sv);
+        await this.prisma.fundRequest.update({
+          where: { id: sv.id },
+          data: { status: FundRequestStatus.INTEGRATED },
+        });
+      } catch (err) {
+        this.logger.warn(
+          `SV ${step.fundRequestId}: falha ao integrar no Linx após aprovação: ${(err as Error).message}`,
         );
       }
     }

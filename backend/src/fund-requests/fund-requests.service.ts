@@ -8,8 +8,15 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { QueryFundRequestsDto } from './dto/query-fund-requests.dto';
+import { CreateFundRequestDto } from './dto/create-fund-request.dto';
 import { LinxErpService } from '../integration/linx-erp.service';
-import { FundRequestStatus } from '../common/enums';
+import { NumberingService } from '../numbering/numbering.service';
+import { ApprovalsService } from '../approvals/approvals.service';
+import {
+  ApprovalEntityType,
+  FundRequestStatus,
+  UserProfile,
+} from '../common/enums';
 
 /**
  * Solicitações de Verba (SV).
@@ -24,7 +31,113 @@ export class FundRequestsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly linx: LinxErpService,
+    private readonly numbering: NumberingService,
+    private readonly approvals: ApprovalsService,
   ) {}
+
+  /**
+   * Cria uma Solicitação de Verba AVULSA (pagamento sem NF — taxas, reembolsos,
+   * contribuições). Nasce em DRAFT; a integração ao Linx só acontece após a
+   * aprovação (runPostApprovalErpEffects). Diferente da SV de adiantamento, que
+   * nasce junto do PC já aprovada — aqui não há requisição/PC de origem.
+   */
+  async create(user: AuthenticatedUser, dto: CreateFundRequestDto) {
+    if (!user.companyIds.includes(dto.companyId)) {
+      throw new ForbiddenException('Sem acesso a esta empresa.');
+    }
+    const company = await this.prisma.company.findFirst({
+      where: { id: dto.companyId, deletedAt: null },
+      select: { id: true, code: true },
+    });
+    if (!company) throw new BadRequestException('Empresa inválida.');
+
+    const total = dto.items.reduce((s, it) => s + Number(it.amount), 0);
+    const number = await this.numbering.next(company.code, 'SV');
+
+    return this.prisma.fundRequest.create({
+      data: {
+        number,
+        companyId: company.id,
+        requesterId: user.id,
+        title: dto.title.trim(),
+        status: FundRequestStatus.DRAFT,
+        totalAmount: total,
+        items: {
+          create: dto.items.map((it) => ({
+            itemErpCode: it.itemErpCode ?? null,
+            description: it.description,
+            beneficiaryName: it.beneficiaryName,
+            beneficiaryBank: it.beneficiaryBank ?? null,
+            beneficiaryAgency: it.beneficiaryAgency ?? null,
+            beneficiaryAccount: it.beneficiaryAccount ?? null,
+            accountingAccount: it.accountingAccount,
+            accountName: it.accountName ?? null,
+            branchRateioCode: it.branchRateioCode,
+            branchRateioDesc: it.branchRateioDesc ?? null,
+            costCenterRateioCode: it.costCenterRateioCode,
+            costCenterRateioDesc: it.costCenterRateioDesc ?? null,
+            amount: it.amount,
+            dueDate: new Date(it.dueDate),
+            notes: it.notes ?? null,
+          })),
+        },
+      },
+      include: { items: true },
+    });
+  }
+
+  /**
+   * Submete a SV avulsa para aprovação. Usa a alçada da equipe do SOLICITANTE
+   * (mesma regra das requisições) e o mesmo fail-safe: equipe sem alçada
+   * configurada BLOQUEIA (não auto-aprova). A integração ao Linx acontece na
+   * aprovação final (runPostApprovalErpEffects, ramo FUND_REQUEST).
+   */
+  async submit(user: AuthenticatedUser, id: string) {
+    const sv = await this.prisma.fundRequest.findUnique({
+      where: { id },
+      include: { items: true },
+    });
+    if (!sv || sv.deletedAt) {
+      throw new NotFoundException('Solicitação de verba não encontrada.');
+    }
+    if (!user.companyIds.includes(sv.companyId)) {
+      throw new ForbiddenException('Sem acesso a esta solicitação.');
+    }
+    if (sv.requesterId !== user.id && user.profile !== UserProfile.ADMIN) {
+      throw new ForbiddenException('Só o solicitante pode submeter.');
+    }
+    if (sv.status !== FundRequestStatus.DRAFT) {
+      throw new BadRequestException(
+        'Apenas solicitações em rascunho podem ser submetidas.',
+      );
+    }
+    if (sv.items.length === 0) {
+      throw new BadRequestException('A solicitação não tem itens.');
+    }
+
+    // Fail-safe (decisão PO): bloqueia se a equipe do solicitante não tem
+    // alçada configurada — nunca auto-aprova pagamento.
+    await this.approvals.assertChainConfigured(user.teamId);
+    await this.approvals.resetForFundRequest(sv.id);
+    const firstLevel = await this.approvals.startApproval({
+      companyId: sv.companyId,
+      teamId: user.teamId,
+      entityType: ApprovalEntityType.FUND_REQUEST,
+      fundRequestId: sv.id,
+      amount: Number(sv.totalAmount),
+      documentNumber: sv.number,
+    });
+
+    await this.prisma.fundRequest.update({
+      where: { id },
+      data: {
+        status: FundRequestStatus.IN_APPROVAL,
+        submittedAt: new Date(),
+        currentTierLevel: firstLevel ?? undefined,
+      },
+    });
+    return this.findOne(user, id);
+  }
 
   /**
    * Reprocessa a integração de uma SV no Linx.
