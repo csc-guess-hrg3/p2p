@@ -66,6 +66,22 @@ export class BudgetController {
     );
   }
 
+  @Get(':companyId/consumption')
+  @ApiOperation({
+    summary: 'Consumo orçamentário (orçado × comprometido por filial × CC × mês)',
+  })
+  consumption(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('companyId') companyId: string,
+    @Query('year') year?: string,
+  ) {
+    return this.budget.consumption(
+      user,
+      companyId,
+      year ? Number(year) : undefined,
+    );
+  }
+
   @Post(':companyId/entries')
   @ApiOperation({ summary: 'Cadastra/atualiza uma linha de orçamento' })
   upsertEntry(

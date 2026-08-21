@@ -4,9 +4,22 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { IntegrationService } from '../integration/integration.service';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { UpsertBudgetEntryDto } from './dto/upsert-budget-entry.dto';
 import { SetBudgetConfigDto } from './dto/set-budget-config.dto';
+
+/** Uma célula de orçamento: filial × CC × ano/mês, com orçado × comprometido. */
+export interface BudgetCell {
+  branchErpCode: string;
+  costCenterErpCode: string;
+  year: number;
+  month: number;
+  budgeted: number;
+  committed: number;
+  available: number;
+  exceeded: boolean;
+}
 
 export interface BudgetConfig {
   companyId: string;
@@ -22,7 +35,10 @@ export interface BudgetConfig {
  */
 @Injectable()
 export class BudgetService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly integration: IntegrationService,
+  ) {}
 
   private assertCompany(user: AuthenticatedUser, companyId: string): void {
     if (!user.companyIds.includes(companyId)) {
@@ -121,5 +137,150 @@ export class BudgetService {
       },
       update: { amountBudgeted: dto.amountBudgeted, importedById: user.id },
     });
+  }
+
+  /**
+   * Consumo orçamentário (informativo): orçado × comprometido por filial × CC ×
+   * ano/mês. COMPROMETIDO = valor ativo dos itens de PC (fora DRAFT/CANCELLED),
+   * alocado às células pela expansão do rateio de CC (RN-ORC-02): cada linha do
+   * rateio carrega (filial, CC, %), então item.valor × %/100 entra na célula.
+   * O mês é o do comprometimento (integração no ERP, com fallback na criação).
+   */
+  async consumption(
+    user: AuthenticatedUser,
+    companyId: string,
+    year?: number,
+  ): Promise<{
+    cells: BudgetCell[];
+    totals: { budgeted: number; committed: number; available: number };
+  }> {
+    this.assertCompany(user, companyId);
+    const company = await this.prisma.company.findFirstOrThrow({
+      where: { id: companyId },
+      select: { code: true },
+    });
+
+    // Rateios de CC company-wide (teamId=null = sem filtro de equipe): mapa
+    // rateioCode → linhas (filial, CC, %).
+    const rateios = await this.integration.getCostCenterRateios(
+      company.code,
+      true,
+      null,
+    );
+    const rateioMap = new Map<
+      string,
+      { filial: string; cc: string; pct: number }[]
+    >();
+    for (const r of rateios) {
+      rateioMap.set(
+        r.codigo,
+        r.linhas.map((l) => ({
+          filial: l.filialCodigo,
+          cc: l.centroCustoCodigo ?? '',
+          pct: Number(l.porcentagem),
+        })),
+      );
+    }
+
+    // Itens de PC comprometidos.
+    const items = await this.prisma.purchaseOrderItem.findMany({
+      where: {
+        purchaseOrder: {
+          companyId,
+          deletedAt: null,
+          status: { notIn: ['DRAFT', 'CANCELLED'] },
+        },
+      },
+      select: {
+        totalPrice: true,
+        quantity: true,
+        cancelledQty: true,
+        costCenterRateioCode: true,
+        purchaseOrder: { select: { integratedAt: true, createdAt: true } },
+      },
+    });
+
+    const key = (f: string, c: string, y: number, m: number) =>
+      `${f}|${c}|${y}|${m}`;
+    const committed = new Map<string, number>();
+    for (const it of items) {
+      const lines = rateioMap.get(it.costCenterRateioCode);
+      if (!lines || lines.length === 0) continue; // rateio desconhecido: não aloca
+      const d = it.purchaseOrder.integratedAt ?? it.purchaseOrder.createdAt;
+      const y = d.getFullYear();
+      const m = d.getMonth() + 1;
+      if (year && y !== year) continue;
+      const q = Number(it.quantity);
+      const canceled = Number(it.cancelledQty ?? 0);
+      const active =
+        q > 0
+          ? Number(it.totalPrice) * ((q - canceled) / q)
+          : Number(it.totalPrice);
+      for (const ln of lines) {
+        const k = key(ln.filial, ln.cc, y, m);
+        committed.set(k, (committed.get(k) ?? 0) + active * (ln.pct / 100));
+      }
+    }
+
+    // Orçado (BudgetEntry) + merge com o comprometido.
+    const entries = await this.prisma.budgetEntry.findMany({
+      where: { companyId, ...(year ? { year } : {}) },
+    });
+    const cells = new Map<string, BudgetCell>();
+    for (const e of entries) {
+      const k = key(e.branchErpCode, e.costCenterErpCode, e.year, e.month);
+      cells.set(k, {
+        branchErpCode: e.branchErpCode,
+        costCenterErpCode: e.costCenterErpCode,
+        year: e.year,
+        month: e.month,
+        budgeted: Number(e.amountBudgeted),
+        committed: 0,
+        available: Number(e.amountBudgeted),
+        exceeded: false,
+      });
+    }
+    for (const [k, v] of committed) {
+      const existing = cells.get(k);
+      if (existing) {
+        existing.committed = v;
+      } else {
+        const [f, c, y, m] = k.split('|');
+        cells.set(k, {
+          branchErpCode: f,
+          costCenterErpCode: c,
+          year: Number(y),
+          month: Number(m),
+          budgeted: 0,
+          committed: v,
+          available: 0,
+          exceeded: false,
+        });
+      }
+    }
+    const list = [...cells.values()]
+      .map((c) => ({
+        ...c,
+        available: c.budgeted - c.committed,
+        exceeded: c.committed > c.budgeted,
+      }))
+      .sort(
+        (a, b) =>
+          a.year - b.year ||
+          a.month - b.month ||
+          a.branchErpCode.localeCompare(b.branchErpCode) ||
+          a.costCenterErpCode.localeCompare(b.costCenterErpCode),
+      );
+    const totals = list.reduce(
+      (t, c) => ({
+        budgeted: t.budgeted + c.budgeted,
+        committed: t.committed + c.committed,
+      }),
+      { budgeted: 0, committed: 0 },
+    );
+    return {
+      cells: list,
+      totals: { ...totals, available: totals.budgeted - totals.committed },
+    };
   }
 }
