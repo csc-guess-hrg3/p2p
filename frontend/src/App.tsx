@@ -136,6 +136,10 @@ const SettingsPage = lazyPage(
   'SettingsPage',
 );
 const UsersPage = lazyPage(() => import('@/pages/admin/UsersPage'), 'UsersPage');
+const BudgetPage = lazyPage(
+  () => import('@/pages/admin/BudgetPage'),
+  'BudgetPage',
+);
 const TeamsPage = lazyPage(() => import('@/pages/admin/TeamsPage'), 'TeamsPage');
 const DelegationsPage = lazyPage(
   () => import('@/pages/admin/DelegationsPage'),
@@ -378,6 +382,7 @@ function App() {
                     />
                     <Route path="admin/parametros" element={<SettingsPage />} />
                     <Route path="admin/usuarios" element={<UsersPage />} />
+                    <Route path="admin/orcamento" element={<BudgetPage />} />
                     <Route path="admin/equipes" element={<TeamsPage />} />
                     <Route
                       path="admin/delegacoes"
