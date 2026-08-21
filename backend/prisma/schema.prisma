@@ -69,6 +69,7 @@ model Company {
   purchaseOrders        PurchaseOrder[]
   fundRequests          FundRequest[]
   budgetEntries         BudgetEntry[]
+  budgetControlConfig   BudgetControlConfig?
   integrationLogs       IntegrationLog[]
   teamBranchRateios     TeamBranchRateio[]
   teamCostCenterRateios TeamCostCenterRateio[]
@@ -648,6 +649,25 @@ model BudgetEntry {
   @@unique([companyId, branchErpCode, costCenterErpCode, year, month])
   @@index([companyId, year])
   @@map("budget_entries")
+}
+
+/**
+ * Configuração do Controle Orçamentário por empresa (André/OBS-03).
+ * `enabled` liga/desliga o controle; `policy` decide o comportamento no
+ * estouro: INFORMATIVE (só avisa) ou BLOCKING (impede). Começa desligado /
+ * informativo — vira impeditivo por configuração, sem rebuild.
+ */
+model BudgetControlConfig {
+  id        String   @id @default(uuid()) @db.UniqueIdentifier
+  companyId String   @unique @db.UniqueIdentifier
+  enabled   Boolean  @default(false)
+  policy    String   @default("INFORMATIVE") @db.NVarChar(15) // INFORMATIVE | BLOCKING
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@map("budget_control_configs")
 }
 
 // ============================================================
