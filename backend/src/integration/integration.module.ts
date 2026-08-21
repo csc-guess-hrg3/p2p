@@ -7,6 +7,8 @@ import { CnpjPublicService } from './cnpj-public.service';
 import { ErpBackSyncService } from './erp-back-sync.service';
 import { QiveClientService } from './qive-client.service';
 import { CompanyAccessGuard } from './company-access.guard';
+import { LegacyImportService } from './legacy-import.service';
+import { LegacyImportController } from './legacy-import.controller';
 
 @Module({
   providers: [
@@ -17,6 +19,7 @@ import { CompanyAccessGuard } from './company-access.guard';
     ErpBackSyncService,
     QiveClientService,
     CompanyAccessGuard,
+    LegacyImportService,
   ],
   exports: [
     IntegrationService,
@@ -25,7 +28,8 @@ import { CompanyAccessGuard } from './company-access.guard';
     CnpjPublicService,
     ErpBackSyncService,
     QiveClientService,
+    LegacyImportService,
   ],
-  controllers: [IntegrationController],
+  controllers: [IntegrationController, LegacyImportController],
 })
 export class IntegrationModule {}
