@@ -196,6 +196,11 @@ async function bootstrap() {
       if (req.method !== 'GET') return next();
       if (req.path === '/api' || req.path.startsWith('/api/')) return next();
       if (req.path.includes('.')) return next(); // asset inexistente -> 404
+      // index.html NUNCA em cache: os bundles têm hash no nome (imutáveis, cache
+      // longo pelo useStaticAssets), mas o index precisa ser sempre revalidado
+      // pra apontar pros bundles novos a cada deploy — senão o navegador segura
+      // um index velho referenciando chunks já apagados e a tela não atualiza.
+      res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.sendFile(indexHtml);
     });
   }
