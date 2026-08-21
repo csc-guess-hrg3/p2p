@@ -836,6 +836,8 @@ export class RequisitionsService {
           realQuotationsCount,
         );
       }
+      // Fail-safe (decisão PO): bloqueia se a equipe não tem alçada — nunca auto-aprova.
+      await this.approvals.assertChainConfigured(updated.teamId);
       await this.approvals.resetForRequisition(id);
       const firstLevel = await this.approvals.startApproval({
         companyId: updated.companyId,
@@ -906,6 +908,8 @@ export class RequisitionsService {
         realQuotationsCount,
       );
     }
+    // Fail-safe (decisão PO): bloqueia se a equipe não tem alçada — nunca auto-aprova.
+    await this.approvals.assertChainConfigured(req.teamId);
     await this.approvals.resetForRequisition(id);
     const firstLevel = await this.approvals.startApproval({
       companyId: req.companyId,
@@ -1061,6 +1065,8 @@ export class RequisitionsService {
     // update do status, a requisição ficou DRAFT com steps PENDING órfãos;
     // sem este reset, um novo submit DUPLICARIA a cadeia. Mesmo padrão
     // defensivo já usado no fluxo de re-submissão (resubmit).
+    // Fail-safe (decisão PO): bloqueia se a equipe não tem alçada — nunca auto-aprova.
+    await this.approvals.assertChainConfigured(req.teamId);
     await this.approvals.resetForRequisition(req.id);
 
     const firstLevel = await this.approvals.startApproval({

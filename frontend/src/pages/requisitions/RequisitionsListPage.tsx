@@ -24,6 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { TableStatusRow } from '@/components/TableStatusRow';
 import { Pagination } from '@/components/ui/pagination';
 import { usePagination } from '@/lib/use-pagination';
 import { exportToCsv } from '@/lib/csv';
@@ -48,7 +49,7 @@ export function RequisitionsListPage() {
   const [search, setSearch] = useState('');
   const [scope, setScope] = useScope('p2p:scope:requisicoes', isAdmin);
 
-  const { data, isLoading } = useRequisitions({
+  const { data, isLoading, isError } = useRequisitions({
     companyId: activeCompany?.id,
     status: status === 'ALL' ? undefined : status,
     search: search || undefined,
@@ -141,20 +142,13 @@ export function RequisitionsListPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading && (
-              <TableRow>
-                <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                  Carregando…
-                </TableCell>
-              </TableRow>
-            )}
-            {!isLoading && rows.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                  Nenhuma requisição encontrada.
-                </TableCell>
-              </TableRow>
-            )}
+            <TableStatusRow
+              colSpan={7}
+              isLoading={isLoading}
+              isError={isError}
+              isEmpty={rows.length === 0}
+              emptyLabel="Nenhuma requisição encontrada."
+            />
             {pag.pageRows.map((r) => (
               <TableRow
                 key={r.id}

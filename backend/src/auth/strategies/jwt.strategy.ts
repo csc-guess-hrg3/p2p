@@ -6,6 +6,7 @@ import type { Request } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UserStatus } from '../../common/enums';
 import { AuthenticatedUser, JwtPayload } from '../auth.types';
+import { AuthService } from '../auth.service';
 
 /**
  * Valida o JWT de acesso e recarrega o usuário do banco a cada request,
@@ -30,6 +31,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(
     config: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly authService: AuthService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
@@ -58,6 +60,16 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       );
     }
 
+    // Simulação: revalida a CADA request que o admin real ainda é ADMIN ativo e
+    // que a sessão é a atual — fecha a janela de 8h do access token e recusa um
+    // token de simulação já encerrado (sair) ou substituído (re-simular).
+    if (payload.impersonatedBy) {
+      await this.authService.assertImpersonationValid(
+        payload.impersonatedBy,
+        payload.impersonationSessionId ?? null,
+      );
+    }
+
     return {
       id: user.id,
       adUsername: user.adUsername,
@@ -72,6 +84,9 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       // que sustenta o isolamento do ExternalRealmGuard.
       realm: user.realm,
       externalCategory: user.externalCategory,
+      // Simulação: o ADMIN real vem do payload (não do banco — é próprio da
+      // sessão). A identidade EFETIVA acima é a do alvo; isto é só a trilha.
+      impersonatedBy: payload.impersonatedBy ?? null,
     };
   }
 }

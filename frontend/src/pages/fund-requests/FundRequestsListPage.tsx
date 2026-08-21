@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Download, Search } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Download, Plus, Search } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { useFundRequests } from '@/lib/fund-requests';
 import { formatCurrency, formatDate } from '@/lib/format';
@@ -24,6 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { TableStatusRow } from '@/components/TableStatusRow';
 import { Pagination } from '@/components/ui/pagination';
 import { usePagination } from '@/lib/use-pagination';
 import { Button } from '@/components/ui/button';
@@ -98,7 +99,7 @@ export function FundRequestsListPage() {
   const [status, setStatus] = useState('ALL');
   const [search, setSearch] = useState('');
 
-  const { data, isLoading } = useFundRequests({
+  const { data, isLoading, isError } = useFundRequests({
     companyId: activeCompany?.id,
     status: status === 'ALL' ? undefined : status,
     search: search || undefined,
@@ -113,6 +114,13 @@ export function FundRequestsListPage() {
         <p className="text-sm text-muted-foreground">
           {data ? `${data.total} solicitação(ões) de verba` : 'Carregando…'}
         </p>
+        <div className="flex gap-2">
+        <Button size="sm" asChild>
+          <Link to="/solicitacoes-verba/nova">
+            <Plus className="size-4" />
+            Nova solicitação
+          </Link>
+        </Button>
         <Button
           variant="outline"
           size="sm"
@@ -147,6 +155,7 @@ export function FundRequestsListPage() {
           <Download className="size-4" />
           Exportar
         </Button>
+        </div>
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row">
@@ -189,26 +198,13 @@ export function FundRequestsListPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading && (
-              <TableRow>
-                <TableCell
-                  colSpan={8}
-                  className="py-8 text-center text-muted-foreground"
-                >
-                  Carregando…
-                </TableCell>
-              </TableRow>
-            )}
-            {!isLoading && rows.length === 0 && (
-              <TableRow>
-                <TableCell
-                  colSpan={8}
-                  className="py-8 text-center text-muted-foreground"
-                >
-                  Nenhuma solicitação de verba encontrada.
-                </TableCell>
-              </TableRow>
-            )}
+            <TableStatusRow
+              colSpan={8}
+              isLoading={isLoading}
+              isError={isError}
+              isEmpty={rows.length === 0}
+              emptyLabel="Nenhuma solicitação de verba encontrada."
+            />
             {pag.pageRows.map((sv) => (
               <TableRow
                 key={sv.id}

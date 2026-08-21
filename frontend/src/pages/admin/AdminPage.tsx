@@ -7,6 +7,7 @@ import {
   Server,
   Settings,
   Users,
+  Wallet,
   Workflow,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -77,6 +78,12 @@ export function AdminPage() {
           icon={Users}
           title="Usuários"
           description="Definir perfil, equipe, empresas e status. Novos usuários nascem no primeiro login pelo AD."
+        />
+        <AdminCard
+          to="/admin/orcamento"
+          icon={Wallet}
+          title="Controle Orçamentário"
+          description="Orçamento por filial × centro de custo × mês, consumo comprometido e política (só avisar / bloquear)."
         />
         <AdminCard
           to="/admin/equipes"

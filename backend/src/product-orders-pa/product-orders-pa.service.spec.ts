@@ -46,6 +46,9 @@ describe('ProductOrdersPaService', () => {
   beforeEach(() => {
     prisma = createPrismaMock();
     service = new ProductOrdersPaService(prisma as unknown as PrismaService);
+    // Empresa válida por padrão: o guard de escopo (assertUserHasCompany) e o
+    // resolveConfig resolvem por code; TEST_USER tem acesso a 'company-test'.
+    prisma.company.findFirst.mockResolvedValue(makeCompany());
   });
 
   describe('assertCompany', () => {
@@ -64,6 +67,13 @@ describe('ProductOrdersPaService', () => {
       const rows = await service.findAll(TEST_USER, 'guess');
       expect(rows).toHaveLength(1);
       expect(prisma.$queryRaw).toHaveBeenCalled();
+    });
+
+    it('bloqueia usuário sem acesso à empresa (escopo de segurança entre marcas)', async () => {
+      const forasteiro = { ...TEST_USER, companyIds: ['outra-company'] };
+      await expect(
+        service.findAll(forasteiro, 'guess'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
     });
   });
 

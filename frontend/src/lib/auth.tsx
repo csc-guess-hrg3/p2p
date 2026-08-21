@@ -48,6 +48,10 @@ interface AuthContextValue {
     options?: { isSetup?: boolean; turnstileToken?: string },
   ) => Promise<void>;
   logout: () => Promise<void>;
+  /** Simulação de login (admin): "ver como" o usuário. Devolve o efetivo. */
+  impersonate: (userId: string) => Promise<AuthUser>;
+  /** Sai da simulação e volta a ser o admin. Devolve o admin. */
+  exitImpersonation: () => Promise<AuthUser>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -197,6 +201,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.clear();
   }, []);
 
+  /**
+   * Simulação de login (admin): passa a "ver como" o usuário-alvo. O backend
+   * re-emite a sessão com a identidade do alvo + o claim do admin; aqui só
+   * recarregamos o /auth/me e limpamos a cache (pra não herdar dados do admin).
+   */
+  const impersonate = useCallback(async (userId: string): Promise<AuthUser> => {
+    await api.post(`/auth/impersonate/${userId}`);
+    queryClient.clear();
+    localStorage.removeItem('p2p_company');
+    const me = await api.get<AuthUser>('/auth/me');
+    setUser(me.data);
+    return me.data;
+  }, []);
+
+  /** Sai da simulação: volta a ser o admin real. */
+  const exitImpersonation = useCallback(async (): Promise<AuthUser> => {
+    await api.post('/auth/impersonate/exit');
+    queryClient.clear();
+    localStorage.removeItem('p2p_company');
+    const me = await api.get<AuthUser>('/auth/me');
+    setUser(me.data);
+    return me.data;
+  }, []);
+
   const acknowledgeSessionExpired = useCallback(() => {
     setSessionExpired(false);
   }, []);
@@ -212,6 +240,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loginLocal,
         loginStore,
         logout,
+        impersonate,
+        exitImpersonation,
       }}
     >
       {children}

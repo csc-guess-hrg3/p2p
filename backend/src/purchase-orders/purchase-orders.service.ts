@@ -41,13 +41,20 @@ export class PurchaseOrdersService {
     const where: Prisma.PurchaseOrderWhereInput = {
       deletedAt: null,
       companyId: companyId ? companyId : { in: user.companyIds },
-      // Visibilidade base: não-admin só a própria equipe (via requisição).
-      ...(isAdmin ? {} : { requisition: { teamId: user.teamId } }),
-      // Escopo escolhido.
-      ...(scope === 'mine' ? { buyerId: user.id } : {}),
-      ...(scope === 'team' ? { requisition: { teamId: user.teamId } } : {}),
       ...(status ? { status } : {}),
       ...(search ? { number: { contains: search } } : {}),
+      // Pedidos EXTERNO (importados do Linx) são visíveis por EMPRESA e
+      // aparecem naturalmente na lista, junto dos P2P. Os P2P seguem as regras
+      // de escopo/equipe/comprador de sempre.
+      OR: [
+        { origin: 'EXTERNO' },
+        {
+          origin: 'P2P',
+          ...(isAdmin ? {} : { requisition: { teamId: user.teamId } }),
+          ...(scope === 'mine' ? { buyerId: user.id } : {}),
+          ...(scope === 'team' ? { requisition: { teamId: user.teamId } } : {}),
+        },
+      ],
     };
     // Select enxuto — evita NVarChar(Max) inúteis (notes, cancellationReason)
     // e cobre o que a UI da listagem usa.
@@ -60,6 +67,7 @@ export class PurchaseOrdersService {
         select: {
           id: true,
           number: true,
+          origin: true,
           supplierName: true,
           branchName: true,
           status: true,

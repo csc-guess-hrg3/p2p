@@ -18,6 +18,9 @@ backend/generated/
 backend/.env*
 !backend/.env.example
 backend/pm2.config.js
+# Backups do pm2.config.js carregam as MESMAS credenciais — nunca versionar.
+backend/pm2.config.js.*
+backend/pm2.config.js.bak-*
 frontend/.env
 frontend/.env*
 !frontend/.env.example

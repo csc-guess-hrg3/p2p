@@ -20,6 +20,8 @@ export interface AuthUser {
   realm?: string;
   /** Categoria do usuário externo (REPRESENTANTE | VENDEDOR_LOJA); null se interno. */
   externalCategory?: string | null;
+  /** Simulação de login: id do ADMIN real que está "vendo como" este usuário. */
+  impersonatedBy?: string | null;
 }
 
 export interface Company {

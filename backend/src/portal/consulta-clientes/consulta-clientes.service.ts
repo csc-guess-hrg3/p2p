@@ -45,6 +45,10 @@ export interface ClienteListItem {
   pontualidade: string;
   aReceber: number;
   vencido: number;
+  /** Data de cadastro do cliente (CADASTRAMENTO), ISO yyyy-mm-dd ou null. */
+  dataCadastro: string | null;
+  /** Última compra = MAX(EMISSAO) do faturamento, ISO yyyy-mm-dd ou null. */
+  ultimaCompra: string | null;
 }
 
 @Injectable()
@@ -108,7 +112,9 @@ export class ConsultaClientesService {
     const rows = await this.prisma.$queryRawUnsafe<Record<string, unknown>[]>(
       `SELECT TOP ${CAP} c.CLIFOR, c.NOME_CLIFOR, c.RAZAO_SOCIAL, c.CIDADE, c.UF,
               c.TIPO, c.LIMITE_CREDITO, c.PONTUALIDADE,
-              ISNULL(f.receber, 0) AS receber, ISNULL(f.vencido, 0) AS vencido
+              CONVERT(varchar(10), c.CADASTRAMENTO, 23) AS dt_cadastro,
+              CONVERT(varchar(10), fat.ultima_compra, 23) AS ultima_compra,
+              ISNULL(fin.receber, 0) AS receber, ISNULL(fin.vencido, 0) AS vencido
          FROM ${CLIENTES} c
          LEFT JOIN (
            SELECT LTRIM(RTRIM(NOME_CLIFOR)) AS nm,
@@ -117,7 +123,12 @@ export class ConsultaClientesService {
                            THEN VALOR_A_RECEBER ELSE 0 END) AS vencido
              FROM ${FINANCEIRO} WHERE cod_representante IN (${inl})
             GROUP BY LTRIM(RTRIM(NOME_CLIFOR))
-         ) f ON f.nm = LTRIM(RTRIM(c.NOME_CLIFOR))
+         ) fin ON fin.nm = LTRIM(RTRIM(c.NOME_CLIFOR))
+         LEFT JOIN (
+           SELECT LTRIM(RTRIM(NOME_CLIFOR)) AS nm, MAX(EMISSAO) AS ultima_compra
+             FROM ${FATURAMENTOS} WHERE cod_representante IN (${inl})
+            GROUP BY LTRIM(RTRIM(NOME_CLIFOR))
+         ) fat ON fat.nm = LTRIM(RTRIM(c.NOME_CLIFOR))
         WHERE c.cod_representante IN (${inl})
         ORDER BY c.NOME_CLIFOR, c.CLIFOR`,
     );
@@ -140,6 +151,8 @@ export class ConsultaClientesService {
         pontualidade: typeof r.PONTUALIDADE === 'string' ? r.PONTUALIDADE : '',
         aReceber: Number(r.receber) || 0,
         vencido: Number(r.vencido) || 0,
+        dataCadastro: typeof r.dt_cadastro === 'string' ? r.dt_cadastro : null,
+        ultimaCompra: typeof r.ultima_compra === 'string' ? r.ultima_compra : null,
       });
     }
     return { clientes };

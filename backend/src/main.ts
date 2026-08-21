@@ -196,11 +196,20 @@ async function bootstrap() {
       if (req.method !== 'GET') return next();
       if (req.path === '/api' || req.path.startsWith('/api/')) return next();
       if (req.path.includes('.')) return next(); // asset inexistente -> 404
+      // index.html NUNCA em cache: os bundles têm hash no nome (imutáveis, cache
+      // longo pelo useStaticAssets), mas o index precisa ser sempre revalidado
+      // pra apontar pros bundles novos a cada deploy — senão o navegador segura
+      // um index velho referenciando chunks já apagados e a tela não atualiza.
+      res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.sendFile(indexHtml);
     });
   }
 
   const port = process.env.PORT ?? 3000;
+  // Fecha conexões graciosamente no SIGTERM/SIGINT do PM2 (dispara o
+  // onModuleDestroy do PrismaService → $disconnect) — evita conexões penduradas
+  // no pool a cada restart/deploy.
+  app.enableShutdownHooks();
   await app.listen(port);
   const logger = new (await import('@nestjs/common')).Logger('Bootstrap');
   logger.log(`P2P API rodando em http://localhost:${port}/api`);

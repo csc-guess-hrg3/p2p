@@ -21,6 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { TableStatusRow } from '@/components/TableStatusRow';
 import { Pagination } from '@/components/ui/pagination';
 import { usePagination } from '@/lib/use-pagination';
 import { Button } from '@/components/ui/button';
@@ -68,7 +69,7 @@ export function PaOrdersListPage() {
   const [status, setStatus] = useState('ALL');
   const [search, setSearch] = useState('');
 
-  const { data: rawRows = [], isLoading } = usePaOrders(activeCompany?.code, {
+  const { data: rawRows = [], isLoading, isError } = usePaOrders(activeCompany?.code, {
     status,
     search: search || undefined,
   });
@@ -188,26 +189,13 @@ export function PaOrdersListPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading && (
-              <TableRow>
-                <TableCell
-                  colSpan={9}
-                  className="py-8 text-center text-muted-foreground"
-                >
-                  Carregando…
-                </TableCell>
-              </TableRow>
-            )}
-            {!isLoading && rows.length === 0 && (
-              <TableRow>
-                <TableCell
-                  colSpan={9}
-                  className="py-8 text-center text-muted-foreground"
-                >
-                  Nenhum pedido encontrado.
-                </TableCell>
-              </TableRow>
-            )}
+            <TableStatusRow
+              colSpan={9}
+              isLoading={isLoading}
+              isError={isError}
+              isEmpty={rows.length === 0}
+              emptyLabel="Nenhum pedido encontrado."
+            />
             {pag.pageRows.map((r) => {
               const deliveryClass =
                 r.deliveryFlag === 'overdue'

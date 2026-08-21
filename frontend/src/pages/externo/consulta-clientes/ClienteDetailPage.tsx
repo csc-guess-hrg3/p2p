@@ -95,11 +95,6 @@ export function ClienteDetailPage() {
               </div>
             )}
           </div>
-          {c?.pontualidade?.toUpperCase() === 'PENDENTE' && (
-            <span className="rounded-full bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-600 dark:text-amber-400">
-              Pontualidade pendente
-            </span>
-          )}
         </div>
 
         {/* KPIs */}

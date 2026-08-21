@@ -10,6 +10,7 @@ import { ExternalLayout } from '@/components/layout/ExternalLayout';
 import { LoginPage } from '@/pages/LoginPage';
 import { Toaster } from '@/components/ui/toaster';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { ImpersonationBanner } from '@/components/ImpersonationBanner';
 
 function lazyPage<T extends ComponentType>(
   loader: () => Promise<Record<string, T>>,
@@ -78,6 +79,10 @@ const FundRequestsListPage = lazyPage(
   () => import('@/pages/fund-requests/FundRequestsListPage'),
   'FundRequestsListPage',
 );
+const FundRequestFormPage = lazyPage(
+  () => import('@/pages/fund-requests/FundRequestFormPage'),
+  'FundRequestFormPage',
+);
 const FundRequestDetailPage = lazyPage(
   () => import('@/pages/fund-requests/FundRequestDetailPage'),
   'FundRequestDetailPage',
@@ -113,14 +118,8 @@ const ProvisoesPage = lazyPage(
 );
 const DdasPage = lazyPage(() => import('@/pages/financeiro/DdasPage'), 'DdasPage');
 const ReportsPage = lazyPage(() => import('@/pages/ReportsPage'), 'ReportsPage');
-const LegacyOrdersListPage = lazyPage(
-  () => import('@/pages/legacy-orders/LegacyOrdersListPage'),
-  'LegacyOrdersListPage',
-);
-const LegacyOrderDetailPage = lazyPage(
-  () => import('@/pages/legacy-orders/LegacyOrderDetailPage'),
-  'LegacyOrderDetailPage',
-);
+// /legacy-orders foi absorvido pelo cutover (redireciona para /pedidos); as
+// páginas legadas seguem no código até a migração das NFes, mas não são roteadas.
 const AdminPage = lazyPage(() => import('@/pages/admin/AdminPage'), 'AdminPage');
 const ErpConfigPage = lazyPage(
   () => import('@/pages/admin/ErpConfigPage'),
@@ -131,6 +130,10 @@ const SettingsPage = lazyPage(
   'SettingsPage',
 );
 const UsersPage = lazyPage(() => import('@/pages/admin/UsersPage'), 'UsersPage');
+const BudgetPage = lazyPage(
+  () => import('@/pages/admin/BudgetPage'),
+  'BudgetPage',
+);
 const TeamsPage = lazyPage(() => import('@/pages/admin/TeamsPage'), 'TeamsPage');
 const DelegationsPage = lazyPage(
   () => import('@/pages/admin/DelegationsPage'),
@@ -172,7 +175,14 @@ function App() {
       <BrowserRouter>
         <AuthProvider>
           <CompanyProvider>
-            <Suspense fallback={<RouteFallback />}>
+            {/* Coluna de altura fixa: a faixa de simulação fica no topo e a
+                área roteada ocupa o resto. Sem isso, o portal externo (que
+                usa scroll do documento) fica preso pelo overflow:hidden global
+                do #root — some a barra de rolagem. */}
+            <div className="flex h-screen flex-col">
+              <ImpersonationBanner />
+              <div className="flex min-h-0 flex-1 flex-col">
+                <Suspense fallback={<RouteFallback />}>
               <Routes>
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/definir-senha" element={<SetupPasswordPage />} />
@@ -245,6 +255,10 @@ function App() {
                   <Route
                     path="solicitacoes-verba"
                     element={<FundRequestsListPage />}
+                  />
+                  <Route
+                    path="solicitacoes-verba/nova"
+                    element={<FundRequestFormPage />}
                   />
                   <Route
                     path="solicitacoes-verba/:id"
@@ -341,17 +355,16 @@ function App() {
                     <Route path="relatorios" element={<ReportsPage />} />
                   </Route>
 
-                  {/* Pedidos Legados — Admin somente (read-through Linx). */}
-                  <Route element={<RequireProfile roles={['ADMIN']} />}>
-                    <Route
-                      path="legacy-orders"
-                      element={<LegacyOrdersListPage />}
-                    />
-                    <Route
-                      path="legacy-orders/:companyId/:pedido"
-                      element={<LegacyOrderDetailPage />}
-                    />
-                  </Route>
+                  {/* Cutover: "Pedidos externos" foi absorvido por /pedidos
+                      (origin=EXTERNO). Redireciona os links/bookmarks antigos. */}
+                  <Route
+                    path="legacy-orders"
+                    element={<Navigate to="/pedidos" replace />}
+                  />
+                  <Route
+                    path="legacy-orders/:companyId/:pedido"
+                    element={<Navigate to="/pedidos" replace />}
+                  />
 
                   {/* Administração — Admin somente. */}
                   <Route element={<RequireProfile roles={['ADMIN']} />}>
@@ -362,6 +375,7 @@ function App() {
                     />
                     <Route path="admin/parametros" element={<SettingsPage />} />
                     <Route path="admin/usuarios" element={<UsersPage />} />
+                    <Route path="admin/orcamento" element={<BudgetPage />} />
                     <Route path="admin/equipes" element={<TeamsPage />} />
                     <Route
                       path="admin/delegacoes"
@@ -379,7 +393,9 @@ function App() {
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
-            </Suspense>
+                </Suspense>
+              </div>
+            </div>
             <Toaster />
           </CompanyProvider>
         </AuthProvider>

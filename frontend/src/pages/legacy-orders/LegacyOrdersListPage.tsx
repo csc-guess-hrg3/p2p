@@ -155,7 +155,8 @@ export function LegacyOrdersListPage() {
     pageSize,
   };
 
-  const { data, isLoading, isFetching, refetch } = useLegacyOrders(query);
+  const { data, isLoading, isError, isFetching, refetch } =
+    useLegacyOrders(query);
   const { data: facets } = useLegacyOrderFacets(activeCompany?.id);
 
   const advancedActiveCount = useMemo(
@@ -465,6 +466,16 @@ export function LegacyOrdersListPage() {
                   className="text-center text-muted-foreground"
                 >
                   Consultando Linx…
+                </TableCell>
+              </TableRow>
+            ) : isError ? (
+              <TableRow>
+                <TableCell
+                  colSpan={9}
+                  className="py-6 text-center text-destructive"
+                >
+                  Não foi possível consultar o Linx. Verifique a conexão e
+                  tente novamente.
                 </TableCell>
               </TableRow>
             ) : !data?.rows.length ? (

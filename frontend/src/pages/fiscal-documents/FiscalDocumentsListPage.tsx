@@ -88,7 +88,7 @@ export function FiscalDocumentsListPage() {
 
   const { data: syncStatus } = useFiscalSyncStatus(activeCompany?.id);
 
-  const { data, isLoading, refetch, isFetching } = useFiscalDocuments({
+  const { data, isLoading, isError, refetch, isFetching } = useFiscalDocuments({
     companyId: activeCompany?.id,
     status: status === ALL ? undefined : status,
     search: search || undefined,
@@ -385,6 +385,13 @@ export function FiscalDocumentsListPage() {
               <TableRow>
                 <TableCell colSpan={8} className="text-center text-muted-foreground">
                   Carregando…
+                </TableCell>
+              </TableRow>
+            ) : isError ? (
+              <TableRow>
+                <TableCell colSpan={8} className="text-center text-destructive">
+                  Não foi possível carregar. Verifique a conexão e tente
+                  novamente.
                 </TableCell>
               </TableRow>
             ) : !data?.rows.length ? (

@@ -141,6 +141,33 @@ export class ApprovalsService {
     return needed[0].level;
   }
 
+  /**
+   * FAIL-SAFE de governança (decisão de PO): um documento que exige cadeia de
+   * aprovação (requisição) NÃO pode ser submetido se a equipe não tem alçada
+   * configurada — antes isso auto-aprovava silenciosamente e ia ao Linx sem
+   * aprovação humana. Chamar ANTES de mutar estado (reset/startApproval), pois
+   * lança sem efeito colateral. Não se aplica ao PC externo (teamId null por
+   * design), que segue o caminho de auto-aprovação intencional.
+   */
+  async assertChainConfigured(teamId: string | null): Promise<void> {
+    if (!teamId) {
+      throw new BadRequestException(
+        'Requisição sem equipe atribuída. Atribua uma equipe com alçada de ' +
+          'aprovação configurada antes de submeter.',
+      );
+    }
+    const count = await this.prisma.teamApprovalLevel.count({
+      where: { teamId },
+    });
+    if (count === 0) {
+      throw new BadRequestException(
+        'A equipe desta requisição não tem alçada de aprovação configurada. ' +
+          'Configure os níveis de aprovação da equipe em Administração → ' +
+          'Equipes antes de submeter.',
+      );
+    }
+  }
+
   /** Remove o fluxo de aprovação de uma requisição (reinício após edição). */
   async resetForRequisition(requisitionId: string): Promise<void> {
     await this.prisma.approvalStep.deleteMany({ where: { requisitionId } });
@@ -149,6 +176,11 @@ export class ApprovalsService {
   /** Remove o fluxo de aprovação de um PC (reinício após edição). */
   async resetForPurchaseOrder(purchaseOrderId: string): Promise<void> {
     await this.prisma.approvalStep.deleteMany({ where: { purchaseOrderId } });
+  }
+
+  /** Remove o fluxo de aprovação de uma SV (reinício após edição/ressubmissão). */
+  async resetForFundRequest(fundRequestId: string): Promise<void> {
+    await this.prisma.approvalStep.deleteMany({ where: { fundRequestId } });
   }
 
   /**
@@ -659,6 +691,7 @@ export class ApprovalsService {
     entityType: string;
     requisitionId: string | null;
     purchaseOrderId: string | null;
+    fundRequestId: string | null;
     decidedById?: string | null;
     assignedApproverId?: string | null;
   }): Promise<void> {
@@ -716,6 +749,27 @@ export class ApprovalsService {
       } catch (err) {
         this.logger.warn(
           `PC ${step.purchaseOrderId}: falha ao reabrir Linx pra 'A' após aprovação: ${(err as Error).message}`,
+        );
+      }
+    } else if (step.entityType === ApprovalEntityType.FUND_REQUEST) {
+      // SV AVULSA aprovada → grava no Linx (CTB_SOLICITACAO_VERBA). A SV de
+      // adiantamento já é gravada no convert; a avulsa integra AQUI, na
+      // aprovação final. Idempotente (gravarSolicitacaoVerba re-acopla por
+      // erpSolicitacao/OBS). Best-effort: falha fica em lastErpError e o
+      // usuário reprocessa por /fund-requests/:id/retry-erp.
+      try {
+        const sv = await this.prisma.fundRequest.findUniqueOrThrow({
+          where: { id: step.fundRequestId as string },
+          include: { items: true },
+        });
+        await this.linx.gravarSolicitacaoVerba(sv);
+        await this.prisma.fundRequest.update({
+          where: { id: sv.id },
+          data: { status: FundRequestStatus.INTEGRATED },
+        });
+      } catch (err) {
+        this.logger.warn(
+          `SV ${step.fundRequestId}: falha ao integrar no Linx após aprovação: ${(err as Error).message}`,
         );
       }
     }
