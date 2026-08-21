@@ -201,6 +201,10 @@ async function bootstrap() {
   }
 
   const port = process.env.PORT ?? 3000;
+  // Fecha conexões graciosamente no SIGTERM/SIGINT do PM2 (dispara o
+  // onModuleDestroy do PrismaService → $disconnect) — evita conexões penduradas
+  // no pool a cada restart/deploy.
+  app.enableShutdownHooks();
   await app.listen(port);
   const logger = new (await import('@nestjs/common')).Logger('Bootstrap');
   logger.log(`P2P API rodando em http://localhost:${port}/api`);
