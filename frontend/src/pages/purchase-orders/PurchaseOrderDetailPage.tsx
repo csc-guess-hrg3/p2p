@@ -81,30 +81,37 @@ export function PurchaseOrderDetailPage() {
   // INTEGRATED), mas mantemos compatibilidade. SENT_TO_SUPPLIER foi
   // removido — só existirá no módulo PA futuro, que terá sua própria
   // tela de recebimento.
+  // Cutover Fase 1: pedido EXTERNO (importado do Linx) é SOMENTE-LEITURA no
+  // P2P — sem editar/cancelar/receber (controle de saldo é Fase 2 / D-01).
+  const isExterno = po.origin === 'EXTERNO';
   const canReceive =
-    po.status === 'APPROVED' ||
-    po.status === 'INTEGRATED' ||
-    po.status === 'PARTIALLY_RECEIVED';
+    !isExterno &&
+    (po.status === 'APPROVED' ||
+      po.status === 'INTEGRATED' ||
+      po.status === 'PARTIALLY_RECEIVED');
   // Cancelamento permitido em estados não finais — INCLUSIVE INTEGRATED:
   // o cancelamento agora é propagado ao Linx (header STATUS_COMPRA='C' /
   // saldo das linhas), então um PC já no ERP pode ser cancelado pelo portal.
   // O backend ainda bloqueia se houver item já recebido (RN-OC-03), mas o
   // botão fica visível pra o usuário ver a mensagem clara em vez de "sumir
   // sem explicação".
-  const canCancel = !['CANCELLED', 'FULLY_RECEIVED'].includes(po.status);
+  const canCancel =
+    !isExterno && !['CANCELLED', 'FULLY_RECEIVED'].includes(po.status);
   // Existe saldo aberto pra cancelar item-a-item?
   const hasOpenBalance = (po.items ?? []).some(
     (it) =>
       !it.cancelledAt && Number(it.quantity) - Number(it.receivedQty) > 0,
   );
   const canCancelItems =
-    !['CANCELLED'].includes(po.status) && hasOpenBalance;
+    !isExterno && !['CANCELLED'].includes(po.status) && hasOpenBalance;
   // Edição: bloqueia se já recebeu ou se está fechado.
   const anyReceived = (po.items ?? []).some(
     (it) => Number(it.receivedQty) > 0,
   );
   const canEdit =
-    !['CANCELLED', 'FULLY_RECEIVED'].includes(po.status) && !anyReceived;
+    !isExterno &&
+    !['CANCELLED', 'FULLY_RECEIVED'].includes(po.status) &&
+    !anyReceived;
 
   async function handleCancel() {
     if (!po) return;
@@ -245,12 +252,14 @@ export function PurchaseOrderDetailPage() {
             }
           />
           <div className="col-span-3 flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" asChild>
-              <Link to={`/requisicoes/${po.requisitionId}`}>
-                <FileText className="size-4" />
-                Ver requisição de origem
-              </Link>
-            </Button>
+            {po.requisitionId && (
+              <Button variant="outline" size="sm" asChild>
+                <Link to={`/requisicoes/${po.requisitionId}`}>
+                  <FileText className="size-4" />
+                  Ver requisição de origem
+                </Link>
+              </Button>
+            )}
             {po.fundRequest && (
               <Button variant="outline" size="sm" asChild>
                 <Link to={`/solicitacoes-verba/${po.fundRequest.id}`}>

@@ -42,7 +42,10 @@ export interface PurchaseOrderItem {
 export interface PurchaseOrder {
   id: string;
   number: string;
-  requisitionId: string;
+  /** P2P = nascido de requisição; EXTERNO = importado do Linx (cutover). */
+  origin: 'P2P' | 'EXTERNO';
+  /** NULL para pedidos EXTERNO (não têm requisição de origem). */
+  requisitionId: string | null;
   companyId: string;
   branchErpCode: string;
   branchName: string;
@@ -96,6 +99,22 @@ export interface PurchaseOrderListParams {
   status?: string;
   search?: string;
   scope?: 'mine' | 'team' | 'all';
+}
+
+/** Cutover: importa os pedidos EM ABERTO do Linx (origin=EXTERNO) para /pedidos. */
+export function useImportExternos(companyId?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () =>
+      (
+        await api.post<{
+          created: number;
+          skipped: number;
+          itemsCreated: number;
+        }>(`/admin/pedidos-externos/${companyId}/importar`, {})
+      ).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['purchase-orders'] }),
+  });
 }
 
 export function usePurchaseOrders(params: PurchaseOrderListParams) {

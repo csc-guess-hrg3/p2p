@@ -118,14 +118,8 @@ const ProvisoesPage = lazyPage(
 );
 const DdasPage = lazyPage(() => import('@/pages/financeiro/DdasPage'), 'DdasPage');
 const ReportsPage = lazyPage(() => import('@/pages/ReportsPage'), 'ReportsPage');
-const LegacyOrdersListPage = lazyPage(
-  () => import('@/pages/legacy-orders/LegacyOrdersListPage'),
-  'LegacyOrdersListPage',
-);
-const LegacyOrderDetailPage = lazyPage(
-  () => import('@/pages/legacy-orders/LegacyOrderDetailPage'),
-  'LegacyOrderDetailPage',
-);
+// /legacy-orders foi absorvido pelo cutover (redireciona para /pedidos); as
+// páginas legadas seguem no código até a migração das NFes, mas não são roteadas.
 const AdminPage = lazyPage(() => import('@/pages/admin/AdminPage'), 'AdminPage');
 const ErpConfigPage = lazyPage(
   () => import('@/pages/admin/ErpConfigPage'),
@@ -361,17 +355,16 @@ function App() {
                     <Route path="relatorios" element={<ReportsPage />} />
                   </Route>
 
-                  {/* Pedidos Legados — Admin somente (read-through Linx). */}
-                  <Route element={<RequireProfile roles={['ADMIN']} />}>
-                    <Route
-                      path="legacy-orders"
-                      element={<LegacyOrdersListPage />}
-                    />
-                    <Route
-                      path="legacy-orders/:companyId/:pedido"
-                      element={<LegacyOrderDetailPage />}
-                    />
-                  </Route>
+                  {/* Cutover: "Pedidos externos" foi absorvido por /pedidos
+                      (origin=EXTERNO). Redireciona os links/bookmarks antigos. */}
+                  <Route
+                    path="legacy-orders"
+                    element={<Navigate to="/pedidos" replace />}
+                  />
+                  <Route
+                    path="legacy-orders/:companyId/:pedido"
+                    element={<Navigate to="/pedidos" replace />}
+                  />
 
                   {/* Administração — Admin somente. */}
                   <Route element={<RequireProfile roles={['ADMIN']} />}>

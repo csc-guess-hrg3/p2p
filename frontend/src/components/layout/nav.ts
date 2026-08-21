@@ -234,12 +234,9 @@ export const NAV_SECTIONS: NavSection[] = [
     // ── Administração / Governança — separada da operação ──
     heading: 'Administração',
     entries: [
-      {
-        to: '/legacy-orders',
-        label: 'Pedidos externos',
-        icon: ShoppingCart,
-        roles: ['ADMIN'],
-      },
+      // "Pedidos externos" (/legacy-orders) foi absorvido pelo cutover: os
+      // pedidos do Linx são importados como origin=EXTERNO e aparecem em
+      // /pedidos com filtro de origem.
       { to: '/admin', label: 'Administração', icon: Settings, roles: ['ADMIN'] },
     ],
   },
