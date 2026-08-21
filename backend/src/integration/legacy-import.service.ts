@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { Cron, CronExpression, Timeout } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { safeDbName } from '../common/erp/safe-db-name';
 
@@ -50,6 +51,43 @@ export class LegacyImportService {
   private readonly logger = new Logger(LegacyImportService.name);
 
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Import automático — os pedidos externos entram sozinhos, sem botão. 1ª
+   * rodada ~30s após o boot (aparecem logo após o deploy) e depois de hora em
+   * hora (mantém frescos os novos pedidos abertos do Linx). Idempotente.
+   */
+  @Timeout(30_000)
+  async initialImport(): Promise<void> {
+    await this.importAllCompanies();
+  }
+
+  @Cron(CronExpression.EVERY_HOUR)
+  async scheduledImport(): Promise<void> {
+    await this.importAllCompanies();
+  }
+
+  /** Roda o import para todas as empresas ativas (isolando falha por empresa). */
+  async importAllCompanies(): Promise<void> {
+    const companies = await this.prisma.company.findMany({
+      where: { deletedAt: null },
+      select: { id: true, code: true },
+    });
+    for (const c of companies) {
+      try {
+        const r = await this.importExternos(c.id);
+        if (r.created > 0) {
+          this.logger.log(
+            `Import automático ${c.code}: +${r.created} externo(s), ${r.itemsCreated} itens.`,
+          );
+        }
+      } catch (e) {
+        this.logger.warn(
+          `Import automático ${c.code} falhou: ${(e as Error).message}`,
+        );
+      }
+    }
+  }
 
   /** Mapa STATUS_COMPRA do Linx → status canônico do P2P. */
   private mapStatus(statusCompra: string | null): string {

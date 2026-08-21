@@ -188,6 +188,12 @@ export class FundRequestsService {
       companyId: companyId ? companyId : { in: user.companyIds },
       ...(status ? { status } : {}),
       ...(search ? { number: { contains: search } } : {}),
+      // Escopo de equipe (igual às requisições): não-admin só vê as SVs da
+      // PRÓPRIA equipe (via a equipe do solicitante) — antes via TODAS da
+      // empresa, o que expunha SV de outros usuários (bug visto na simulação).
+      ...(user.profile !== UserProfile.ADMIN
+        ? { requester: { teamId: user.teamId } }
+        : {}),
     };
     const [data, total] = await Promise.all([
       this.prisma.fundRequest.findMany({
@@ -211,7 +217,7 @@ export class FundRequestsService {
       where: { id },
       include: {
         items: true,
-        requester: { select: { id: true, name: true } },
+        requester: { select: { id: true, name: true, teamId: true } },
         requisition: { select: { id: true, number: true } },
         purchaseOrder: { select: { id: true, number: true } },
       },
@@ -220,6 +226,14 @@ export class FundRequestsService {
       throw new NotFoundException('Solicitação de verba não encontrada.');
     }
     if (!user.companyIds.includes(sv.companyId)) {
+      throw new ForbiddenException('Sem acesso a esta solicitação.');
+    }
+    // Escopo de equipe: não-admin só abre SV da própria equipe (fecha o
+    // acesso direto por id a SV de outro usuário/equipe).
+    if (
+      user.profile !== UserProfile.ADMIN &&
+      sv.requester?.teamId !== user.teamId
+    ) {
       throw new ForbiddenException('Sem acesso a esta solicitação.');
     }
     return sv;

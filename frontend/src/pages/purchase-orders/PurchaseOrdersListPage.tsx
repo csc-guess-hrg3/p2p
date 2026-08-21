@@ -2,11 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, Download, Search } from 'lucide-react';
 import { useCompany } from '@/lib/company';
-import {
-  usePurchaseOrders,
-  useImportExternos,
-} from '@/lib/purchase-orders';
-import { useToast } from '@/components/ui/use-toast';
+import { usePurchaseOrders } from '@/lib/purchase-orders';
 import { useAuth } from '@/lib/auth';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
@@ -49,21 +45,6 @@ const STATUS_OPTIONS = [
 export function PurchaseOrdersListPage() {
   const { activeCompany } = useCompany();
   const { user } = useAuth();
-  const { toast } = useToast();
-  const importMut = useImportExternos(activeCompany?.id);
-
-  async function handleImportExternos() {
-    try {
-      const r = await importMut.mutateAsync();
-      toast({
-        title: 'Import concluído',
-        description: `${r.created} pedido(s) externo(s) importado(s), ${r.skipped} já existiam.`,
-        variant: 'success',
-      });
-    } catch {
-      toast({ title: 'Falha no import', variant: 'destructive' });
-    }
-  }
   const navigate = useNavigate();
   const isAdmin = user?.profile === 'ADMIN';
   const [status, setStatus] = useState('ALL');
@@ -122,18 +103,6 @@ export function PurchaseOrdersListPage() {
         <p className="text-sm text-muted-foreground">
           {data ? `${data.total} pedido(s) de compra` : 'Carregando…'}
         </p>
-        <div className="flex gap-2">
-        {isAdmin && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void handleImportExternos()}
-            disabled={importMut.isPending || !activeCompany}
-            title="Importa os pedidos em aberto do Linx que nunca passaram pelo P2P"
-          >
-            {importMut.isPending ? 'Importando…' : 'Importar externos'}
-          </Button>
-        )}
         <Button
           variant="outline"
           size="sm"
@@ -159,7 +128,6 @@ export function PurchaseOrdersListPage() {
           <Download className="size-4" />
           Exportar
         </Button>
-        </div>
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row">

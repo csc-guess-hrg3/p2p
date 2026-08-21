@@ -111,7 +111,12 @@ describe('FundRequestsService — SV avulsa', () => {
         items: [item()],
         deletedAt: null,
       })
-      .mockResolvedValue({ id: 'sv-1', companyId: 'company-test', items: [] });
+      .mockResolvedValue({
+        id: 'sv-1',
+        companyId: 'company-test',
+        items: [],
+        requester: { teamId: TEST_USER.teamId },
+      });
     await service.submit(TEST_USER, 'sv-1');
     expect(assertChain).toHaveBeenCalledWith(TEST_USER.teamId);
     expect(startApproval).toHaveBeenCalled();
@@ -119,5 +124,18 @@ describe('FundRequestsService — SV avulsa', () => {
       prisma.fundRequest.update,
     );
     expect(upd.data.status).toBe('IN_APPROVAL');
+  });
+
+  it('findOne: BLOQUEIA SV de outra equipe para não-admin (fecha o vazamento visto na simulação)', async () => {
+    prisma.fundRequest.findUnique.mockResolvedValue({
+      id: 'sv-1',
+      companyId: 'company-test',
+      deletedAt: null,
+      items: [],
+      requester: { teamId: 'outra-equipe' },
+    });
+    await expect(service.findOne(TEST_USER, 'sv-1')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
   });
 });
