@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Download, Search } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Download, Plus, Search } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { useFundRequests } from '@/lib/fund-requests';
 import { formatCurrency, formatDate } from '@/lib/format';
@@ -114,6 +114,13 @@ export function FundRequestsListPage() {
         <p className="text-sm text-muted-foreground">
           {data ? `${data.total} solicitação(ões) de verba` : 'Carregando…'}
         </p>
+        <div className="flex gap-2">
+        <Button size="sm" asChild>
+          <Link to="/solicitacoes-verba/nova">
+            <Plus className="size-4" />
+            Nova solicitação
+          </Link>
+        </Button>
         <Button
           variant="outline"
           size="sm"
@@ -148,6 +155,7 @@ export function FundRequestsListPage() {
           <Download className="size-4" />
           Exportar
         </Button>
+        </div>
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row">

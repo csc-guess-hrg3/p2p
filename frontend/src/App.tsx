@@ -79,6 +79,10 @@ const FundRequestsListPage = lazyPage(
   () => import('@/pages/fund-requests/FundRequestsListPage'),
   'FundRequestsListPage',
 );
+const FundRequestFormPage = lazyPage(
+  () => import('@/pages/fund-requests/FundRequestFormPage'),
+  'FundRequestFormPage',
+);
 const FundRequestDetailPage = lazyPage(
   () => import('@/pages/fund-requests/FundRequestDetailPage'),
   'FundRequestDetailPage',
@@ -253,6 +257,10 @@ function App() {
                   <Route
                     path="solicitacoes-verba"
                     element={<FundRequestsListPage />}
+                  />
+                  <Route
+                    path="solicitacoes-verba/nova"
+                    element={<FundRequestFormPage />}
                   />
                   <Route
                     path="solicitacoes-verba/:id"

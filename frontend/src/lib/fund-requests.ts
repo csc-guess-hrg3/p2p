@@ -49,9 +49,54 @@ export interface FundRequest {
   items?: FundRequestItem[];
 }
 
+/** Item de uma SV avulsa a criar (pagamento sem NF). */
+export interface CreateFundRequestItemPayload {
+  description: string;
+  beneficiaryName: string;
+  itemErpCode?: string;
+  beneficiaryBank?: string;
+  beneficiaryAgency?: string;
+  beneficiaryAccount?: string;
+  accountingAccount: string;
+  accountName?: string;
+  branchRateioCode: string;
+  branchRateioDesc?: string;
+  costCenterRateioCode: string;
+  costCenterRateioDesc?: string;
+  amount: number;
+  dueDate: string;
+  notes?: string;
+}
+
+export interface CreateFundRequestPayload {
+  companyId: string;
+  title: string;
+  items: CreateFundRequestItemPayload[];
+}
+
 /* ------------------------------------------------------------------ */
 /* Hooks                                                              */
 /* ------------------------------------------------------------------ */
+
+/** Cria uma SV avulsa (nasce em rascunho). */
+export function useCreateFundRequest() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: CreateFundRequestPayload) =>
+      (await api.post<FundRequest>('/fund-requests', payload)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['fund-requests'] }),
+  });
+}
+
+/** Submete uma SV avulsa (rascunho) para a cadeia de aprovação. */
+export function useSubmitFundRequest() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) =>
+      (await api.post<FundRequest>(`/fund-requests/${id}/submit`, {})).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['fund-requests'] }),
+  });
+}
 
 export interface FundRequestListParams {
   companyId?: string;
