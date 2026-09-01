@@ -42,6 +42,8 @@ describe('FundRequestsService — SV avulsa', () => {
       assertChainConfigured: assertChain,
       resetForFundRequest: jest.fn().mockResolvedValue(undefined),
       startApproval,
+      // Por padrão o usuário do teste NÃO é aprovador — isola o teste de dono.
+      isApproverForEntity: jest.fn().mockResolvedValue(false),
     } as unknown as ApprovalsService;
     const numbering = {
       next: jest.fn().mockResolvedValue('SV-2026-000001'),
@@ -114,6 +116,8 @@ describe('FundRequestsService — SV avulsa', () => {
       .mockResolvedValue({
         id: 'sv-1',
         companyId: 'company-test',
+        deletedAt: null,
+        requesterId: TEST_USER.id,
         items: [],
         requester: { teamId: TEST_USER.teamId },
       });
@@ -126,16 +130,29 @@ describe('FundRequestsService — SV avulsa', () => {
     expect(upd.data.status).toBe('IN_APPROVAL');
   });
 
-  it('findOne: BLOQUEIA SV de outra equipe para não-admin (fecha o vazamento visto na simulação)', async () => {
+  it('findOne: BLOQUEIA SV de outro solicitante (own-only; admin vê via simulação)', async () => {
     prisma.fundRequest.findUnique.mockResolvedValue({
       id: 'sv-1',
       companyId: 'company-test',
       deletedAt: null,
       items: [],
+      requesterId: 'outro-user',
       requester: { teamId: 'outra-equipe' },
     });
     await expect(service.findOne(TEST_USER, 'sv-1')).rejects.toBeInstanceOf(
       ForbiddenException,
     );
+  });
+
+  it('findOne: LIBERA a própria SV', async () => {
+    prisma.fundRequest.findUnique.mockResolvedValue({
+      id: 'sv-1',
+      companyId: 'company-test',
+      deletedAt: null,
+      items: [],
+      requesterId: TEST_USER.id,
+      requester: { teamId: TEST_USER.teamId },
+    });
+    await expect(service.findOne(TEST_USER, 'sv-1')).resolves.toBeDefined();
   });
 });

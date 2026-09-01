@@ -51,7 +51,7 @@ export class PurchaseOrderEditorService {
       where: { id },
       include: {
         items: true,
-        requisition: { select: { teamId: true } },
+        requisition: { select: { teamId: true, requesterId: true } },
       },
     });
     if (!po || po.deletedAt) {

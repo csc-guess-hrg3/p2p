@@ -9,6 +9,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NumberingService } from '../numbering/numbering.service';
 import { LinxErpService } from '../integration/linx-erp.service';
+import { ApprovalsService } from '../approvals/approvals.service';
 import {
   FundRequestStatus,
   IntegrationLogStatus,
@@ -76,6 +77,7 @@ export class PurchaseOrderConverterService {
     private readonly prisma: PrismaService,
     private readonly numbering: NumberingService,
     private readonly linx: LinxErpService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   /**
@@ -271,6 +273,20 @@ export class PurchaseOrderConverterService {
     if (!user.companyIds.includes(req.companyId)) {
       throw new ForbiddenException('Sem acesso a esta requisição.');
     }
+    // Own-only: só o SOLICITANTE (ou um APROVADOR da cadeia) converte a
+    // requisição em PC — antes qualquer usuário da empresa convertia a de
+    // outro, lendo itens/fornecedor/preço e assumindo o PC (achado da revisão).
+    // Admin converte a de outro via SIMULAÇÃO (decisão PO).
+    const isOwnerOrApprover =
+      req.requesterId === user.id ||
+      (await this.approvals.isApproverForEntity(user, {
+        requisitionId: req.id,
+      }));
+    if (!isOwnerOrApprover) {
+      throw new ForbiddenException(
+        'Só o solicitante ou um aprovador pode converter esta requisição.',
+      );
+    }
     if (req.status !== RequisitionStatus.APPROVED) {
       throw new BadRequestException(
         'Só requisições aprovadas podem virar pedido de compra.',
@@ -279,6 +295,18 @@ export class PurchaseOrderConverterService {
     if (req.tipoNotaFiscal === RequisitionNfType.SEM_NF) {
       throw new BadRequestException(
         'Requisição sem nota fiscal não gera pedido de compra — gera Solicitação de Verba.',
+      );
+    }
+    // Gate de fornecedor novo (RN André): um fornecedor não cadastrado só
+    // emite PedCom depois de validado pelo Revisor. Se a requisição ainda
+    // está marcada como "precisa cadastrar fornecedor", a validação não
+    // passou — bloqueia aqui, senão o chokepoint abaixo criaria o CLIFOR
+    // silenciosamente, sem validação. (No fluxo normal a validação já rodou
+    // no submit e este flag está false.)
+    if (req.needsSupplierErpCreation) {
+      throw new BadRequestException(
+        'Fornecedor novo aguardando validação do Revisor — o pedido de compra ' +
+          'só pode ser emitido após a validação do fornecedor.',
       );
     }
     // Chokepoint do cadastro de fornecedor. A conversão cria PC + SV, que

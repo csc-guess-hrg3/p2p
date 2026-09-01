@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { useCompany } from '@/lib/company';
-import { useBranches, useCcRateios } from '@/lib/integration';
+import { useBranches, useCostCenters } from '@/lib/integration';
 import {
   useBudgetConfig,
   useSetBudgetConfig,
@@ -53,16 +53,14 @@ export function BudgetPage() {
   const upsert = useUpsertBudgetEntry(companyId);
 
   const { data: branches = [] } = useBranches(code);
-  const { data: ccRateios = [] } = useCcRateios(code);
+  // Centros de custo: lista MESTRE do ERP (todos os CCs ativos, com nome). Antes
+  // vinha dos cc-rateios (parcial e por equipe) — por isso a Guess mostrava só
+  // 3 e a HRG3 nenhum.
+  const { data: costCenters = [] } = useCostCenters(code);
 
-  // Centros de custo distintos, extraídos das linhas dos rateios de CC.
-  const costCenters = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const r of ccRateios)
-      for (const l of r.linhas)
-        if (l.centroCustoCodigo) map.set(l.centroCustoCodigo, l.centroCustoCodigo);
-    return [...map.keys()].sort();
-  }, [ccRateios]);
+  // Mapas código→nome pra exibir "código — nome" na tabela de células.
+  const branchName = new Map(branches.map((b) => [b.codigo, b.nome]));
+  const ccName = new Map(costCenters.map((c) => [c.codigo, c.nome]));
 
   const [form, setForm] = useState({
     branchErpCode: '',
@@ -195,8 +193,8 @@ export function BudgetPage() {
                 </SelectTrigger>
                 <SelectContent>
                   {costCenters.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
+                    <SelectItem key={c.codigo} value={c.codigo}>
+                      {c.codigo} — {c.nome}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -290,8 +288,24 @@ export function BudgetPage() {
                 <TableRow
                   key={`${c.branchErpCode}|${c.costCenterErpCode}|${c.month}`}
                 >
-                  <TableCell>{c.branchErpCode}</TableCell>
-                  <TableCell>{c.costCenterErpCode}</TableCell>
+                  <TableCell>
+                    {c.branchErpCode}
+                    {branchName.get(c.branchErpCode) && (
+                      <span className="text-muted-foreground">
+                        {' — '}
+                        {branchName.get(c.branchErpCode)}
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {c.costCenterErpCode}
+                    {ccName.get(c.costCenterErpCode) && (
+                      <span className="text-muted-foreground">
+                        {' — '}
+                        {ccName.get(c.costCenterErpCode)}
+                      </span>
+                    )}
+                  </TableCell>
                   <TableCell>{String(c.month).padStart(2, '0')}</TableCell>
                   <TableCell className="text-right tabular-nums">
                     {money.format(c.budgeted)}

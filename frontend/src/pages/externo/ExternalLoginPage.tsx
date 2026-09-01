@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { TurnstileWidget } from '@/components/TurnstileWidget';
+import { TurnstileWidget, TURNSTILE_ENABLED } from '@/components/TurnstileWidget';
 
 /**
  * Login do portal externo — usuário = CÓDIGO do representante + senha.
@@ -83,10 +83,26 @@ export function ExternalLoginPage() {
             <Button
               type="submit"
               className="w-full"
-              disabled={enviando || !codigo || !senha}
+              disabled={
+                enviando ||
+                !codigo ||
+                !senha ||
+                (TURNSTILE_ENABLED && !turnstileToken)
+              }
             >
-              {enviando ? 'Entrando…' : 'Entrar'}
+              {enviando
+                ? 'Entrando…'
+                : TURNSTILE_ENABLED && !turnstileToken
+                  ? 'Verificando…'
+                  : 'Entrar'}
             </Button>
+            <button
+              type="button"
+              onClick={() => navigate('/recuperar-acesso')}
+              className="w-full text-center text-xs text-muted-foreground hover:text-foreground"
+            >
+              Primeiro acesso ou esqueci minha senha
+            </button>
           </form>
         </CardContent>
       </Card>

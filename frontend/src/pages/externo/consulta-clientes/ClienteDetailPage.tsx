@@ -98,8 +98,7 @@ export function ClienteDetailPage() {
         </div>
 
         {/* KPIs */}
-        <div className="mt-5 grid grid-cols-2 overflow-hidden rounded-xl border bg-border sm:grid-cols-4 [&>*]:bg-card">
-          <Kpi label="Limite de crédito" value={formatMoney(c?.limite ?? 0)} />
+        <div className="mt-5 grid grid-cols-2 overflow-hidden rounded-xl border bg-border sm:grid-cols-3 [&>*]:bg-card">
           <Kpi
             label="A receber"
             value={formatMoney(aReceber)}

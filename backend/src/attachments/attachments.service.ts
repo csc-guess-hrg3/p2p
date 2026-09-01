@@ -8,6 +8,7 @@ import {
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
+import { ApprovalsService } from '../approvals/approvals.service';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { UserProfile } from '../common/enums';
 import {
@@ -47,7 +48,10 @@ export class AttachmentsService {
   private readonly uploadRoot =
     process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly approvals: ApprovalsService,
+  ) {}
 
   private parentField(kind: ParentKind): string {
     switch (kind) {
@@ -144,21 +148,31 @@ export class AttachmentsService {
   }
 
   /**
-   * Isolamento por equipe dos anexos: quando o documento-pai tem equipe
-   * (requisição/PC), não-admin só acessa anexos da própria equipe — antes
-   * dava pra listar/baixar anexos de qualquer equipe (auditoria P1-2).
+   * VIEW (listar/baixar) own-only — espelha o acesso ao documento-pai:
+   *  - o DONO (solicitante/comprador/recebedor);
+   *  - o REVISOR fiscal (só requisição — reclassifica a de qualquer um);
+   *  - o APROVADOR da cadeia (req/PC/SV) — precisa ver os anexos pra decidir;
+   *  - RECEBIMENTO: escopo de empresa (fora do own-only; comportamento atual).
+   * Os demais (inclusive admin sem step) veem os de outro via SIMULAÇÃO.
+   * (Antes era por equipe — auditoria P1-2; agora own-only, decisão PO.)
    */
-  private assertParentTeamAccess(
+  private async assertParentViewAccess(
     user: AuthenticatedUser,
-    parent: { teamId: string | null },
-  ): void {
-    if (
-      parent.teamId !== null &&
-      user.profile !== UserProfile.ADMIN &&
-      parent.teamId !== user.teamId
-    ) {
-      throw new ForbiddenException('Sem acesso aos anexos deste documento.');
-    }
+    kind: ParentKind,
+    parentId: string,
+    parent: { ownerId: string | null },
+  ): Promise<void> {
+    if (parent.ownerId === user.id) return;
+    if (kind === 'receiving') return;
+    if (kind === 'requisition' && user.profile === UserProfile.REVIEWER) return;
+    const ref =
+      kind === 'requisition'
+        ? { requisitionId: parentId }
+        : kind === 'purchaseOrder'
+          ? { purchaseOrderId: parentId }
+          : { fundRequestId: parentId };
+    if (await this.approvals.isApproverForEntity(user, ref)) return;
+    throw new ForbiddenException('Sem acesso aos anexos deste documento.');
   }
 
   /**
@@ -179,7 +193,8 @@ export class AttachmentsService {
         'Anexos só podem ser adicionados ou removidos enquanto o documento está em criação, edição ou revisão.',
       );
     }
-    if (user.profile !== UserProfile.ADMIN && parent.ownerId !== user.id) {
+    // Own-only: só o autor do documento muta os anexos. Admin via SIMULAÇÃO.
+    if (parent.ownerId !== user.id) {
       throw new ForbiddenException(
         'Apenas o autor do documento pode adicionar ou remover anexos.',
       );
@@ -208,7 +223,7 @@ export class AttachmentsService {
     if (!user.companyIds.includes(parent.companyId)) {
       throw new ForbiddenException('Sem acesso a esta empresa.');
     }
-    this.assertParentTeamAccess(user, parent);
+    await this.assertParentViewAccess(user, kind, parentId, parent);
     // Cotações têm relação 1-1 com anexo (Quotation.attachmentId).
     // Trazemos junto pro frontend identificar "este anexo é da cotação
     // do fornecedor X" sem precisar de uma chamada separada — atende a
@@ -358,7 +373,12 @@ export class AttachmentsService {
     const parentRef = this.parentOfAttachment(att);
     if (parentRef) {
       const parent = await this.resolveParent(parentRef.kind, parentRef.id);
-      this.assertParentTeamAccess(user, parent);
+      await this.assertParentViewAccess(
+        user,
+        parentRef.kind,
+        parentRef.id,
+        parent,
+      );
     }
     const abs = path.join(this.uploadRoot, att.storageKey);
     return {
@@ -382,7 +402,7 @@ export class AttachmentsService {
     const parentRef = this.parentOfAttachment(att);
     if (parentRef) {
       const parent = await this.resolveParent(parentRef.kind, parentRef.id);
-      this.assertParentTeamAccess(user, parent);
+      // assertCanMutate já é own-only (só o autor) + estado editável.
       this.assertCanMutate(user, parentRef.kind, parent);
     }
     const abs = path.join(this.uploadRoot, att.storageKey);

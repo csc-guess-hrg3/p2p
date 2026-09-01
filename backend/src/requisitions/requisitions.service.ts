@@ -10,6 +10,7 @@ import { IntegrationService } from '../integration/integration.service';
 import { CnpjPublicService } from '../integration/cnpj-public.service';
 import { NumberingService } from '../numbering/numbering.service';
 import { ApprovalsService } from '../approvals/approvals.service';
+import { SupplierValidationService } from '../supplier-validation/supplier-validation.service';
 import { SettingsService } from '../settings/settings.service';
 import { SETTING_KEYS } from '../settings/setting-defs';
 import {
@@ -40,6 +41,7 @@ export class RequisitionsService {
     private readonly cnpjPublic: CnpjPublicService,
     private readonly numbering: NumberingService,
     private readonly approvals: ApprovalsService,
+    private readonly supplierValidation: SupplierValidationService,
     private readonly settings: SettingsService,
   ) {}
 
@@ -487,30 +489,19 @@ export class RequisitionsService {
 
   /** Lista requisições do escopo do usuário. */
   async findAll(user: AuthenticatedUser, query: QueryRequisitionsDto) {
-    const { companyId, status, search, mine, skip = 0, take = 50 } = query;
+    const { companyId, status, search, skip = 0, take = 50 } = query;
 
     if (companyId && !user.companyIds.includes(companyId)) {
       throw new ForbiddenException('Sem acesso a esta empresa.');
     }
 
-    const isAdmin = user.profile === UserProfile.ADMIN;
-    // `mine=true` (legado, ex.: home) tem prioridade; senão usa scope
-    // (padrão 'mine' — a tela abre no que é do usuário). 'all' só admin.
-    const scope = mine === 'true' ? 'mine' : (query.scope ?? 'mine');
-    if (scope === 'all' && !isAdmin) {
-      throw new ForbiddenException(
-        'Apenas administradores podem ver todas as requisições.',
-      );
-    }
-
     const where: Prisma.RequisitionWhereInput = {
       deletedAt: null,
       companyId: companyId ? companyId : { in: user.companyIds },
-      // Visibilidade base: não-admin nunca sai da própria equipe.
-      ...(isAdmin ? {} : { teamId: user.teamId }),
-      // Escopo escolhido sobre a visibilidade base.
-      ...(scope === 'mine' ? { requesterId: user.id } : {}),
-      ...(scope === 'team' ? { teamId: user.teamId } : {}),
+      // Cada usuário vê SÓ as próprias requisições (identidade EFETIVA). Admin
+      // vê as de outros entrando no modo SIMULAÇÃO — sem escopo por equipe nem
+      // 'ver todas' (decisão PO: mesma regra dos pedidos).
+      requesterId: user.id,
       ...(status ? { status } : {}),
       ...(search
         ? {
@@ -551,16 +542,44 @@ export class RequisitionsService {
   }
 
   /**
-   * Garante que um não-admin só acesse recursos da própria equipe.
-   * Espelha o filtro `teamId: user.teamId` aplicado em findAll, para que
-   * listagem e detalhe/clone tenham o MESMO escopo de visibilidade.
-   * ADMIN passa sempre.
+   * Cada usuário só acessa as PRÓPRIAS requisições (identidade EFETIVA).
+   * Espelha o filtro `requesterId: user.id` de findAll, para que listagem e
+   * detalhe/clone tenham o MESMO escopo. Admin acessa as de outros entrando no
+   * modo SIMULAÇÃO — sem bypass por perfil (decisão PO: mesma regra dos
+   * pedidos).
    */
-  private assertSameTeam(user: AuthenticatedUser, teamId: string | null) {
-    if (user.profile === UserProfile.ADMIN) return;
-    if (teamId !== user.teamId) {
+  private assertOwner(user: AuthenticatedUser, requesterId: string | null) {
+    if (requesterId !== user.id) {
       throw new ForbiddenException('Sem acesso a esta requisição.');
     }
+  }
+
+  /**
+   * Leitura do DETALHE. Podem abrir:
+   *  - o SOLICITANTE (dono);
+   *  - o fiscal/REVISOR — reclassifica (fiscalClassify) a requisição de
+   *    qualquer solicitante; é função do papel, não visibilidade entre pares;
+   *  - o APROVADOR da cadeia — a tela de aprovação abre o detalhe (findOne)
+   *    do documento que ele precisa decidir (fixo/delegado ou dinâmico por
+   *    cargo+filial; admin com step pendente pelo override).
+   * Os demais (inclusive admin sem step) abrem a de outro via SIMULAÇÃO.
+   */
+  private async assertCanView(
+    user: AuthenticatedUser,
+    req: { id: string; requesterId: string | null },
+  ) {
+    if (req.requesterId === user.id) return;
+    if (user.profile === UserProfile.REVIEWER) return;
+    if (await this.approvals.isApproverForEntity(user, { requisitionId: req.id }))
+      return;
+    // Comprador de um PC gerado desta requisição abre a requisição de origem
+    // (navegação PC → requisição — é a mesma compra).
+    const asBuyer = await this.prisma.purchaseOrder.findFirst({
+      where: { requisitionId: req.id, buyerId: user.id, deletedAt: null },
+      select: { id: true },
+    });
+    if (asBuyer) return;
+    throw new ForbiddenException('Sem acesso a esta requisição.');
   }
 
   /** Detalhe de uma requisição. */
@@ -602,10 +621,10 @@ export class RequisitionsService {
     if (!user.companyIds.includes(req.companyId)) {
       throw new ForbiddenException('Sem acesso a esta requisição.');
     }
-    // Escopo por equipe: espelha o filtro de findAll. Não-admin só
-    // acessa o detalhe de requisições da própria equipe — sem isto, a
-    // listagem filtra por equipe mas o GET :id vazava (IDOR de equipe).
-    this.assertSameTeam(user, req.teamId);
+    // Own-only (+ fiscal/aprovador): espelha o filtro de findAll. Dono, revisor
+    // fiscal ou aprovador da cadeia abrem o detalhe; sem isto, a lista filtra
+    // por dono mas o GET :id vazaria (IDOR).
+    await this.assertCanView(user, { id: req.id, requesterId: req.requesterId });
 
     // Pendências fiscais que afetam ESTA requisição. O modelo
     // FiscalItemRequest é por (supplier + item), não tem FK pra req.
@@ -682,7 +701,7 @@ export class RequisitionsService {
         );
       }
     }
-    if (req.requesterId !== user.id && user.profile !== UserProfile.ADMIN) {
+    if (req.requesterId !== user.id) {
       throw new ForbiddenException('Só o solicitante pode editar.');
     }
     // O motivo da edição é OPCIONAL. Quando o aprovador devolve a req pra
@@ -883,7 +902,7 @@ export class RequisitionsService {
         'Só requisições em revisão podem ser re-submetidas por este caminho. Use editar e salvar.',
       );
     }
-    if (req.requesterId !== user.id && user.profile !== UserProfile.ADMIN) {
+    if (req.requesterId !== user.id) {
       throw new ForbiddenException('Só o solicitante pode re-submeter.');
     }
     if (req.items.length === 0) {
@@ -963,7 +982,7 @@ export class RequisitionsService {
         'A dispensa de cotação só pode ser solicitada em rascunho ou revisão.',
       );
     }
-    if (req.requesterId !== user.id && user.profile !== UserProfile.ADMIN) {
+    if (req.requesterId !== user.id) {
       throw new ForbiddenException('Só o solicitante pode pedir a dispensa.');
     }
     if (!isQuotationWaiverReason(reason)) {
@@ -1002,7 +1021,7 @@ export class RequisitionsService {
         'A dispensa só pode ser removida em rascunho ou revisão.',
       );
     }
-    if (req.requesterId !== user.id && user.profile !== UserProfile.ADMIN) {
+    if (req.requesterId !== user.id) {
       throw new ForbiddenException('Só o solicitante pode remover a dispensa.');
     }
     await this.prisma.requisition.update({
@@ -1025,7 +1044,7 @@ export class RequisitionsService {
         'Apenas requisições em rascunho podem ser submetidas.',
       );
     }
-    if (req.requesterId !== user.id && user.profile !== UserProfile.ADMIN) {
+    if (req.requesterId !== user.id) {
       throw new ForbiddenException('Só o solicitante pode submeter.');
     }
     if (req.items.length === 0) {
@@ -1060,40 +1079,32 @@ export class RequisitionsService {
       );
     }
 
-    // Limpa qualquer cadeia órfã antes de gerar a nova (audit M13): se um
-    // submit anterior falhou DEPOIS do createMany dos steps mas ANTES do
-    // update do status, a requisição ficou DRAFT com steps PENDING órfãos;
-    // sem este reset, um novo submit DUPLICARIA a cadeia. Mesmo padrão
-    // defensivo já usado no fluxo de re-submissão (resubmit).
-    // Fail-safe (decisão PO): bloqueia se a equipe não tem alçada — nunca auto-aprova.
-    await this.approvals.assertChainConfigured(req.teamId);
-    await this.approvals.resetForRequisition(req.id);
+    // Gate de fornecedor novo (RN André): se a requisição traz um fornecedor
+    // NÃO cadastrado no ERP, ela para pra validação do Revisor ANTES da cadeia
+    // do gestor. Ao aprovar, o Revisor cadastra o fornecedor no Linx e a
+    // requisição retoma pela cadeia normal (mesmo helper). Já validado
+    // (SupplierValidation APPROVED) segue direto.
+    if (req.needsSupplierErpCreation) {
+      const existing = await this.prisma.supplierValidation.findUnique({
+        where: { requisitionId: req.id },
+        select: { status: true },
+      });
+      if (existing?.status !== 'APPROVED') {
+        await this.supplierValidation.openGate({
+          id: req.id,
+          companyId: req.companyId,
+          number: req.number,
+          supplierCnpj: req.supplierCnpj,
+        });
+        return this.findOne(user, id);
+      }
+    }
 
-    const firstLevel = await this.approvals.startApproval({
-      companyId: req.companyId,
-      teamId: req.teamId,
-      entityType: ApprovalEntityType.REQUISITION,
-      requisitionId: req.id,
-      amount: Number(req.totalAmount),
-      documentNumber: req.number,
-    });
-
-    // Cadeia vazia → auto-aprovado já na submissão.
-    await this.prisma.requisition.update({
-      where: { id },
-      data:
-        firstLevel === null
-          ? {
-              status: RequisitionStatus.APPROVED,
-              submittedAt: new Date(),
-              approvedAt: new Date(),
-            }
-          : {
-              status: RequisitionStatus.IN_APPROVAL,
-              submittedAt: new Date(),
-              currentTierLevel: firstLevel,
-            },
-    });
+    // Arranque da cadeia de aprovação do gestor. Fonte única (reusada pela
+    // aprovação do fornecedor): faz o fail-safe de alçada, limpa cadeia órfã
+    // (audit M13), gera os steps e transiciona o status (cadeia vazia →
+    // APPROVED; senão IN_APPROVAL).
+    await this.approvals.startRequisitionApprovalChain(req.id);
     return this.findOne(user, id);
   }
 
@@ -1112,10 +1123,11 @@ export class RequisitionsService {
       tipoCompra?: string;
     },
   ) {
-    if (
-      user.profile !== UserProfile.REVIEWER &&
-      user.profile !== UserProfile.ADMIN
-    ) {
+    // Classificação fiscal é função do REVISOR (assertCanView em findOne também
+    // libera só dono/revisor/aprovador — não ADMIN). Mantínhamos ADMIN aqui,
+    // mas findOne o barrava: ramo morto/enganoso. Admin que precise classificar
+    // usa o modo SIMULAÇÃO de um revisor (decisão PO: admin não tem bypass).
+    if (user.profile !== UserProfile.REVIEWER) {
       throw new ForbiddenException(
         'Somente o fiscal/revisor pode classificar fiscalmente.',
       );
@@ -1282,7 +1294,7 @@ export class RequisitionsService {
         'Apenas requisições em rascunho podem ser excluídas.',
       );
     }
-    if (req.requesterId !== user.id && user.profile !== UserProfile.ADMIN) {
+    if (req.requesterId !== user.id) {
       throw new ForbiddenException('Só o solicitante pode excluir.');
     }
     await this.prisma.requisition.update({
@@ -1322,9 +1334,9 @@ export class RequisitionsService {
     if (!user.companyIds.includes(src.companyId)) {
       throw new ForbiddenException('Sem acesso a esta empresa.');
     }
-    // Mesmo escopo por equipe do findOne — não-admin não clona
-    // requisição de outra equipe (copiaria itens/rateios/justificativa).
-    this.assertSameTeam(user, src.teamId);
+    // Mesmo escopo own-only do findOne — só o solicitante clona a própria
+    // requisição (copiaria itens/rateios/justificativa).
+    this.assertOwner(user, src.requesterId);
     const number = await this.numbering.next(src.company.code, 'REQ');
     const stamp = new Date().toLocaleDateString('pt-BR');
     const created = await this.prisma.requisition.create({

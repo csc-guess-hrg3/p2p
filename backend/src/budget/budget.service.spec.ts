@@ -11,12 +11,15 @@ describe('BudgetService — controle orçamentário', () => {
   let prisma: PrismaMock;
   let service: BudgetService;
   let getCcRateios: jest.Mock;
+  let getBranchRateios: jest.Mock;
 
   beforeEach(() => {
     prisma = createPrismaMock();
     getCcRateios = jest.fn();
+    getBranchRateios = jest.fn();
     const integration = {
       getCostCenterRateios: getCcRateios,
+      getBranchRateios,
     } as unknown as IntegrationService;
     service = new BudgetService(
       prisma as unknown as PrismaService,
@@ -31,27 +34,41 @@ describe('BudgetService — controle orçamentário', () => {
     expect(cfg.policy).toBe('INFORMATIVE');
   });
 
-  it('consumption: aloca o valor do item pelas linhas do rateio (RN-ORC-02)', async () => {
+  it('consumption: cruza rateio de FILIAL × rateio de CC (filial não vem do CC)', async () => {
     prisma.company.findFirstOrThrow.mockResolvedValue({ code: 'GUESS' });
-    // Rateio R1 distribui 60% p/ F1/CC-X e 40% p/ F2/CC-Y.
-    getCcRateios.mockResolvedValue([
+    // Rateio de FILIAL BR1: 60% F1, 40% F2 (a filial vem DAQUI — o rateio de CC
+    // não carrega filial no dado real do Linx).
+    getBranchRateios.mockResolvedValue([
       {
-        codigo: 'R1',
-        descricao: 'Rateio 1',
+        codigo: 'BR1',
+        descricao: 'Rateio filial',
         inativo: false,
         linhas: [
-          { filialCodigo: 'F1', centroCustoCodigo: 'CC-X', porcentagem: 60 },
-          { filialCodigo: 'F2', centroCustoCodigo: 'CC-Y', porcentagem: 40 },
+          { filialCodigo: 'F1', porcentagem: 60 },
+          { filialCodigo: 'F2', porcentagem: 40 },
         ],
       },
     ]);
-    // 1 item de PC ativo: R$ 1.000, rateio R1, comprometido em mar/2026.
+    // Rateio de CC CC1: 70% CC-X, 30% CC-Y.
+    getCcRateios.mockResolvedValue([
+      {
+        codigo: 'CC1',
+        descricao: 'Rateio CC',
+        inativo: false,
+        linhas: [
+          { centroCustoCodigo: 'CC-X', porcentagem: 70 },
+          { centroCustoCodigo: 'CC-Y', porcentagem: 30 },
+        ],
+      },
+    ]);
+    // 1 item de PC ativo: R$ 1.000, rateios BR1 + CC1, comprometido em mar/2026.
     prisma.purchaseOrderItem.findMany.mockResolvedValue([
       {
         totalPrice: 1000,
         quantity: 1,
         cancelledQty: 0,
-        costCenterRateioCode: 'R1',
+        branchRateioCode: 'BR1',
+        costCenterRateioCode: 'CC1',
         purchaseOrder: {
           integratedAt: new Date(2026, 2, 15),
           createdAt: new Date(2026, 2, 15),
@@ -71,20 +88,23 @@ describe('BudgetService — controle orçamentário', () => {
 
     const out = await service.consumption(TEST_USER, 'company-test', 2026);
 
-    const fx = out.cells.find(
-      (c) => c.branchErpCode === 'F1' && c.costCenterErpCode === 'CC-X',
-    );
-    const fy = out.cells.find(
-      (c) => c.branchErpCode === 'F2' && c.costCenterErpCode === 'CC-Y',
-    );
-    // 60% de 1000 = 600 no F1/CC-X (orçado 1000 → sobra 400, não estoura).
-    expect(fx?.committed).toBe(600);
-    expect(fx?.available).toBe(400);
-    expect(fx?.exceeded).toBe(false);
-    // 40% de 1000 = 400 no F2/CC-Y, que não tem orçamento → estoura.
-    expect(fy?.committed).toBe(400);
-    expect(fy?.budgeted).toBe(0);
-    expect(fy?.exceeded).toBe(true);
-    expect(out.totals).toEqual({ budgeted: 1000, committed: 1000, available: 0 });
+    const cell = (f: string, c: string) =>
+      out.cells.find(
+        (x) => x.branchErpCode === f && x.costCenterErpCode === c,
+      );
+    // Cruza filial × CC: 1000 × %filial × %cc.
+    expect(cell('F1', 'CC-X')?.committed).toBeCloseTo(420); // .6 × .7
+    expect(cell('F1', 'CC-Y')?.committed).toBeCloseTo(180); // .6 × .3
+    expect(cell('F2', 'CC-X')?.committed).toBeCloseTo(280); // .4 × .7
+    expect(cell('F2', 'CC-Y')?.committed).toBeCloseTo(120); // .4 × .3
+    // F1/CC-X tem orçamento 1000 → sobra 580, não estoura.
+    expect(cell('F1', 'CC-X')?.available).toBeCloseTo(580);
+    expect(cell('F1', 'CC-X')?.exceeded).toBe(false);
+    // F2/CC-Y não tem orçamento → estoura.
+    expect(cell('F2', 'CC-Y')?.budgeted).toBe(0);
+    expect(cell('F2', 'CC-Y')?.exceeded).toBe(true);
+    // Total comprometido = valor do item (percentuais somam 100% em cada eixo).
+    expect(out.totals.committed).toBeCloseTo(1000);
+    expect(out.totals.budgeted).toBe(1000);
   });
 });

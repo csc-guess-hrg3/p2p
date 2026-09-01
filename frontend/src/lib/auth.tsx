@@ -42,11 +42,6 @@ interface AuthContextValue {
    */
   login: (username: string, password: string, turnstileToken?: string) => Promise<void>;
   loginLocal: (username: string, password: string, turnstileToken?: string) => Promise<void>;
-  loginStore: (
-    cpf: string,
-    password: string,
-    options?: { isSetup?: boolean; turnstileToken?: string },
-  ) => Promise<void>;
   logout: () => Promise<void>;
   /** Simulação de login (admin): "ver como" o usuário. Devolve o efetivo. */
   impersonate: (userId: string) => Promise<AuthUser>;
@@ -149,43 +144,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  /**
-   * Login do vendedor de loja — CPF + senha. `isSetup=true` chama o
-   * endpoint que ATIVA o vendedor (primeiro acesso); senão, o de login.
-   */
-  const loginStore = useCallback(
-    async (
-      cpf: string,
-      password: string,
-      options: { isSetup?: boolean; turnstileToken?: string } = {},
-    ) => {
-      queryClient.clear();
-      // NÃO força env=PROD: o usuário escolheu HML/PROD no toggle do login;
-      // respeitamos a escolha. (Antes força "PROD" silenciosamente —
-      // vendedor que testava em HML caía em PROD sem aviso.)
-      localStorage.removeItem('p2p_company');
-      const endpoint = options.isSetup
-        ? '/auth/store-setup-password'
-        : '/auth/store-login';
-      const { data } = await api.post<{
-        accessToken: string;
-        refreshToken: string;
-      }>(
-        endpoint,
-        { cpf: cpf.replace(/\D/g, ''), password },
-        options.turnstileToken
-          ? { headers: { 'x-turnstile-token': options.turnstileToken } }
-          : undefined,
-      );
-      setToken(data.accessToken);
-      persistRefreshToken(data.refreshToken);
-      const me = await api.get<AuthUser>('/auth/me');
-      setUser(me.data);
-      setSessionExpired(false);
-    },
-    [],
-  );
-
   const logout = useCallback(async () => {
     // Best-effort: avisa o backend para apagar os cookies httpOnly. Se o
     // endpoint não estiver pronto (HML), seguimos com a limpeza local.
@@ -238,7 +196,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         acknowledgeSessionExpired,
         login,
         loginLocal,
-        loginStore,
         logout,
         impersonate,
         exitImpersonation,

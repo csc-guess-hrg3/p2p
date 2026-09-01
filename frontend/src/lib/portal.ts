@@ -17,7 +17,6 @@ export interface ClienteListItem {
   cidade: string;
   uf: string;
   tipo: string;
-  limite: number;
   pontualidade: string;
   aReceber: number;
   vencido: number;
@@ -50,7 +49,6 @@ export interface ClienteHeader {
   ddd: string;
   telefone: string;
   pontualidade: string;
-  limite: number;
 }
 
 export interface Dados1 {
@@ -81,6 +79,36 @@ export function useAreas() {
   return useQuery({
     queryKey: ['portal', 'areas'],
     queryFn: async () => (await api.get<PortalArea[]>('/portal/areas')).data,
+  });
+}
+
+/* ─── Comissões a receber ─── */
+export interface ComissaoTitulo {
+  cliente: string;
+  documento: string;
+  vencimento: string | null;
+  posicao: string;
+  valorAReceber: number;
+  taxa: number;
+  primeiroPedido: boolean;
+  comissao: number;
+}
+export interface ComissoesResumo {
+  total: number;
+  aVencer: number;
+  vencidos: number;
+  titulos: number;
+  vencidosTitulos: number;
+}
+export interface Comissoes {
+  resumo: ComissoesResumo;
+  titulos: ComissaoTitulo[];
+}
+
+export function useComissoes() {
+  return useQuery({
+    queryKey: ['portal', 'comissoes'],
+    queryFn: async () => (await api.get<Comissoes>('/portal/comissoes')).data,
   });
 }
 

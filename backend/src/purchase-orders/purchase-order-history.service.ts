@@ -34,7 +34,7 @@ export class PurchaseOrderHistoryService {
       where: { id: purchaseOrderId },
       include: {
         buyer: { select: { id: true, name: true } },
-        requisition: { select: { teamId: true } },
+        requisition: { select: { teamId: true, requesterId: true } },
       },
     });
     if (!po || po.deletedAt) {

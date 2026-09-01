@@ -9,6 +9,12 @@ export interface ErpBranch {
   inativo: boolean;
 }
 
+export interface ErpCostCenter {
+  codigo: string;
+  nome: string;
+  inativo: boolean;
+}
+
 export interface ErpSupplier {
   codigo: string;
   nome: string;
@@ -94,6 +100,12 @@ function erpQuery<T>(company: string | undefined, resource: string) {
 
 export function useBranches(company?: string) {
   return useQuery(erpQuery<ErpBranch[]>(company, 'branches'));
+}
+
+/** Centros de custo (lista MESTRE do ERP: todos, com código + nome). Fonte
+ * correta para o orçamentário — não usar os cc-rateios (parciais/por equipe). */
+export function useCostCenters(company?: string) {
+  return useQuery(erpQuery<ErpCostCenter[]>(company, 'cost-centers'));
 }
 
 export function useSuppliers(company?: string) {

@@ -160,23 +160,32 @@ export class BudgetService {
       select: { code: true },
     });
 
-    // Rateios de CC company-wide (teamId=null = sem filtro de equipe): mapa
-    // rateioCode → linhas (filial, CC, %).
-    const rateios = await this.integration.getCostCenterRateios(
-      company.code,
-      true,
-      null,
-    );
-    const rateioMap = new Map<
-      string,
-      { filial: string; cc: string; pct: number }[]
-    >();
-    for (const r of rateios) {
-      rateioMap.set(
+    // Rateios company-wide (teamId=null = sem filtro de equipe). A célula é
+    // FILIAL × CC, mas cada dimensão vem de um rateio DIFERENTE (dado real do
+    // Linx): a FILIAL vem do rateio de FILIAL (branchRateioCode) e o CC do
+    // rateio de CC (costCenterRateioCode) — o rateio de CC NÃO carrega filial
+    // (filial_codigo nulo em 100% das linhas). Então cruzamos os dois:
+    // valor × %filial × %cc. (Correção do "filial retornando null".)
+    const [ccRateios, branchRateios] = await Promise.all([
+      this.integration.getCostCenterRateios(company.code, true, null),
+      this.integration.getBranchRateios(company.code, true, null),
+    ]);
+    const ccMap = new Map<string, { cc: string; pct: number }[]>();
+    for (const r of ccRateios) {
+      ccMap.set(
+        r.codigo,
+        r.linhas.map((l) => ({
+          cc: l.centroCustoCodigo ?? '',
+          pct: Number(l.porcentagem),
+        })),
+      );
+    }
+    const branchMap = new Map<string, { filial: string; pct: number }[]>();
+    for (const r of branchRateios) {
+      branchMap.set(
         r.codigo,
         r.linhas.map((l) => ({
           filial: l.filialCodigo,
-          cc: l.centroCustoCodigo ?? '',
           pct: Number(l.porcentagem),
         })),
       );
@@ -195,6 +204,7 @@ export class BudgetService {
         totalPrice: true,
         quantity: true,
         cancelledQty: true,
+        branchRateioCode: true,
         costCenterRateioCode: true,
         purchaseOrder: { select: { integratedAt: true, createdAt: true } },
       },
@@ -204,8 +214,10 @@ export class BudgetService {
       `${f}|${c}|${y}|${m}`;
     const committed = new Map<string, number>();
     for (const it of items) {
-      const lines = rateioMap.get(it.costCenterRateioCode);
-      if (!lines || lines.length === 0) continue; // rateio desconhecido: não aloca
+      const ccLines = ccMap.get(it.costCenterRateioCode);
+      const branchLines = branchMap.get(it.branchRateioCode);
+      // Sem um dos rateios não dá pra formar a célula filial × CC: não aloca.
+      if (!ccLines?.length || !branchLines?.length) continue;
       const d = it.purchaseOrder.integratedAt ?? it.purchaseOrder.createdAt;
       const y = d.getFullYear();
       const m = d.getMonth() + 1;
@@ -216,9 +228,16 @@ export class BudgetService {
         q > 0
           ? Number(it.totalPrice) * ((q - canceled) / q)
           : Number(it.totalPrice);
-      for (const ln of lines) {
-        const k = key(ln.filial, ln.cc, y, m);
-        committed.set(k, (committed.get(k) ?? 0) + active * (ln.pct / 100));
+      // Cruza FILIAL × CC (percentuais independentes).
+      for (const bl of branchLines) {
+        for (const cl of ccLines) {
+          const k = key(bl.filial, cl.cc, y, m);
+          committed.set(
+            k,
+            (committed.get(k) ?? 0) +
+              active * (bl.pct / 100) * (cl.pct / 100),
+          );
+        }
       }
     }
 

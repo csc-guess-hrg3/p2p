@@ -146,8 +146,8 @@ export function SetupPasswordPage() {
             <h1 className="text-lg font-semibold">Defina sua senha</h1>
           </div>
           <p className="text-sm text-muted-foreground">
-            Escolha uma senha forte. Você usará seu e-mail corporativo (ou
-            CPF) + esta senha para acessar o P2P.
+            Escolha uma senha forte. Você usará seu login de acesso + esta
+            senha para entrar no sistema.
           </p>
         </CardHeader>
         <CardContent>

@@ -6,6 +6,7 @@ import {
   Building2,
   Mail,
   MapPin,
+  Pencil,
   Plus,
   Search,
   UserCog,
@@ -13,6 +14,8 @@ import {
 } from 'lucide-react';
 import { UserCompaniesDialog } from './UserCompaniesDialog';
 import { AddLocalUserDialog } from './AddLocalUserDialog';
+import { AddRepresentanteDialog } from './AddRepresentanteDialog';
+import { EditUserDialog } from './EditUserDialog';
 import { UserBranchAssignmentsDialog } from './UserBranchAssignmentsDialog';
 import {
   useUsers,
@@ -73,7 +76,9 @@ export function UsersPage() {
   const [search, setSearch] = useState('');
   const [companiesFor, setCompaniesFor] = useState<AdminUser | null>(null);
   const [branchesFor, setBranchesFor] = useState<AdminUser | null>(null);
+  const [editFor, setEditFor] = useState<AdminUser | null>(null);
   const [addLocalOpen, setAddLocalOpen] = useState(false);
+  const [addRepOpen, setAddRepOpen] = useState(false);
   const [deactivateTarget, setDeactivateTarget] = useState<AdminUser | null>(null);
   const [simulatingId, setSimulatingId] = useState<string | null>(null);
 
@@ -157,10 +162,20 @@ export function UsersPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2">
           <CardTitle>Usuários</CardTitle>
-          <Button size="sm" onClick={() => setAddLocalOpen(true)}>
-            <Plus className="size-4" />
-            Adicionar usuário local
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setAddRepOpen(true)}
+            >
+              <Plus className="size-4" />
+              Adicionar representante
+            </Button>
+            <Button size="sm" onClick={() => setAddLocalOpen(true)}>
+              <Plus className="size-4" />
+              Adicionar usuário local
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-col gap-3 sm:flex-row">
@@ -193,6 +208,7 @@ export function UsersPage() {
                 <TableHead>Nome</TableHead>
                 <TableHead>Login</TableHead>
                 <TableHead>E-mail</TableHead>
+                <TableHead>Tipo</TableHead>
                 <TableHead>Perfil</TableHead>
                 <TableHead>Equipe</TableHead>
                 <TableHead>Cargo</TableHead>
@@ -208,7 +224,7 @@ export function UsersPage() {
               {isLoading && (
                 <TableRow>
                   <TableCell
-                    colSpan={10}
+                    colSpan={11}
                     className="py-8 text-center text-muted-foreground"
                   >
                     Carregando…
@@ -218,7 +234,7 @@ export function UsersPage() {
               {!isLoading && rows.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={10}
+                    colSpan={11}
                     className="py-8 text-center text-muted-foreground"
                   >
                     Nenhum usuário.
@@ -233,6 +249,12 @@ export function UsersPage() {
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {u.email}
+                  </TableCell>
+                  <TableCell>
+                    <UserTypeBadge
+                      realm={u.realm}
+                      category={u.externalCategory}
+                    />
                   </TableCell>
                   <TableCell>
                     <Select
@@ -332,6 +354,14 @@ export function UsersPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setEditFor(u)}
+                        title="Editar nome e e-mail"
+                      >
+                        <Pencil className="size-4" />
+                      </Button>
                       {u.status === 'ACTIVE' &&
                         u.id !== currentUser?.id &&
                         !currentUser?.impersonatedBy && (
@@ -422,9 +452,18 @@ export function UsersPage() {
           onOpenChange={(v) => !v && setBranchesFor(null)}
         />
       )}
+      <EditUserDialog
+        user={editFor}
+        open={!!editFor}
+        onOpenChange={(v) => !v && setEditFor(null)}
+      />
       <AddLocalUserDialog
         open={addLocalOpen}
         onOpenChange={setAddLocalOpen}
+      />
+      <AddRepresentanteDialog
+        open={addRepOpen}
+        onOpenChange={setAddRepOpen}
       />
       <ConfirmDialog
         open={!!deactivateTarget}
@@ -444,5 +483,37 @@ export function UsersPage() {
         }}
       />
     </div>
+  );
+}
+
+/** Selo do TIPO do usuário: Interno × Representante × Vendedor (realm+categoria). */
+function UserTypeBadge({
+  realm,
+  category,
+}: {
+  realm?: string;
+  category?: string | null;
+}) {
+  const isExternal = realm === 'EXTERNAL';
+  let label = 'Interno';
+  let cls = 'bg-muted text-muted-foreground';
+  if (isExternal) {
+    if (category === 'REPRESENTANTE') {
+      label = 'Representante';
+      cls = 'bg-primary/10 text-primary';
+    } else if (category === 'VENDEDOR_LOJA') {
+      label = 'Vendedor';
+      cls = 'bg-amber-500/10 text-amber-600';
+    } else {
+      label = 'Externo';
+      cls = 'bg-primary/10 text-primary';
+    }
+  }
+  return (
+    <span
+      className={`inline-block whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium ${cls}`}
+    >
+      {label}
+    </span>
   );
 }

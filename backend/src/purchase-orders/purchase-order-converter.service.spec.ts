@@ -72,6 +72,11 @@ describe('PurchaseOrderConverterService.convert', () => {
     ensureSupplierForRequisition: jest.fn(),
     gravarPedidoCompra: jest.fn(),
   } as unknown as LinxErpService;
+  // Gate de convert (solicitante OU aprovador): nos testes de lógica de
+  // conversão liberamos como aprovador pra focar no comportamento do convert.
+  const approvals = {
+    isApproverForEntity: jest.fn().mockResolvedValue(true),
+  } as unknown as import('../approvals/approvals.service').ApprovalsService;
 
   beforeEach(() => {
     prisma = createPrismaMock();
@@ -79,6 +84,7 @@ describe('PurchaseOrderConverterService.convert', () => {
       prisma as unknown as PrismaService,
       numbering,
       linx,
+      approvals,
     );
   });
 

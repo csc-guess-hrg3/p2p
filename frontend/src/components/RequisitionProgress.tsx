@@ -167,6 +167,19 @@ function buildPhases(req: Props['req']): Phase[] {
     state: status === 'DRAFT' || isRevision ? 'current' : 'done',
   });
 
+  // 1.5) Validação de fornecedor — só quando a requisição está retida no gate
+  // (fornecedor novo aguardando o Revisor). Fica entre o envio e a aprovação.
+  if (status === 'SUPPLIER_VALIDATION') {
+    phases.push({
+      key: 'supplier-validation',
+      label: 'Validação de fornecedor',
+      Icon: AlertTriangle,
+      state: 'warning',
+      detail:
+        'Fornecedor novo aguardando validação do Revisor antes da aprovação do gestor.',
+    });
+  }
+
   // 2) Em aprovação
   phases.push({
     key: 'approval',

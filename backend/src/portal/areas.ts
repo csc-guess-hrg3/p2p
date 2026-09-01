@@ -20,6 +20,13 @@ export const PORTAL_AREAS: PortalArea[] = [
     description:
       'Seus clientes: cadastro, faturamentos e financeiro — cada um com os dados dele.',
   },
+  {
+    key: 'comissoes',
+    category: ExternalCategory.REPRESENTANTE,
+    title: 'Comissões a receber',
+    description:
+      'Sua comissão por título em aberto — você recebe conforme cada título é pago.',
+  },
 ];
 
 export function areasForCategory(category: string | null): PortalArea[] {

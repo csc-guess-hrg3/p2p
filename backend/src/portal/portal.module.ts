@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PortalAreasController } from './portal-areas.controller';
 import { ConsultaClientesController } from './consulta-clientes/consulta-clientes.controller';
 import { ConsultaClientesService } from './consulta-clientes/consulta-clientes.service';
+import { ComissoesController } from './comissoes.controller';
 import { ReportScopeService } from './report-scope.service';
 
 /**
@@ -11,7 +12,11 @@ import { ReportScopeService } from './report-scope.service';
  * vem do PrismaModule global.
  */
 @Module({
-  controllers: [PortalAreasController, ConsultaClientesController],
+  controllers: [
+    PortalAreasController,
+    ConsultaClientesController,
+    ComissoesController,
+  ],
   providers: [ReportScopeService, ConsultaClientesService],
 })
 export class PortalModule {}

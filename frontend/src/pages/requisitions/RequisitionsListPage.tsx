@@ -3,10 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { AlertTriangle, Download, Plus, Search } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { useRequisitions } from '@/lib/requisitions';
-import { useAuth } from '@/lib/auth';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
-import { ScopeSelect, useScope } from '@/components/ScopeSelect';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -42,18 +40,14 @@ const STATUS_OPTIONS = [
 
 export function RequisitionsListPage() {
   const { activeCompany } = useCompany();
-  const { user } = useAuth();
   const navigate = useNavigate();
-  const isAdmin = user?.profile === 'ADMIN';
   const [status, setStatus] = useState('ALL');
   const [search, setSearch] = useState('');
-  const [scope, setScope] = useScope('p2p:scope:requisicoes', isAdmin);
 
   const { data, isLoading, isError } = useRequisitions({
     companyId: activeCompany?.id,
     status: status === 'ALL' ? undefined : status,
     search: search || undefined,
-    scope,
   });
 
   const rows = data?.data ?? [];
@@ -119,12 +113,6 @@ export function RequisitionsListPage() {
             ))}
           </SelectContent>
         </Select>
-        <ScopeSelect
-          value={scope}
-          onChange={setScope}
-          canSeeAll={isAdmin}
-          showTeam={!!user?.teamId}
-        />
       </div>
 
       <div className="rounded-lg border bg-card">

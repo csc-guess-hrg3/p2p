@@ -167,6 +167,12 @@ export const NAV_SECTIONS: NavSection[] = [
         badgeKey: 'fiscal-pending',
       },
       {
+        to: '/fornecedores/validacoes',
+        label: 'Validação de Fornecedor',
+        icon: ClipboardCheck,
+        roles: FISCAL,
+      },
+      {
         to: '/fiscal/notas-fiscais',
         label: 'Notas Fiscais',
         icon: ClipboardCheck,

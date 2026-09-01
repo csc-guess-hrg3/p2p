@@ -12,11 +12,7 @@ import { CreateFundRequestDto } from './dto/create-fund-request.dto';
 import { LinxErpService } from '../integration/linx-erp.service';
 import { NumberingService } from '../numbering/numbering.service';
 import { ApprovalsService } from '../approvals/approvals.service';
-import {
-  ApprovalEntityType,
-  FundRequestStatus,
-  UserProfile,
-} from '../common/enums';
+import { ApprovalEntityType, FundRequestStatus } from '../common/enums';
 
 /**
  * Solicitações de Verba (SV).
@@ -103,7 +99,9 @@ export class FundRequestsService {
     if (!user.companyIds.includes(sv.companyId)) {
       throw new ForbiddenException('Sem acesso a esta solicitação.');
     }
-    if (sv.requesterId !== user.id && user.profile !== UserProfile.ADMIN) {
+    // Só o solicitante submete (identidade EFETIVA). Admin submete a SV de
+    // outro entrando no modo SIMULAÇÃO — sem bypass por perfil (decisão PO).
+    if (sv.requesterId !== user.id) {
       throw new ForbiddenException('Só o solicitante pode submeter.');
     }
     if (sv.status !== FundRequestStatus.DRAFT) {
@@ -162,6 +160,13 @@ export class FundRequestsService {
     if (!user.companyIds.includes(sv.companyId)) {
       throw new ForbiddenException('Sem acesso a esta solicitação.');
     }
+    // Own-only: só o solicitante reintegra a PRÓPRIA SV (mesma regra de
+    // findOne/submit). Sem isto, qualquer usuário da empresa forçava uma
+    // gravação financeira no Linx de SV de outro, promovia p/ INTEGRATED e lia
+    // o número do ERP de volta (achado da revisão). Admin via SIMULAÇÃO.
+    if (sv.requesterId !== user.id) {
+      throw new ForbiddenException('Sem acesso a esta solicitação.');
+    }
     if (sv.status === FundRequestStatus.DRAFT) {
       throw new BadRequestException(
         'SV ainda não foi aprovada — não há o que integrar no Linx.',
@@ -188,12 +193,10 @@ export class FundRequestsService {
       companyId: companyId ? companyId : { in: user.companyIds },
       ...(status ? { status } : {}),
       ...(search ? { number: { contains: search } } : {}),
-      // Escopo de equipe (igual às requisições): não-admin só vê as SVs da
-      // PRÓPRIA equipe (via a equipe do solicitante) — antes via TODAS da
-      // empresa, o que expunha SV de outros usuários (bug visto na simulação).
-      ...(user.profile !== UserProfile.ADMIN
-        ? { requester: { teamId: user.teamId } }
-        : {}),
+      // Cada usuário vê SÓ as próprias SVs (identidade EFETIVA). Admin vê as de
+      // outros entrando no modo SIMULAÇÃO — sem escopo por equipe nem bypass por
+      // perfil (decisão PO: mesma regra dos pedidos).
+      requesterId: user.id,
     };
     const [data, total] = await Promise.all([
       this.prisma.fundRequest.findMany({
@@ -219,7 +222,7 @@ export class FundRequestsService {
         items: true,
         requester: { select: { id: true, name: true, teamId: true } },
         requisition: { select: { id: true, number: true } },
-        purchaseOrder: { select: { id: true, number: true } },
+        purchaseOrder: { select: { id: true, number: true, buyerId: true } },
       },
     });
     if (!sv || sv.deletedAt) {
@@ -228,12 +231,16 @@ export class FundRequestsService {
     if (!user.companyIds.includes(sv.companyId)) {
       throw new ForbiddenException('Sem acesso a esta solicitação.');
     }
-    // Escopo de equipe: não-admin só abre SV da própria equipe (fecha o
-    // acesso direto por id a SV de outro usuário/equipe).
-    if (
-      user.profile !== UserProfile.ADMIN &&
-      sv.requester?.teamId !== user.teamId
-    ) {
+    // Own-only (+ aprovador + comprador da cadeia): abrem o detalhe o
+    // SOLICITANTE (dono), o APROVADOR da cadeia (a tela de aprovação abre o
+    // findOne da SV que ele decide) e o COMPRADOR do PC vinculado (navegação
+    // PC → SV — mesma compra). Fecha o acesso direto por id a SV de outro;
+    // admin sem vínculo abre a de outro via SIMULAÇÃO (decisão PO).
+    const canView =
+      sv.requesterId === user.id ||
+      sv.purchaseOrder?.buyerId === user.id ||
+      (await this.approvals.isApproverForEntity(user, { fundRequestId: sv.id }));
+    if (!canView) {
       throw new ForbiddenException('Sem acesso a esta solicitação.');
     }
     return sv;

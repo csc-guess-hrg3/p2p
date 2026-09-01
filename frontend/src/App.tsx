@@ -25,6 +25,10 @@ const SetupPasswordPage = lazyPage(
   () => import('@/pages/SetupPasswordPage'),
   'SetupPasswordPage',
 );
+const RecoverAccessPage = lazyPage(
+  () => import('@/pages/RecoverAccessPage'),
+  'RecoverAccessPage',
+);
 // Área Externa (portal do representante) — shell isolado do app interno.
 const ExternalLoginPage = lazyPage(
   () => import('@/pages/externo/ExternalLoginPage'),
@@ -41,6 +45,10 @@ const ConsultaClientesListPage = lazyPage(
 const ClienteDetailPage = lazyPage(
   () => import('@/pages/externo/consulta-clientes/ClienteDetailPage'),
   'ClienteDetailPage',
+);
+const ComissoesPage = lazyPage(
+  () => import('@/pages/externo/ComissoesPage'),
+  'ComissoesPage',
 );
 const DashboardPage = lazyPage(() => import('@/pages/DashboardPage'), 'DashboardPage');
 const RequisitionsListPage = lazyPage(
@@ -152,6 +160,10 @@ const BranchDetailPage = lazyPage(
   () => import('@/pages/admin/BranchDetailPage'),
   'BranchDetailPage',
 );
+const SupplierValidationQueuePage = lazyPage(
+  () => import('@/pages/suppliers/SupplierValidationQueuePage'),
+  'SupplierValidationQueuePage',
+);
 const SuppliersPage = lazyPage(
   () => import('@/pages/suppliers/SuppliersPage'),
   'SuppliersPage',
@@ -186,6 +198,7 @@ function App() {
               <Routes>
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/definir-senha" element={<SetupPasswordPage />} />
+                <Route path="/recuperar-acesso" element={<RecoverAccessPage />} />
 
                 {/* Área Externa — portal do representante (fora do app interno) */}
                 <Route path="/externo/login" element={<ExternalLoginPage />} />
@@ -200,6 +213,7 @@ function App() {
                       path="consulta-clientes/:codigo"
                       element={<ClienteDetailPage />}
                     />
+                    <Route path="comissoes" element={<ComissoesPage />} />
                   </Route>
                 </Route>
 
@@ -270,6 +284,10 @@ function App() {
                     element={<RequireProfile roles={['ADMIN', 'REVIEWER']} />}
                   >
                     <Route path="fornecedores" element={<SuppliersPage />} />
+                    <Route
+                      path="fornecedores/validacoes"
+                      element={<SupplierValidationQueuePage />}
+                    />
                     <Route
                       path="fornecedores/:codigo"
                       element={<SupplierDetailPage />}

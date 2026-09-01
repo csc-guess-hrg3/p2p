@@ -79,6 +79,7 @@ export interface PrismaMock {
   budgetControlConfig: ModelMock;
   documentSequence: ModelMock;
   fiscalItemRequest: ModelMock;
+  supplierValidation: ModelMock;
   paApprovalNotification: ModelMock;
   paDeliveryChange: ModelMock;
   $transaction: Fn;
@@ -119,6 +120,7 @@ export function createPrismaMock(): PrismaMock {
     budgetControlConfig: model(),
     documentSequence: model(),
     fiscalItemRequest: model(),
+    supplierValidation: model(),
     paApprovalNotification: model(),
     paDeliveryChange: model(),
     // $transaction: roda o callback passando o próprio mock como tx, ou

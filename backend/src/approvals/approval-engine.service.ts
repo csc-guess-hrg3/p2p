@@ -93,6 +93,15 @@ export class ApprovalEngineService {
     });
     if (me?.positionId !== level.requiredPositionId) return false;
 
+    // Fronteira de EMPRESA: Position é GLOBAL (sem companyId) e usuários
+    // pertencem a um subconjunto de empresas. Sem esta checagem, o mesmo cargo
+    // (ex.: DIRETOR) decidiria documentos de OUTRA empresa (achado da revisão —
+    // cross-company via cargo). Exige que o usuário pertença à empresa do doc.
+    const inCompany = await this.prisma.userCompany.count({
+      where: { userId, companyId: step.companyId },
+    });
+    if (inCompany === 0) return false;
+
     if (!level.scopeByBranch) return true;
     const branchCode = await this.resolveBranchCode(step);
     if (!branchCode) return false;
@@ -125,6 +134,10 @@ export class ApprovalEngineService {
       positionId: level.requiredPositionId,
       status: 'ACTIVE',
       deletedAt: null,
+      // Fronteira de EMPRESA (cargo é global): só candidatos que pertencem à
+      // empresa do documento — senão notificaríamos o cargo em TODAS as
+      // empresas (achado da revisão, cross-company notification).
+      companies: { some: { companyId: step.companyId } },
     };
     if (level.scopeByBranch) {
       const branchCode = await this.resolveBranchCode(step);

@@ -7,6 +7,10 @@ const STATUS_MAP: Record<string, { label: string; variant: Variant }> = {
   // Requisição
   DRAFT: { label: 'Rascunho', variant: 'neutral' },
   SUBMITTED: { label: 'Enviada', variant: 'default' },
+  SUPPLIER_VALIDATION: {
+    label: 'Validação de fornecedor',
+    variant: 'warning',
+  },
   IN_APPROVAL: { label: 'Em aprovação', variant: 'warning' },
   APPROVED: { label: 'Aprovada', variant: 'success' },
   REJECTED: { label: 'Rejeitada', variant: 'destructive' },

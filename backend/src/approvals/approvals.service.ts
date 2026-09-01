@@ -126,17 +126,27 @@ export class ApprovalsService {
       })),
     });
 
-    // Notificação: quando o primeiro nível tem aprovador fixo, avisa direto.
-    // Para níveis dinâmicos (por cargo), a notificação será resolvida na
-    // próxima fase quando o engine souber quem são os candidatos.
-    if (needed[0].approverId && entityId) {
-      await this.notifyApprover(
-        needed[0].approverId,
-        params.companyId,
-        params.entityType,
-        entityId,
-        params.documentNumber,
-      );
+    // Notifica os candidatos do PRIMEIRO nível — aprovador fixo (1 pessoa) OU
+    // todos os usuários com o cargo exigido (+ filial, se escopado). Antes só
+    // avisava o fixo; por cargo ninguém era avisado (parte do bug F1).
+    if (entityId) {
+      const candidates = await this.engine.candidateApprovers({
+        requisitionId: params.requisitionId ?? null,
+        purchaseOrderId: params.purchaseOrderId ?? null,
+        fundRequestId: params.fundRequestId ?? null,
+        assignedApproverId: needed[0].approverId,
+        teamApprovalLevelId: needed[0].id,
+        companyId: params.companyId,
+      });
+      for (const uid of candidates) {
+        await this.notifyApprover(
+          uid,
+          params.companyId,
+          params.entityType,
+          entityId,
+          params.documentNumber,
+        );
+      }
     }
     return needed[0].level;
   }
@@ -173,6 +183,47 @@ export class ApprovalsService {
     await this.prisma.approvalStep.deleteMany({ where: { requisitionId } });
   }
 
+  /**
+   * Inicia (ou reinicia) a cadeia de aprovação do gestor para uma requisição
+   * e transiciona o status: cadeia vazia → APPROVED; senão → IN_APPROVAL.
+   * Preserva `submittedAt` se já existir (caso da retomada após validação de
+   * fornecedor, em que a submissão já aconteceu). Fonte única usada tanto pelo
+   * `submit` quanto pela aprovação do fornecedor novo (SupplierValidation),
+   * pra não duplicar a lógica de arranque da cadeia. Aplica o fail-safe de
+   * alçada antes de mutar estado.
+   */
+  async startRequisitionApprovalChain(requisitionId: string): Promise<void> {
+    const req = await this.prisma.requisition.findUniqueOrThrow({
+      where: { id: requisitionId },
+    });
+    await this.assertChainConfigured(req.teamId);
+    await this.resetForRequisition(req.id);
+    const firstLevel = await this.startApproval({
+      companyId: req.companyId,
+      teamId: req.teamId,
+      entityType: ApprovalEntityType.REQUISITION,
+      requisitionId: req.id,
+      amount: Number(req.totalAmount),
+      documentNumber: req.number,
+    });
+    const now = new Date();
+    await this.prisma.requisition.update({
+      where: { id: req.id },
+      data:
+        firstLevel === null
+          ? {
+              status: RequisitionStatus.APPROVED,
+              submittedAt: req.submittedAt ?? now,
+              approvedAt: now,
+            }
+          : {
+              status: RequisitionStatus.IN_APPROVAL,
+              submittedAt: req.submittedAt ?? now,
+              currentTierLevel: firstLevel,
+            },
+    });
+  }
+
   /** Remove o fluxo de aprovação de um PC (reinício após edição). */
   async resetForPurchaseOrder(purchaseOrderId: string): Promise<void> {
     await this.prisma.approvalStep.deleteMany({ where: { purchaseOrderId } });
@@ -203,7 +254,18 @@ export class ApprovalsService {
       where: {
         status: ApprovalStepStatus.PENDING,
         companyId: { in: user.companyIds },
-        ...(isAdmin ? {} : { assignedApproverId: { in: approverIds! } }),
+        // Não-admin: aprovador FIXO (meu ou delegado) OU nível DINÂMICO por
+        // cargo (assignedApproverId nulo). Os dinâmicos entram todos aqui e são
+        // filtrados por cargo/filial no laço abaixo (userCanDecideStep) — sem
+        // isto, alçada por cargo NUNCA aparecia na fila (bug F1).
+        ...(isAdmin
+          ? {}
+          : {
+              OR: [
+                { assignedApproverId: { in: approverIds! } },
+                { assignedApproverId: null },
+              ],
+            }),
       },
       include: {
         requisition: {
@@ -229,6 +291,15 @@ export class ApprovalsService {
     // devem aparecer na fila.
     const active: typeof steps = [];
     for (const step of steps) {
+      // Nível dinâmico (sem aprovador fixo): confirma que o usuário tem o cargo
+      // exigido (e a filial, quando o nível é escopado por filial).
+      if (
+        !isAdmin &&
+        step.assignedApproverId === null &&
+        !(await this.engine.userCanDecideStep(user.id, step))
+      ) {
+        continue;
+      }
       const docStatus = await this.engine.documentStatus(step);
       if (docStatus && FINALIZED_DOC_STATUSES.has(docStatus)) continue;
       const lowerPending = await this.prisma.approvalStep.count({
@@ -241,6 +312,108 @@ export class ApprovalsService {
       if (lowerPending === 0) active.push(step);
     }
     return active;
+  }
+
+  /**
+   * O usuário pode VER este documento por ser aprovador na cadeia dele?
+   *
+   * A tela de aprovação abre o DETALHE (findOne) do documento — então, além do
+   * dono, quem precisa decidir tem que conseguir abrir. Retorna true se existe
+   * algum ApprovalStep do documento que este usuário pode decidir (aprovador
+   * fixo/delegado OU dinâmico por cargo+filial, via engine.userCanDecideStep),
+   * cobrindo também níveis já decididos por ele (referência).
+   *
+   * Admin: também true se houver step PENDENTE — mesmo override de destrave do
+   * pendingForUser (admin decide quando o aprovador está fora). Sem step
+   * pendente, admin não ganha visão: usa o modo SIMULAÇÃO (decisão PO).
+   */
+  async isApproverForEntity(
+    user: AuthenticatedUser,
+    ref: {
+      requisitionId?: string;
+      purchaseOrderId?: string;
+      fundRequestId?: string;
+    },
+  ): Promise<boolean> {
+    // Guarda: sem NENHUM id o where cairia para "toda a empresa" e casaria
+    // qualquer step — over-allow. Exige exatamente uma âncora de documento.
+    if (!ref.requisitionId && !ref.purchaseOrderId && !ref.fundRequestId) {
+      return false;
+    }
+    const where: Prisma.ApprovalStepWhereInput = {
+      companyId: { in: user.companyIds },
+      ...(ref.requisitionId ? { requisitionId: ref.requisitionId } : {}),
+      ...(ref.purchaseOrderId ? { purchaseOrderId: ref.purchaseOrderId } : {}),
+      ...(ref.fundRequestId ? { fundRequestId: ref.fundRequestId } : {}),
+    };
+    const steps = await this.prisma.approvalStep.findMany({
+      where,
+      select: {
+        status: true,
+        companyId: true,
+        assignedApproverId: true,
+        teamApprovalLevelId: true,
+        requisitionId: true,
+        purchaseOrderId: true,
+        fundRequestId: true,
+      },
+    });
+    if (steps.length === 0) return false;
+    if (
+      user.profile === UserProfile.ADMIN &&
+      steps.some((s) => s.status === ApprovalStepStatus.PENDING)
+    ) {
+      return true;
+    }
+    for (const step of steps) {
+      if (await this.engine.userCanDecideStep(user.id, step)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * O usuário pode decidir um step PENDENTE (nível ativo) deste documento
+   * AGORA? Usado por ações do aprovador atual — ex.: selecionar a cotação
+   * vencedora. Cobre aprovador fixo, delegado e DINÂMICO por cargo (+ filial),
+   * ao contrário do antigo `assignedApproverId: user.id` que só via o fixo.
+   * Admin tem override (mesma regra da fila `pendingForUser`).
+   */
+  async isPendingDecider(
+    user: AuthenticatedUser,
+    ref: {
+      requisitionId?: string;
+      purchaseOrderId?: string;
+      fundRequestId?: string;
+    },
+  ): Promise<boolean> {
+    if (!ref.requisitionId && !ref.purchaseOrderId && !ref.fundRequestId) {
+      return false;
+    }
+    const steps = await this.prisma.approvalStep.findMany({
+      where: {
+        status: ApprovalStepStatus.PENDING,
+        companyId: { in: user.companyIds },
+        ...(ref.requisitionId ? { requisitionId: ref.requisitionId } : {}),
+        ...(ref.purchaseOrderId
+          ? { purchaseOrderId: ref.purchaseOrderId }
+          : {}),
+        ...(ref.fundRequestId ? { fundRequestId: ref.fundRequestId } : {}),
+      },
+      select: {
+        companyId: true,
+        assignedApproverId: true,
+        teamApprovalLevelId: true,
+        requisitionId: true,
+        purchaseOrderId: true,
+        fundRequestId: true,
+      },
+    });
+    if (steps.length === 0) return false;
+    if (user.profile === UserProfile.ADMIN) return true;
+    for (const step of steps) {
+      if (await this.engine.userCanDecideStep(user.id, step)) return true;
+    }
+    return false;
   }
 
   /**
@@ -304,6 +477,11 @@ export class ApprovalsService {
     });
     if (!step)
       throw new NotFoundException('Etapa de aprovação não encontrada.');
+    // Fronteira de EMPRESA (defesa a mais, além do userCanDecideStep): impede
+    // decidir step de empresa fora do acesso do usuário via id direto (IDOR).
+    if (!user.companyIds.includes(step.companyId)) {
+      throw new NotFoundException('Etapa de aprovação não encontrada.');
+    }
     if (step.status !== ApprovalStepStatus.PENDING) {
       throw new BadRequestException('Esta etapa já foi decidida.');
     }
@@ -442,18 +620,21 @@ export class ApprovalsService {
         });
         await this.updateEntityCurrentLevel(tx, step, next.level);
       });
-      // Notificação só pra aprovador fixo. Pra dinâmico (sem assignedApproverId)
-      // precisaríamos resolver os candidatos (Fase 1.5): por ora ficam só
-      // visíveis na lista do `/aprovacoes` de quem tiver perfil compatível.
-      if (next.assignedApproverId) {
+      // Notifica os candidatos do próximo nível — fixo (1 pessoa) OU por cargo
+      // (+ filial). Antes só o fixo era avisado; por cargo, ninguém (bug F1).
+      const nextEntityId =
+        next.requisitionId ??
+        next.purchaseOrderId ??
+        (next.fundRequestId as string);
+      const nextDocNumber = await this.engine.documentNumber(step);
+      const nextCandidates = await this.engine.candidateApprovers(next);
+      for (const uid of nextCandidates) {
         await this.notifyApprover(
-          next.assignedApproverId,
+          uid,
           step.companyId,
           step.entityType,
-          next.requisitionId ??
-            next.purchaseOrderId ??
-            (next.fundRequestId as string),
-          await this.engine.documentNumber(step),
+          nextEntityId,
+          nextDocNumber,
         );
       }
       return { result: 'PENDING' as const, nextLevel: next.level };
@@ -514,6 +695,11 @@ export class ApprovalsService {
     });
     if (!step)
       throw new NotFoundException('Etapa de aprovação não encontrada.');
+    // Fronteira de EMPRESA (defesa a mais, além do userCanDecideStep): impede
+    // decidir step de empresa fora do acesso do usuário via id direto (IDOR).
+    if (!user.companyIds.includes(step.companyId)) {
+      throw new NotFoundException('Etapa de aprovação não encontrada.');
+    }
     if (step.status !== ApprovalStepStatus.PENDING) {
       throw new BadRequestException('Esta etapa já foi decidida.');
     }

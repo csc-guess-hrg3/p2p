@@ -1,38 +1,39 @@
 import { ForbiddenException } from '@nestjs/common';
 import { UserProfile } from '../common/enums';
 import type { AuthenticatedUser } from '../auth/auth.types';
+import { isDefaultAdmin } from '../auth/default-admin';
 
 /**
- * Isolamento de acesso a um Pedido de Compra.
+ * Isolamento de acesso a um Pedido de Compra — pela identidade EFETIVA.
  *
- * - Pedido P2P (origin P2P): além da empresa, não-admin só acessa pedidos da
- *   PRÓPRIA EQUIPE (via `po.teamId`, com fallback p/ a requisição de origem).
- *   Sem isto, operações por `:id` (detalhe, histórico, cancelar, editar) eram
- *   um IDOR cross-equipe (auditoria P1-1).
- * - Pedido EXTERNO (importado do Linx): não tem requisição nem equipe própria
- *   — visível por EMPRESA (qualquer usuário habilitado na empresa). Decisão de
- *   produto do cutover: o pedido é uma entidade única, a flag `origin` só
- *   distingue externo × plataforma.
- *
- * O caller deve carregar o PO incluindo os escalares (`origin`, `teamId`) e
- * `requisition: { select: { teamId } }`.
+ * Um PC é UMA ponta da cadeia de compra (requisição → PC → SV). São "donos"
+ * da mesma compra e podem abrir o PC:
+ *  - o COMPRADOR (buyerId — quem converteu);
+ *  - o SOLICITANTE da requisição de origem (requisition.requesterId) — vê o PC
+ *    gerado da própria requisição, mesmo que outro tenha convertido;
+ *  - o REVISOR fiscal — casa NF-e ↔ PC (fiscal-documents), de qualquer um.
+ * Exceção: a conta PADRÃO admin abre os PCs ÓRFÃOS (buyerId nulo, externos do
+ * Linx sem dono), que não têm quem simular. Os demais (inclusive admin) abrem o
+ * de outro via modo SIMULAÇÃO (decisão PO). O caller carrega o PO com
+ * `companyId`, `buyerId` e `requisition: { requesterId }`.
  */
 export function assertPoTeamAccess(
   user: AuthenticatedUser,
   po: {
     companyId: string;
-    origin?: string;
-    teamId?: string | null;
-    requisition?: { teamId: string | null } | null;
+    buyerId: string | null;
+    requisition?: { requesterId: string | null } | null;
   },
 ): void {
   if (!user.companyIds.includes(po.companyId)) {
     throw new ForbiddenException('Sem acesso a este pedido.');
   }
-  // EXTERNO: a checagem de empresa acima já basta.
-  if (po.origin === 'EXTERNO') return;
-  const teamId = po.teamId ?? po.requisition?.teamId ?? null;
-  if (user.profile !== UserProfile.ADMIN && teamId !== user.teamId) {
+  const isOwner =
+    po.buyerId === user.id || po.requisition?.requesterId === user.id;
+  const isReviewer = user.profile === UserProfile.REVIEWER;
+  const isOrphanForDefaultAdmin =
+    po.buyerId === null && isDefaultAdmin(user);
+  if (!isOwner && !isReviewer && !isOrphanForDefaultAdmin) {
     throw new ForbiddenException('Sem acesso a este pedido.');
   }
 }

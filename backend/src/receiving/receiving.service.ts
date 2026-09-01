@@ -48,13 +48,24 @@ export class ReceivingService {
 
     const po = await this.prisma.purchaseOrder.findUnique({
       where: { id: dto.purchaseOrderId },
-      include: { items: true, company: true },
+      include: {
+        items: true,
+        company: true,
+        requisition: { select: { requesterId: true } },
+      },
     });
     if (!po || po.deletedAt) {
       throw new NotFoundException('Pedido de compra não encontrado.');
     }
     if (!user.companyIds.includes(po.companyId)) {
       throw new ForbiddenException('Sem acesso a este pedido.');
+    }
+    // Own-only (decisão PO): só o dono do PC (comprador OU solicitante da
+    // requisição de origem) registra recebimento. Admin via SIMULAÇÃO.
+    if (po.buyerId !== user.id && po.requisition?.requesterId !== user.id) {
+      throw new ForbiddenException(
+        'Só o dono do pedido pode registrar recebimento.',
+      );
     }
     if (!RECEIVABLE_PO_STATUS.includes(po.status)) {
       throw new BadRequestException(
@@ -131,6 +142,21 @@ export class ReceivingService {
     const where: Prisma.ReceivingWhereInput = {
       deletedAt: null,
       companyId: companyId ? companyId : { in: user.companyIds },
+      // Own-only (decisão PO): cada um só vê os recebimentos dos PRÓPRIOS
+      // pedidos — o RECEBEDOR (quem registrou) OU o dono do PC (comprador OU
+      // solicitante da requisição de origem). Antes vazava nº/status de PCs de
+      // outros a qualquer usuário da empresa (achado da revisão).
+      OR: [
+        { receivedById: user.id },
+        {
+          purchaseOrder: {
+            OR: [
+              { buyerId: user.id },
+              { requisition: { requesterId: user.id } },
+            ],
+          },
+        },
+      ],
       ...(purchaseOrderId ? { purchaseOrderId } : {}),
       ...(status ? { status } : {}),
       ...(search ? { number: { contains: search } } : {}),
@@ -158,13 +184,31 @@ export class ReceivingService {
       include: {
         items: true,
         receivedBy: { select: { id: true, name: true } },
-        purchaseOrder: { select: { id: true, number: true, status: true } },
+        purchaseOrder: {
+          select: {
+            id: true,
+            number: true,
+            status: true,
+            buyerId: true,
+            requisition: { select: { requesterId: true } },
+          },
+        },
       },
     });
     if (!receiving || receiving.deletedAt) {
       throw new NotFoundException('Recebimento não encontrado.');
     }
     if (!user.companyIds.includes(receiving.companyId)) {
+      throw new ForbiddenException('Sem acesso a este recebimento.');
+    }
+    // Own-only: o recebedor OU o dono do PC (comprador/solicitante). Admin via
+    // SIMULAÇÃO.
+    const po = receiving.purchaseOrder;
+    const canView =
+      receiving.receivedById === user.id ||
+      po?.buyerId === user.id ||
+      po?.requisition?.requesterId === user.id;
+    if (!canView) {
       throw new ForbiddenException('Sem acesso a este recebimento.');
     }
     return receiving;
