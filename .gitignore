@@ -80,3 +80,5 @@ backend/_*.js
 backend/_*.sql
 backend/scripts/_*.js
 backend/scripts/_*.sql
+tmp_*.sql
+backend/tmp_*.sql
