@@ -502,6 +502,10 @@ export class RequisitionsService {
       // vê as de outros entrando no modo SIMULAÇÃO — sem escopo por equipe nem
       // 'ver todas' (decisão PO: mesma regra dos pedidos).
       requesterId: user.id,
+      // Esconde as filhas de recorrência em série (os "meses" gerados
+      // automaticamente na aprovação, que já viraram pedido) — poluiriam a
+      // lista. Elas são acessíveis pelo pai / pelos pedidos que originaram.
+      recurrenceParentId: null,
       ...(status ? { status } : {}),
       ...(search
         ? {
