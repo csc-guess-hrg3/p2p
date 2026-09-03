@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RequisitionsService } from './requisitions.service';
+import { RequisitionRecurrenceService } from './requisition-recurrence.service';
 import { CreateRequisitionDto } from './dto/create-requisition.dto';
 import { UpdateRequisitionDto } from './dto/update-requisition.dto';
 import { QueryRequisitionsDto } from './dto/query-requisitions.dto';
@@ -24,7 +25,23 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 @UseGuards(JwtAuthGuard)
 @Controller('requisitions')
 export class RequisitionsController {
-  constructor(private readonly requisitions: RequisitionsService) {}
+  constructor(
+    private readonly requisitions: RequisitionsService,
+    private readonly recurrence: RequisitionRecurrenceService,
+  ) {}
+
+  @Post('admin/recurrence/run')
+  @ApiOperation({
+    summary:
+      'Dispara o scan de recorrência (gera a série de pedidos das recorrentes aprovadas). ADMIN.',
+  })
+  async runRecurrence(@CurrentUser() user: AuthenticatedUser) {
+    if (user.profile !== 'ADMIN') {
+      return { ok: false, error: 'Apenas ADMIN pode disparar a recorrência.' };
+    }
+    const r = await this.recurrence.run();
+    return { ok: true, ...r };
+  }
 
   @Post()
   @ApiOperation({ summary: 'Cria uma requisição (rascunho)' })
