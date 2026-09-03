@@ -690,11 +690,14 @@ export function RequisitionDetailPage() {
           <AttachmentsSection
             kind="requisition"
             parentId={req.id}
-            // Só o solicitante adiciona/exclui anexos. Aprovador, revisor e
-            // admin vêem mas não mexem. E em QUALQUER estado finalizado
-            // (aprovado/rejeitado/cancelado/convertido) ninguém mexe — tudo
-            // leitura.
-            readOnly={isFinalized || user?.id !== req.requester?.id}
+            // Anexo só é ADICIONADO na fase de requisição/revisão: apenas em
+            // DRAFT ou REVISION, e só pelo solicitante. Em aprovação, aprovado,
+            // convertido, etc. — e pra aprovador/revisor/admin — é só consulta.
+            readOnly={
+              !(
+                req.status === 'DRAFT' || req.status === 'REVISION'
+              ) || user?.id !== req.requester?.id
+            }
             hint="Contratos, faturas e documentos de apoio (PDF/DOCX/XLSX/imagens — até 10 MB cada, máx. 10). O PDF da cotação é anexado no próprio cadastro da cotação."
             allowedDocKinds={['CONTRACT', 'INVOICE', 'OTHER']}
             // Os anexos QUE JÁ VIRARAM cotação aparecem dentro do card da
