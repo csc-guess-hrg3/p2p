@@ -730,6 +730,10 @@ model Requisition {
   // atualizado a cada geração.
   recurrenceParentId String? @db.UniqueIdentifier
   nextRecurrenceAt   DateTime?
+  // Modelo novo (série): ao aprovar uma recorrente, gera-se a SÉRIE inteira de
+  // uma vez (N pedidos com ENTREGA mensal), em vez do pinga-a-pinga por cron.
+  // Este carimbo marca que a série já foi gerada — evita regerar no scan.
+  seriesGeneratedAt  DateTime?
   contractRef      String?   @db.NVarChar(100)  // contrato vinculado (quando aplicável)
   // Contagem em cache de anexos com kind=QUOTATION — recalculada pelo
   // AttachmentsService a cada upload/delete. A fonte da verdade pro

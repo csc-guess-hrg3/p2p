@@ -5,6 +5,7 @@ import { RequisitionRecurrenceService } from './requisition-recurrence.service';
 import { IntegrationModule } from '../integration/integration.module';
 import { ApprovalsModule } from '../approvals/approvals.module';
 import { SupplierValidationModule } from '../supplier-validation/supplier-validation.module';
+import { PurchaseOrdersModule } from '../purchase-orders/purchase-orders.module';
 import { SettingsModule } from '../settings/settings.module';
 import { NumberingModule } from '../numbering/numbering.module';
 import { NotificationsModule } from '../notifications/notifications.module';
@@ -14,6 +15,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     IntegrationModule,
     ApprovalsModule,
     SupplierValidationModule,
+    PurchaseOrdersModule,
     SettingsModule,
     NumberingModule,
     NotificationsModule,
