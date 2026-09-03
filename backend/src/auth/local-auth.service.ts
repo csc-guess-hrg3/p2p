@@ -64,6 +64,84 @@ function sha256(s: string): string {
   return crypto.createHash('sha256').update(s).digest('hex');
 }
 
+/** Escapa texto que entra no HTML do e-mail (nome vem do ERP). */
+function escapeHtml(s: string): string {
+  return (s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Identidade visual do e-mail: a marca é GUESS (vermelho/branco); HRG3 é só
+// infra e não aparece pro usuário. [[marca_e_guess_nao_hrg3]]
+const GUESS_RED = '#E4002B';
+
+/** Monta o e-mail (assunto + HTML Guess + texto puro) de definição de senha. */
+export function buildPasswordEmail(
+  name: string,
+  link: string,
+  purpose: 'SETUP' | 'RESET',
+  login?: string | null,
+): { subject: string; html: string; text: string } {
+  const isSetup = purpose === 'SETUP';
+  const subject = isSetup
+    ? 'Guess · Defina sua senha de acesso'
+    : 'Guess · Redefina sua senha';
+  const cta = isSetup ? 'Definir minha senha' : 'Redefinir minha senha';
+  const intro = isSetup
+    ? 'Seu acesso ao portal da Guess foi criado. Para começar, defina a sua senha clicando no botão abaixo.'
+    : 'Recebemos uma solicitação para redefinir a sua senha. Clique no botão abaixo para criar uma nova.';
+  const safeName = escapeHtml(name);
+  const hours = TOKEN_LIFETIME_HOURS;
+  // Caixinha com o login (código do rep / usuário) — pra ele não precisar
+  // procurar o login separado; vem no mesmo e-mail.
+  const loginRow = login
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px 0;"><tr><td style="background:#f7f7f7;border-left:3px solid ${GUESS_RED};padding:11px 14px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#4a4a4a;">Seu login de acesso: <strong style="color:#141414;">${escapeHtml(login)}</strong></td></tr></table>`
+    : '';
+
+  const html = `<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light only"></head>
+<body style="margin:0;padding:0;background:#f2f2f2;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f2f2f2;">
+    <tr><td align="center" style="padding:28px 12px;">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #e8e8e8;">
+        <tr><td align="center" style="background:${GUESS_RED};padding:34px 24px;">
+          <div style="font-family:Arial,Helvetica,sans-serif;font-size:32px;font-weight:bold;letter-spacing:10px;color:#ffffff;">GUESS</div>
+        </td></tr>
+        <tr><td style="padding:38px 44px 6px 44px;font-family:Arial,Helvetica,sans-serif;">
+          <h1 style="margin:0 0 16px 0;font-size:20px;font-weight:bold;color:#141414;">Olá ${safeName},</h1>
+          <p style="margin:0 0 22px 0;font-size:15px;line-height:1.65;color:#4a4a4a;">${intro}</p>
+          ${loginRow}
+          <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 24px auto;">
+            <tr><td align="center" bgcolor="${GUESS_RED}" style="border-radius:4px;">
+              <a href="${link}" target="_blank" style="display:inline-block;padding:15px 40px;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:4px;">${cta}</a>
+            </td></tr>
+          </table>
+          <p style="margin:0 0 22px 0;font-size:13px;line-height:1.5;color:#808080;">Este link é válido por <strong style="color:#141414;">${hours} horas</strong>. Se expirar, peça um novo ao administrador.</p>
+          <hr style="border:none;border-top:1px solid #eeeeee;margin:6px 0 18px 0;">
+          <p style="margin:0;font-size:12px;line-height:1.55;color:#9a9a9a;">Se o botão não funcionar, copie e cole este endereço no seu navegador:<br>
+            <a href="${link}" style="color:${GUESS_RED};word-break:break-all;">${link}</a></p>
+        </td></tr>
+        <tr><td align="center" style="background:#fafafa;padding:22px 24px;border-top:1px solid #eeeeee;">
+          <p style="margin:0 0 4px 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#9a9a9a;">E-mail automático — por favor, não responda.</p>
+          <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#bfbfbf;">Se você não solicitou este acesso, ignore esta mensagem. &middot; Guess Brasil</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+
+  const text =
+    `Olá ${name},\n\n${intro.replace(/ clicando no botão abaixo| Clique no botão abaixo para criar uma nova\.?/g, '')}\n\n` +
+    (login ? `Seu login de acesso: ${login}\n\n` : '') +
+    `Acesse o link abaixo (válido por ${hours} horas):\n${link}\n\n` +
+    `Se você não solicitou este acesso, ignore esta mensagem.\n\nGuess Brasil`;
+
+  return { subject, html, text };
+}
+
 @Injectable()
 export class LocalAuthService {
   private readonly logger = new Logger(LocalAuthService.name);
@@ -75,10 +153,9 @@ export class LocalAuthService {
   ) {}
 
   /**
-   * Login LOCAL (supervisor e demais usuários cadastrados pelo Admin):
-   *   `username + password`.
-   * Para vendedores de loja, ver `StoreAuthService.login` — fluxo
-   * separado porque resolve o User a partir do CPF + LOJA_VENDEDORES.
+   * Login LOCAL (supervisor, representante e demais usuários cadastrados
+   * pelo Admin): `username + password`. O representante usa o próprio código
+   * como username. (Não há mais login por CPF.)
    */
   async login(username: string, password: string): Promise<string> {
     const user = await this.prisma.user.findUnique({
@@ -225,7 +302,7 @@ export class LocalAuthService {
       },
     });
     const token = await this.issuePasswordToken(user.id, 'SETUP');
-    await this.sendSetupEmail(user.email, user.name, token);
+    await this.sendSetupEmail(user.email, user.name, token, 'SETUP', username);
     return { id: user.id };
   }
 
@@ -236,42 +313,137 @@ export class LocalAuthService {
       throw new NotFoundException('Usuário local não encontrado.');
     }
     const token = await this.issuePasswordToken(userId, purpose);
-    await this.sendSetupEmail(user.email, user.name, token, purpose);
+    await this.sendSetupEmail(
+      user.email,
+      user.name,
+      token,
+      purpose,
+      user.username,
+    );
     return { ok: true };
   }
 
-  /** Envia o e-mail com o link de definição de senha. */
+  /**
+   * Self-service ("primeiro acesso / esqueci minha senha"): o usuário informa
+   * o E-MAIL; se casar com um usuário LOCAL ativo, enviamos o link (com o login
+   * e a definição de senha). SEMPRE responde neutro — nunca revela se o e-mail
+   * existe nem o tipo da conta (anti-enumeração). Usuário AD não recebe: a
+   * senha dele vive no AD, não no P2P.
+   */
+  async requestPasswordByEmail(rawEmail: string): Promise<void> {
+    const email = (rawEmail ?? '').trim().toLowerCase();
+    if (!email) return;
+    const user = await this.prisma.user.findFirst({
+      where: { email, deletedAt: null },
+    });
+    // Só usuários LOCAL (rep/supervisor). AD, inexistente ou inativo → silêncio.
+    if (!user || user.loginType !== 'LOCAL' || user.status === UserStatus.INACTIVE) {
+      this.logger.log(`Recuperação solicitada p/ e-mail sem match LOCAL ativo.`);
+      return;
+    }
+    // Sem senha ainda = primeiro acesso (SETUP); com senha = redefinição (RESET).
+    const purpose = user.passwordHash ? 'RESET' : 'SETUP';
+    const token = await this.issuePasswordToken(user.id, purpose);
+    await this.sendSetupEmail(
+      user.email,
+      user.name,
+      token,
+      purpose,
+      user.username,
+    );
+    this.logger.log(`Recuperação (${purpose}) enviada para user ${user.id}.`);
+  }
+
+  /**
+   * Monta e envia o e-mail com o link de definição de senha.
+   *
+   * Transporte: **Database Mail do SQL Server** por padrão (as credenciais de
+   * SMTP ficam no SQL, não no app; o remetente já é o perfil corporativo
+   * `nao-responder@…`). `MAIL_TRANSPORT=smtp` cai no nodemailer/env (fallback).
+   */
   private async sendSetupEmail(
     to: string,
     name: string,
     rawToken: string,
     purpose: 'SETUP' | 'RESET' = 'SETUP',
+    login?: string | null,
+  ): Promise<void> {
+    // O link precisa apontar pro domínio público real. Default já é o de
+    // produção (não depende de env); PUBLIC_URL sobrescreve se um dia mudar.
+    const baseUrl =
+      this.config.get<string>('PUBLIC_URL') ?? 'https://p2p.corpbr.com.br';
+    const link = `${baseUrl}/definir-senha?token=${rawToken}`;
+    const { subject, html, text } = buildPasswordEmail(
+      name,
+      link,
+      purpose,
+      login,
+    );
+
+    const transport = (
+      this.config.get<string>('MAIL_TRANSPORT') ?? 'dbmail'
+    ).toLowerCase();
+    if (transport === 'smtp') {
+      await this.sendViaSmtp(to, subject, html, text, purpose);
+    } else {
+      await this.sendViaDbMail(to, subject, html, purpose);
+    }
+    // NUNCA logar o rawToken: é credencial de uso único (account takeover).
+  }
+
+  /**
+   * Envia pelo **Database Mail** (msdb.sp_send_dbmail). Sem credencial no app;
+   * usa o perfil configurado (MAIL_DBMAIL_PROFILE) ou o DEFAULT do servidor. O
+   * login do app precisa estar no papel msdb `DatabaseMailUserRole` (grant
+   * mínimo) — assim o envio NÃO depende de sysadmin e sobrevive à redução de
+   * privilégio do login. Parâmetros ligados pelo Prisma ($executeRaw): o
+   * destinatário/assunto/corpo entram como parâmetros, sem risco de injection.
+   */
+  private async sendViaDbMail(
+    to: string,
+    subject: string,
+    html: string,
+    purpose: string,
+  ): Promise<void> {
+    const profile = this.config.get<string>('MAIL_DBMAIL_PROFILE')?.trim();
+    try {
+      if (profile) {
+        await this.prisma
+          .$executeRaw`EXEC msdb.dbo.sp_send_dbmail @profile_name = ${profile}, @recipients = ${to}, @subject = ${subject}, @body = ${html}, @body_format = 'HTML'`;
+      } else {
+        // Sem perfil configurado: usa o perfil DEFAULT do Database Mail.
+        await this.prisma
+          .$executeRaw`EXEC msdb.dbo.sp_send_dbmail @recipients = ${to}, @subject = ${subject}, @body = ${html}, @body_format = 'HTML'`;
+      }
+      this.logger.log(
+        `E-mail de ${purpose} enfileirado (Database Mail) para ${to}.`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `Falha ao enfileirar e-mail (Database Mail) para ${to}: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /** Fallback: SMTP externo via nodemailer — só quando MAIL_TRANSPORT=smtp. */
+  private async sendViaSmtp(
+    to: string,
+    subject: string,
+    html: string,
+    text: string,
+    purpose: string,
   ): Promise<void> {
     const host = this.config.get<string>('SMTP_HOST');
     const port = Number(this.config.get<string>('SMTP_PORT') ?? 0);
     const from = this.config.get<string>('SMTP_FROM');
     if (!host || !port || !from) {
-      // NUNCA logar o rawToken: ele é uma credencial de uso único que
-      // permite definir a senha da conta (account takeover). Sem SMTP o
-      // link não é entregue — registramos só o destinatário/propósito e o
-      // admin precisa configurar o SMTP (ou reenviar via /auth/resend
-      // depois de configurado). Audit M10.
       this.logger.warn(
         `SMTP não configurado — link de ${purpose} NÃO foi entregue para ${to}. ` +
-          `Configure SMTP_HOST/SMTP_PORT/SMTP_FROM e reenvie o link.`,
+          `Configure SMTP_* ou use MAIL_TRANSPORT=dbmail (Database Mail).`,
       );
       return;
     }
     const fromName = this.config.get<string>('SMTP_FROM_NAME') ?? 'P2P';
-    const baseUrl =
-      this.config.get<string>('PUBLIC_URL') ?? 'https://p2p.hrg3.com.br';
-    const link = `${baseUrl}/definir-senha?token=${rawToken}`;
-    const subject =
-      purpose === 'SETUP' ? 'P2P: defina sua senha' : 'P2P: redefina sua senha';
-    const body =
-      purpose === 'SETUP'
-        ? `Olá ${name},\n\nVocê foi cadastrado no sistema P2P da HRG3. Para definir sua senha, clique no link abaixo (válido por ${TOKEN_LIFETIME_HOURS} horas):\n\n${link}\n\nSe não foi você quem solicitou, ignore esta mensagem.`
-        : `Olá ${name},\n\nRecebemos uma solicitação para redefinir sua senha. Use o link abaixo (válido por ${TOKEN_LIFETIME_HOURS} horas):\n\n${link}\n\nSe não foi você quem solicitou, ignore esta mensagem.`;
     const transporter = nodemailer.createTransport({
       host,
       port,
@@ -288,12 +460,13 @@ export class LocalAuthService {
         from: `"${fromName}" <${from}>`,
         to,
         subject,
-        text: body,
+        html,
+        text,
       });
-      this.logger.log(`E-mail de ${purpose} enviado para ${to}.`);
+      this.logger.log(`E-mail de ${purpose} enviado (SMTP) para ${to}.`);
     } catch (err) {
       this.logger.error(
-        `Falha ao enviar e-mail para ${to}: ${(err as Error).message}`,
+        `Falha ao enviar e-mail (SMTP) para ${to}: ${(err as Error).message}`,
       );
     }
   }

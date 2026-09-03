@@ -3,10 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { AlertTriangle, Download, Plus, Search } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { useRequisitions } from '@/lib/requisitions';
-import { useAuth } from '@/lib/auth';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
-import { ScopeSelect, useScope } from '@/components/ScopeSelect';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -24,6 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { TableStatusRow } from '@/components/TableStatusRow';
 import { Pagination } from '@/components/ui/pagination';
 import { usePagination } from '@/lib/use-pagination';
 import { exportToCsv } from '@/lib/csv';
@@ -41,18 +40,14 @@ const STATUS_OPTIONS = [
 
 export function RequisitionsListPage() {
   const { activeCompany } = useCompany();
-  const { user } = useAuth();
   const navigate = useNavigate();
-  const isAdmin = user?.profile === 'ADMIN';
   const [status, setStatus] = useState('ALL');
   const [search, setSearch] = useState('');
-  const [scope, setScope] = useScope('p2p:scope:requisicoes', isAdmin);
 
-  const { data, isLoading } = useRequisitions({
+  const { data, isLoading, isError } = useRequisitions({
     companyId: activeCompany?.id,
     status: status === 'ALL' ? undefined : status,
     search: search || undefined,
-    scope,
   });
 
   const rows = data?.data ?? [];
@@ -118,12 +113,6 @@ export function RequisitionsListPage() {
             ))}
           </SelectContent>
         </Select>
-        <ScopeSelect
-          value={scope}
-          onChange={setScope}
-          canSeeAll={isAdmin}
-          showTeam={!!user?.teamId}
-        />
       </div>
 
       <div className="rounded-lg border bg-card">
@@ -141,20 +130,13 @@ export function RequisitionsListPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading && (
-              <TableRow>
-                <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                  Carregando…
-                </TableCell>
-              </TableRow>
-            )}
-            {!isLoading && rows.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                  Nenhuma requisição encontrada.
-                </TableCell>
-              </TableRow>
-            )}
+            <TableStatusRow
+              colSpan={7}
+              isLoading={isLoading}
+              isError={isError}
+              isEmpty={rows.length === 0}
+              emptyLabel="Nenhuma requisição encontrada."
+            />
             {pag.pageRows.map((r) => (
               <TableRow
                 key={r.id}

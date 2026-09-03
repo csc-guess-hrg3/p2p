@@ -23,6 +23,9 @@ function makePo(over: Partial<any> = {}) {
     companyId: 'company-test',
     status: 'SENT_TO_SUPPLIER',
     deletedAt: null,
+    // Own-only: o recebimento é do dono do PC. TEST_USER é o comprador.
+    buyerId: 'user-test',
+    requisition: { requesterId: 'user-test' },
     items: [
       {
         id: 'poit-1',
@@ -173,7 +176,8 @@ describe('ReceivingService.confirm', () => {
       companyId: 'company-test',
       status: 'DRAFT',
       deletedAt: null,
-      purchaseOrder: { id: 'po-1' },
+      receivedById: 'user-test', // own-only: TEST_USER é o recebedor
+      purchaseOrder: { id: 'po-1', buyerId: 'user-test' },
       items: [
         {
           purchaseOrderItemId: 'poit-1',
@@ -201,7 +205,8 @@ describe('ReceivingService.confirm', () => {
         companyId: 'company-test',
         status: 'DRAFT',
         deletedAt: null,
-        purchaseOrder: { id: 'po-1' },
+        receivedById: 'user-test',
+        purchaseOrder: { id: 'po-1', buyerId: 'user-test' },
         items: [
           {
             purchaseOrderItemId: 'poit-1',
@@ -216,6 +221,7 @@ describe('ReceivingService.confirm', () => {
         companyId: 'company-test',
         status: 'CONFIRMED',
         deletedAt: null,
+        receivedById: 'user-test',
       });
 
     await service.confirm(TEST_USER, 'rec-1');

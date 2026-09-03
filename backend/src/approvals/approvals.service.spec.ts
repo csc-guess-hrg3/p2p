@@ -199,3 +199,41 @@ describe('ApprovalsService.decide', () => {
     expect(prisma.requisition.update).not.toHaveBeenCalled();
   });
 });
+
+describe('ApprovalsService.assertChainConfigured (fail-safe de governança — decisão PO)', () => {
+  let prisma: PrismaMock;
+  let service: ApprovalsService;
+
+  beforeEach(() => {
+    prisma = createPrismaMock();
+    const engine = new ApprovalEngineService(
+      prisma as unknown as PrismaService,
+    );
+    service = new ApprovalsService(
+      prisma as unknown as PrismaService,
+      { markPedidoAprovado: jest.fn() } as unknown as LinxErpService,
+      { create: jest.fn() } as unknown as NotificationsService,
+      engine,
+    );
+  });
+
+  it('bloqueia requisição sem equipe atribuída', async () => {
+    await expect(service.assertChainConfigured(null)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('bloqueia equipe sem alçada cadastrada (antes auto-aprovava silenciosamente)', async () => {
+    prisma.teamApprovalLevel.count.mockResolvedValue(0);
+    await expect(
+      service.assertChainConfigured('team-1'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('passa quando a equipe tem alçada configurada', async () => {
+    prisma.teamApprovalLevel.count.mockResolvedValue(2);
+    await expect(
+      service.assertChainConfigured('team-1'),
+    ).resolves.toBeUndefined();
+  });
+});

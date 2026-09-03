@@ -278,7 +278,7 @@ export class PurchaseOrderCancellerService {
         items: { include: { rateios: true } },
         buyer: { select: { id: true, name: true } },
         receivings: true,
-        requisition: { select: { teamId: true } },
+        requisition: { select: { teamId: true, requesterId: true } },
       },
     });
     if (!po || po.deletedAt) {

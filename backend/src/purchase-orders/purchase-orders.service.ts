@@ -9,8 +9,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { LinxErpService } from '../integration/linx-erp.service';
 import { EmailService } from '../integration/email.service';
 import { IntegrationService } from '../integration/integration.service';
-import { UserProfile } from '../common/enums';
 import { AuthenticatedUser } from '../auth/auth.types';
+import { isDefaultAdmin } from '../auth/default-admin';
 import { QueryPurchaseOrdersDto } from './dto/query-purchase-orders.dto';
 import { assertPoTeamAccess } from './po-access';
 
@@ -29,23 +29,19 @@ export class PurchaseOrdersService {
     if (companyId && !user.companyIds.includes(companyId)) {
       throw new ForbiddenException('Sem acesso a esta empresa.');
     }
-    const isAdmin = user.profile === UserProfile.ADMIN;
-    // Padrão 'mine' (a tela abre nos pedidos do próprio comprador). 'all' só
-    // admin. PO não tem teamId — o escopo de equipe vai pela requisição.
-    const scope = query.scope ?? 'mine';
-    if (scope === 'all' && !isAdmin) {
-      throw new ForbiddenException(
-        'Apenas administradores podem ver todos os pedidos.',
-      );
-    }
     const where: Prisma.PurchaseOrderWhereInput = {
       deletedAt: null,
       companyId: companyId ? companyId : { in: user.companyIds },
-      // Visibilidade base: não-admin só a própria equipe (via requisição).
-      ...(isAdmin ? {} : { requisition: { teamId: user.teamId } }),
-      // Escopo escolhido.
-      ...(scope === 'mine' ? { buyerId: user.id } : {}),
-      ...(scope === 'team' ? { requisition: { teamId: user.teamId } } : {}),
+      // "Meus" pedidos = sou o COMPRADOR (buyerId) OU o SOLICITANTE da
+      // requisição de origem (é a mesma compra, minha). Identidade EFETIVA;
+      // admin vê os de outros via SIMULAÇÃO. Exceção: a conta PADRÃO admin
+      // também vê os pedidos ÓRFÃOS (buyerId nulo) — externos do Linx sem dono,
+      // que não têm quem simular (só esta conta, não todo perfil ADMIN).
+      OR: [
+        { buyerId: user.id },
+        { requisition: { requesterId: user.id } },
+        ...(isDefaultAdmin(user) ? [{ buyerId: null }] : []),
+      ],
       ...(status ? { status } : {}),
       ...(search ? { number: { contains: search } } : {}),
     };
@@ -60,6 +56,7 @@ export class PurchaseOrdersService {
         select: {
           id: true,
           number: true,
+          origin: true,
           supplierName: true,
           branchName: true,
           status: true,
@@ -83,7 +80,7 @@ export class PurchaseOrdersService {
         items: { include: { rateios: true } },
         buyer: { select: { id: true, name: true } },
         receivings: true,
-        requisition: { select: { teamId: true } },
+        requisition: { select: { teamId: true, requesterId: true } },
       },
     });
     if (!po || po.deletedAt) {

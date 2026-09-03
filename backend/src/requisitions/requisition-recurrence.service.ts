@@ -3,24 +3,75 @@ import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { NumberingService } from '../numbering/numbering.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { PurchaseOrderConverterService } from '../purchase-orders/purchase-order-converter.service';
 import { RequisitionStatus } from '../common/enums';
+import { AuthenticatedUser } from '../auth/auth.types';
 
 /**
- * PRD RN-REQ-03 — recorrências automáticas.
+ * Recorrência em SÉRIE (RN-REQ-03 + decisão da PO, ago/2026).
  *
- * Toda requisição APROVADA com `recurring=true` ganha um agendamento
- * (`nextRecurrenceAt = approvedAt + recurrenceMonths meses`). O cron
- * diário (07:00) varre essas requisições, e quando a data chega, clona
- * a requisição como DRAFT — o solicitante recebe uma cópia nova pra
- * ajustar e submeter.
+ * Quando uma requisição RECORRENTE aprovada é detectada, geramos a SÉRIE
+ * INTEIRA de uma vez: N pedidos (N = `recurrenceMonths`), cada um com a
+ * ENTREGA no mês k (base + (k-1) meses). O vencimento sai automático na
+ * tela de Provisões (a view do Linx calcula ENTREGA + prazo da condição).
+ * Isso substitui o antigo "pinga-a-pinga por cron" (uma requisição-rascunho
+ * por mês, que exigia re-aprovação): aqui aprova a série UMA vez e os pedidos
+ * já nascem pré-aprovados, com o cronograma inteiro visível.
  *
- * Filhas geradas referenciam o pai via `recurrenceParentId`. O pai
- * tem `nextRecurrenceAt` empurrado +N meses a cada geração.
+ * Cada mês vira uma filha (clone da requisição, `recurrenceParentId` = pai)
+ * já APROVADA, convertida em pedido via o `convert()` normal (código testado
+ * — não reimplementamos a gravação no Linx). `seriesGeneratedAt` no pai marca
+ * que a série já saiu, pra o scan não regerar.
  *
- * Estratégia preguiçosa: o agendamento inicial (de requisições aprovadas
- * antes desta feature, ou sem nextRecurrenceAt) é calculado no próprio
- * tick — não precisa alterar o fluxo de aprovação existente.
+ * O scan roda no tick (e pode ser chamado direto). A geração é best-effort
+ * por mês: um mês que falha no convert fica logado e não derruba os demais.
  */
+/** Requisição-pai (recorrente) com itens+rateios+empresa, pro clone da série. */
+type RecurrenceParent = {
+  id: string;
+  number: string;
+  companyId: string;
+  branchErpCode: string;
+  branchName: string;
+  supplierErpCode: string | null;
+  supplierName: string;
+  requesterId: string;
+  teamId: string | null;
+  title: string;
+  justification: string | null;
+  tipoNotaFiscal: string;
+  paymentConditionCode: string | null;
+  paymentConditionDesc: string | null;
+  contractRef: string | null;
+  tipoCompra: string | null;
+  recurrenceMonths: number | null;
+  totalAmount: import('@prisma/client').Prisma.Decimal;
+  company: { code: string };
+  items: Array<{
+    itemErpCode: string | null;
+    itemDescription: string;
+    quantity: import('@prisma/client').Prisma.Decimal;
+    unit: string;
+    estimatedPrice: import('@prisma/client').Prisma.Decimal;
+    totalPrice: import('@prisma/client').Prisma.Decimal;
+    accountingAccount: string;
+    accountName: string | null;
+    branchRateioCode: string;
+    branchRateioDesc: string | null;
+    costCenterRateioCode: string;
+    costCenterRateioDesc: string | null;
+    notes: string | null;
+    rateios: Array<{
+      kind: string;
+      rateioCode: string;
+      targetCode: string;
+      branchCode: string | null;
+      percentage: import('@prisma/client').Prisma.Decimal;
+      amount: import('@prisma/client').Prisma.Decimal;
+    }>;
+  }>;
+};
+
 @Injectable()
 export class RequisitionRecurrenceService {
   private readonly logger = new Logger(RequisitionRecurrenceService.name);
@@ -29,16 +80,17 @@ export class RequisitionRecurrenceService {
     private readonly prisma: PrismaService,
     private readonly numbering: NumberingService,
     private readonly notifications: NotificationsService,
+    private readonly converter: PurchaseOrderConverterService,
   ) {}
 
-  /** Tick diário às 07:00 local. */
+  /** Tick diário às 07:00 local — varre recorrentes aprovadas sem série. */
   @Cron('0 0 7 * * *')
   async tick() {
     try {
       const result = await this.run();
-      if (result.generated > 0 || result.scheduled > 0) {
+      if (result.generated > 0) {
         this.logger.log(
-          `Recorrência — geradas=${result.generated} agendadas=${result.scheduled}`,
+          `Recorrência — séries geradas=${result.generated} pedidos=${result.pedidos}`,
         );
       }
     } catch (err) {
@@ -47,44 +99,19 @@ export class RequisitionRecurrenceService {
   }
 
   /**
-   * Run principal — pode ser chamado direto (testes / endpoint admin).
-   * Retorna contadores pra observabilidade.
+   * Varre as requisições RECORRENTES aprovadas cuja série ainda não foi
+   * gerada e gera cada uma. Pode ser chamado direto (testes / endpoint admin).
    */
   async run() {
-    const now = new Date();
-    let scheduled = 0;
     let generated = 0;
+    let pedidos = 0;
 
-    // 1) Agendamento inicial: recurring sem nextRecurrenceAt.
-    const toSchedule = await this.prisma.requisition.findMany({
+    const parents = await this.prisma.requisition.findMany({
       where: {
         recurring: true,
         status: RequisitionStatus.APPROVED,
-        nextRecurrenceAt: null,
         recurrenceMonths: { not: null },
-        approvedAt: { not: null },
-        deletedAt: null,
-      },
-      select: {
-        id: true,
-        approvedAt: true,
-        recurrenceMonths: true,
-      },
-    });
-    for (const r of toSchedule) {
-      const next = this.addMonths(r.approvedAt!, r.recurrenceMonths!);
-      await this.prisma.requisition.update({
-        where: { id: r.id },
-        data: { nextRecurrenceAt: next },
-      });
-      scheduled++;
-    }
-
-    // 2) Materialização: requisições com nextRecurrenceAt <= now.
-    const dueParents = await this.prisma.requisition.findMany({
-      where: {
-        recurring: true,
-        nextRecurrenceAt: { lte: now },
+        seriesGeneratedAt: null,
         deletedAt: null,
       },
       include: {
@@ -92,91 +119,126 @@ export class RequisitionRecurrenceService {
         company: { select: { code: true } },
       },
     });
-    for (const parent of dueParents) {
+
+    for (const parent of parents) {
       try {
-        const child = await this.cloneAsDraft(parent);
-        const next = this.addMonths(
-          parent.nextRecurrenceAt!,
-          parent.recurrenceMonths!,
-        );
-        await this.prisma.requisition.update({
-          where: { id: parent.id },
-          data: { nextRecurrenceAt: next },
-        });
-        // Notifica o solicitante para revisar/submeter a nova requisição.
-        await this.notifications
-          .create({
-            companyId: parent.companyId,
-            userId: parent.requesterId,
-            type: 'REQUISITION_RECURRED',
-            title: `Recorrência: nova requisição ${child.number}`,
-            body: `Foi gerada automaticamente uma cópia da requisição ${parent.number} para revisão e submissão.`,
-            entityType: 'REQUISITION',
-            entityId: child.id,
-            sendEmail: true,
-          })
-          .catch(() => undefined);
-        generated++;
+        const n = await this.generateSeries(parent);
+        if (n > 0) {
+          generated++;
+          pedidos += n;
+        }
       } catch (err) {
         this.logger.error(
-          `Falha ao gerar filha de ${parent.number}: ${(err as Error).message}`,
+          `Falha ao gerar série de ${parent.number}: ${(err as Error).message}`,
         );
       }
     }
-    return { scheduled, generated };
+    return { generated, pedidos };
   }
 
   /**
-   * Clona a requisição como DRAFT — copia itens e rateios mas zera
-   * estado de aprovação. Mantém solicitante/equipe da original.
-   * O título recebe sufixo "(recorrência YYYY-MM-DD)" pra o usuário
-   * identificar facilmente que veio do job.
+   * Gera a série de uma requisição recorrente aprovada: N filhas (uma por
+   * mês) já aprovadas + converte cada uma em pedido com a ENTREGA do mês.
+   * Marca `seriesGeneratedAt` no pai ao final (mesmo com falhas parciais —
+   * meses que falharam ficam como filha aprovada não-convertida, pra
+   * reprocessar/investigar, e não são regerados).
    */
-  private async cloneAsDraft(parent: {
-    id: string;
-    number: string;
-    companyId: string;
-    branchErpCode: string;
-    branchName: string;
-    supplierErpCode: string | null;
-    supplierName: string;
-    requesterId: string;
-    teamId: string | null;
-    title: string;
-    justification: string | null;
-    tipoNotaFiscal: string;
-    paymentConditionCode: string | null;
-    paymentConditionDesc: string | null;
-    contractRef: string | null;
-    tipoCompra: string | null;
-    totalAmount: import('@prisma/client').Prisma.Decimal;
-    company: { code: string };
-    items: Array<{
-      itemErpCode: string | null;
-      itemDescription: string;
-      quantity: import('@prisma/client').Prisma.Decimal;
-      unit: string;
-      estimatedPrice: import('@prisma/client').Prisma.Decimal;
-      totalPrice: import('@prisma/client').Prisma.Decimal;
-      accountingAccount: string;
-      accountName: string | null;
-      branchRateioCode: string;
-      branchRateioDesc: string | null;
-      costCenterRateioCode: string;
-      costCenterRateioDesc: string | null;
-      notes: string | null;
-      rateios: Array<{
-        kind: string;
-        rateioCode: string;
-        targetCode: string;
-        branchCode: string | null;
-        percentage: import('@prisma/client').Prisma.Decimal;
-        amount: import('@prisma/client').Prisma.Decimal;
-      }>;
-    }>;
-  }) {
+  private async generateSeries(parent: RecurrenceParent): Promise<number> {
+    const n = parent.recurrenceMonths ?? 0;
+    if (n < 1) return 0;
+
+    const user = await this.buildRequesterUser(
+      parent.requesterId,
+      parent.companyId,
+    );
+    // Mês 1 = agora; meses seguintes = +1 mês na ENTREGA (dirige o vencimento
+    // na provisão: vencimento = ENTREGA + prazo da condição de pagamento).
+    const base = new Date();
+    let count = 0;
+
+    for (let k = 1; k <= n; k++) {
+      const entrega = this.addMonths(base, k - 1);
+      let child: { id: string; number: string } | null = null;
+      try {
+        child = await this.cloneApprovedChild(parent, k, n);
+        await this.converter.convert(user, {
+          requisitionId: child.id,
+          expectedDelivery: entrega.toISOString(),
+          paymentCondition: parent.paymentConditionCode ?? undefined,
+        });
+        count++;
+      } catch (err) {
+        this.logger.error(
+          `Série ${parent.number} mês ${k}/${n}: ${(err as Error).message}` +
+            (child ? ` (filha ${child.number} ficou aprovada não-convertida)` : ''),
+        );
+      }
+    }
+
+    await this.prisma.requisition.update({
+      where: { id: parent.id },
+      data: { seriesGeneratedAt: new Date() },
+    });
+
+    if (count > 0) {
+      await this.notifications
+        .create({
+          companyId: parent.companyId,
+          userId: parent.requesterId,
+          type: 'REQUISITION_RECURRED',
+          title: `Recorrência: ${count} pedido(s) gerado(s)`,
+          body: `A série da requisição ${parent.number} gerou ${count} de ${n} pedido(s) mensal(is). O cronograma aparece em Financeiro → Provisões.`,
+          entityType: 'REQUISITION',
+          entityId: parent.id,
+          sendEmail: true,
+        })
+        .catch(() => undefined);
+    }
+    return count;
+  }
+
+  /** Monta o AuthenticatedUser do solicitante (passa no own-only do convert). */
+  private async buildRequesterUser(
+    requesterId: string,
+    companyId: string,
+  ): Promise<AuthenticatedUser> {
+    const u = await this.prisma.user.findUniqueOrThrow({
+      where: { id: requesterId },
+      select: {
+        id: true,
+        name: true,
+        adUsername: true,
+        username: true,
+        email: true,
+        profile: true,
+        status: true,
+        teamId: true,
+        realm: true,
+        externalCategory: true,
+      },
+    });
+    const companies = await this.prisma.userCompany.findMany({
+      where: { userId: requesterId },
+      select: { companyId: true },
+    });
+    const companyIds = companies.map((c) => c.companyId);
+    if (!companyIds.includes(companyId)) companyIds.push(companyId);
+    return { ...u, companyIds } as unknown as AuthenticatedUser;
+  }
+
+  /**
+   * Clona a requisição-pai como filha do mês k (de N), já APROVADA — copia
+   * itens e rateios. A filha não recorre (só o pai) e aponta pro pai via
+   * `recurrenceParentId`. Como o pai já foi aprovado na cadeia, a filha
+   * herda a aprovação (nasce APPROVED, pronta pro convert).
+   */
+  private async cloneApprovedChild(
+    parent: RecurrenceParent,
+    k: number,
+    n: number,
+  ): Promise<{ id: string; number: string }> {
     const number = await this.numbering.next(parent.company.code, 'REQ');
-    const stamp = new Date().toLocaleDateString('pt-BR');
+    const now = new Date();
     const created = await this.prisma.requisition.create({
       select: { id: true, number: true },
       data: {
@@ -188,10 +250,13 @@ export class RequisitionRecurrenceService {
         supplierName: parent.supplierName,
         requesterId: parent.requesterId,
         teamId: parent.teamId,
-        title: `${parent.title} (recorrência ${stamp})`,
+        title: `${parent.title} (recorrência ${k}/${n})`,
         justification: parent.justification,
         tipoNotaFiscal: parent.tipoNotaFiscal,
-        status: RequisitionStatus.DRAFT,
+        // Nasce APROVADA (herda a aprovação do pai) — pronta pro convert.
+        status: RequisitionStatus.APPROVED,
+        submittedAt: now,
+        approvedAt: now,
         totalAmount: parent.totalAmount,
         paymentConditionCode: parent.paymentConditionCode,
         paymentConditionDesc: parent.paymentConditionDesc,

@@ -1,7 +1,10 @@
 import {
+  BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
+  Param,
   Post,
   Req,
   Res,
@@ -14,7 +17,6 @@ import { ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LocalAuthService, PASSWORD_POLICY } from './local-auth.service';
-import { StoreAuthService } from './store-auth.service';
 import { TurnstileService } from './turnstile.service';
 import { LoginDto, RefreshDto } from './dto/login.dto';
 import { LdapAuthGuard } from './guards/ldap-auth.guard';
@@ -22,6 +24,9 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
 import { AllowExternal } from '../common/decorators/external-access.decorator';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { UserProfile } from '../common/enums';
 import type { AuthenticatedUser, TokenPair } from './auth.types';
 
 const ACCESS_MAX_AGE_MS = 8 * 60 * 60 * 1000; // 8h
@@ -59,45 +64,11 @@ class SetupPasswordDto {
   password!: string;
 }
 
-class StoreLookupDto {
-  @ApiProperty({ description: 'CPF do vendedor (com ou sem máscara).' })
+class ForgotPasswordDto {
+  @ApiProperty({ description: 'E-mail cadastrado do usuário.' })
   @IsString()
   @IsNotEmpty()
-  cpf!: string;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString()
-  turnstileToken?: string;
-}
-
-class StoreLoginDto {
-  @ApiProperty({ description: 'CPF do vendedor (com ou sem máscara).' })
-  @IsString()
-  @IsNotEmpty()
-  cpf!: string;
-
-  @ApiProperty()
-  @IsString()
-  @IsNotEmpty()
-  password!: string;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString()
-  turnstileToken?: string;
-}
-
-class StoreSetupPasswordDto {
-  @ApiProperty()
-  @IsString()
-  @IsNotEmpty()
-  cpf!: string;
-
-  @ApiProperty({ description: PASSWORD_POLICY.description })
-  @IsString()
-  @IsNotEmpty()
-  password!: string;
+  email!: string;
 
   @ApiProperty({ required: false })
   @IsOptional()
@@ -133,7 +104,6 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly localAuth: LocalAuthService,
-    private readonly storeAuth: StoreAuthService,
     private readonly turnstile: TurnstileService,
   ) {}
 
@@ -190,6 +160,51 @@ export class AuthController {
       return tokens;
     }
     return { ok: true as const };
+  }
+
+  /**
+   * Sair da SIMULAÇÃO DE LOGIN — volta a ser o admin real. Reachável por
+   * usuário EFETIVO externo (quando o admin está simulando um representante),
+   * por isso @AllowExternal.
+   */
+  @Post('impersonate/exit')
+  @AllowExternal()
+  @ApiOperation({ summary: 'Sair da simulação de login' })
+  async exitImpersonation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (!user.impersonatedBy) {
+      throw new BadRequestException('Você não está simulando ninguém.');
+    }
+    const tokens = await this.authService.exitImpersonation(
+      user.impersonatedBy,
+      user.id,
+    );
+    return this.applySession(res, tokens);
+  }
+
+  /**
+   * Iniciar a SIMULAÇÃO DE LOGIN: o admin passa a "ver como" o usuário. Só
+   * ADMIN; bloqueia aninhar (sair da simulação atual antes de iniciar outra).
+   * A identidade efetiva vira a do alvo; a trilha registra o admin real.
+   */
+  @Post('impersonate/:userId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserProfile.ADMIN)
+  @ApiOperation({ summary: 'Simular login de um usuário (admin)' })
+  async impersonate(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('userId') userId: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (user.impersonatedBy) {
+      throw new ForbiddenException(
+        'Saia da simulação atual antes de iniciar outra.',
+      );
+    }
+    const tokens = await this.authService.impersonate(user.id, userId);
+    return this.applySession(res, tokens);
   }
 
   /**
@@ -254,59 +269,26 @@ export class AuthController {
   }
 
   /**
-   * Vendedor de loja: confere se o CPF está em LOJA_VENDEDORES e devolve
-   * `needsSetup=true` quando ainda não há senha definida. Não loga.
+   * Self-service "primeiro acesso / esqueci minha senha": o usuário informa o
+   * E-MAIL; se casar com uma conta LOCAL ativa, enviamos o link (com login +
+   * definição de senha). Resposta SEMPRE neutra — não revela se o e-mail existe
+   * (anti-enumeração). Turnstile + rate-limit contra abuso.
    */
-  @Post('store-lookup')
-  @Public()
-  @Throttle({ default: { limit: 20, ttl: 60_000 } })
-  @ApiOperation({ summary: 'Pré-flight do login de loja (valida CPF)' })
-  async storeLookup(@Body() dto: StoreLookupDto, @Req() req: Request) {
-    // CAPTCHA aqui evita enumeração de CPFs cadastrados — o endpoint
-    // revela se um CPF é vendedor, então é alvo natural pra atacantes.
-    await this.turnstile.assertValid(
-      this.turnstileToken(req, dto),
-      this.clientIp(req),
-    );
-    return this.storeAuth.lookup(dto.cpf);
-  }
-
-  /** Primeiro acesso do vendedor — cria/ativa o User com a senha. */
-  @Post('store-setup-password')
-  @Public()
-  @Throttle({ default: { limit: 3, ttl: 60_000 } })
-  @ApiOperation({ summary: 'Define a senha no primeiro acesso do vendedor' })
-  async storeSetupPassword(
-    @Body() dto: StoreSetupPasswordDto,
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    await this.turnstile.assertValid(
-      this.turnstileToken(req, dto),
-      this.clientIp(req),
-    );
-    const userId = await this.storeAuth.setupPassword(dto.cpf, dto.password);
-    const tokens = await this.authService.issueTokens(userId);
-    return this.applySession(res, tokens);
-  }
-
-  /** Login do vendedor com CPF + senha. */
-  @Post('store-login')
+  @Post('forgot-password')
   @Public()
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  @ApiOperation({ summary: 'Login do vendedor de loja (CPF + senha)' })
-  async storeLogin(
-    @Body() dto: StoreLoginDto,
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-  ) {
+  @ApiOperation({ summary: 'Envia o link de acesso para o e-mail cadastrado' })
+  async forgotPassword(@Body() dto: ForgotPasswordDto, @Req() req: Request) {
     await this.turnstile.assertValid(
       this.turnstileToken(req, dto),
       this.clientIp(req),
     );
-    const userId = await this.storeAuth.login(dto.cpf, dto.password);
-    const tokens = await this.authService.issueTokens(userId);
-    return this.applySession(res, tokens);
+    await this.localAuth.requestPasswordByEmail(dto.email);
+    return {
+      ok: true,
+      message:
+        'Se o e-mail estiver cadastrado, enviamos as instruções de acesso.',
+    };
   }
 
   /** Regras de complexidade (front mostra na tela de definição). */

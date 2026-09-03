@@ -6,6 +6,7 @@ import {
 } from '@nestjs/terminus';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PrismaHealthIndicator } from './prisma.health';
+import { ErpHealthIndicator } from './erp.health';
 import { Public } from '../auth/decorators/public.decorator';
 
 /**
@@ -13,6 +14,7 @@ import { Public } from '../auth/decorators/public.decorator';
  *  - /api/health        → status agregado (DB + memória).
  *  - /api/health/live   → ping (process up).
  *  - /api/health/ready  → readiness (Prisma respondendo).
+ *  - /api/health/erp    → views v_p2p_* + cross-db do Linx (smoke de deploy).
  *
  * Pensado para uso por PM2 / load balancer / Uptime checks.
  */
@@ -23,6 +25,7 @@ export class HealthController {
   constructor(
     private readonly health: HealthCheckService,
     private readonly db: PrismaHealthIndicator,
+    private readonly erp: ErpHealthIndicator,
     private readonly memory: MemoryHealthIndicator,
   ) {}
 
@@ -48,5 +51,14 @@ export class HealthController {
   @ApiOperation({ summary: 'Readiness — banco respondendo' })
   ready() {
     return this.health.check([() => this.db.isHealthy('database')]);
+  }
+
+  @Get('erp')
+  @HealthCheck()
+  @ApiOperation({
+    summary: 'ERP — views v_p2p_* e cross-db do Linx (não entra no /ready)',
+  })
+  erpCheck() {
+    return this.health.check([() => this.erp.isHealthy('erp')]);
   }
 }

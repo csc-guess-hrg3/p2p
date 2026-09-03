@@ -88,7 +88,7 @@ export function FiscalDocumentsListPage() {
 
   const { data: syncStatus } = useFiscalSyncStatus(activeCompany?.id);
 
-  const { data, isLoading, refetch, isFetching } = useFiscalDocuments({
+  const { data, isLoading, isError, refetch, isFetching } = useFiscalDocuments({
     companyId: activeCompany?.id,
     status: status === ALL ? undefined : status,
     search: search || undefined,
@@ -387,6 +387,13 @@ export function FiscalDocumentsListPage() {
                   Carregando…
                 </TableCell>
               </TableRow>
+            ) : isError ? (
+              <TableRow>
+                <TableCell colSpan={8} className="text-center text-destructive">
+                  Não foi possível carregar. Verifique a conexão e tente
+                  novamente.
+                </TableCell>
+              </TableRow>
             ) : !data?.rows.length ? (
               <TableRow>
                 <TableCell colSpan={8} className="text-center text-muted-foreground">
@@ -404,6 +411,11 @@ export function FiscalDocumentsListPage() {
                   <TableCell className="font-mono text-sm">
                     {row.numero}
                     {row.serie ? `/${row.serie}` : ''}
+                    {row.type === 'NFSe' && (
+                      <span className="ml-1.5 rounded bg-amber-500/10 px-1.5 py-0.5 font-sans text-[10px] font-medium text-amber-600">
+                        NFS-e
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <div className="font-medium">{row.supplierName}</div>
@@ -444,28 +456,37 @@ export function FiscalDocumentsListPage() {
                     className="text-right"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      title="Baixar XML"
-                      onClick={() =>
-                        handleDownload(row.id, row.accessKey, 'xml')
-                      }
-                    >
-                      <Download className="h-4 w-4" />
-                      <span className="ml-1 text-xs">XML</span>
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      title="Baixar DANFe"
-                      onClick={() =>
-                        handleDownload(row.id, row.accessKey, 'danfe')
-                      }
-                    >
-                      <Download className="h-4 w-4" />
-                      <span className="ml-1 text-xs">PDF</span>
-                    </Button>
+                    {row.type === 'NFSe' ? (
+                      // Nota de serviço não tem XML/DANFe (não é NF-e).
+                      <span className="text-xs text-muted-foreground">
+                        Serviço
+                      </span>
+                    ) : (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          title="Baixar XML"
+                          onClick={() =>
+                            handleDownload(row.id, row.accessKey, 'xml')
+                          }
+                        >
+                          <Download className="h-4 w-4" />
+                          <span className="ml-1 text-xs">XML</span>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          title="Baixar DANFe"
+                          onClick={() =>
+                            handleDownload(row.id, row.accessKey, 'danfe')
+                          }
+                        >
+                          <Download className="h-4 w-4" />
+                          <span className="ml-1 text-xs">PDF</span>
+                        </Button>
+                      </>
+                    )}
                   </TableCell>
                 </TableRow>
               ))

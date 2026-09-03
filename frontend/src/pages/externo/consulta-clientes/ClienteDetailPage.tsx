@@ -95,16 +95,10 @@ export function ClienteDetailPage() {
               </div>
             )}
           </div>
-          {c?.pontualidade?.toUpperCase() === 'PENDENTE' && (
-            <span className="rounded-full bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-600 dark:text-amber-400">
-              Pontualidade pendente
-            </span>
-          )}
         </div>
 
         {/* KPIs */}
-        <div className="mt-5 grid grid-cols-2 overflow-hidden rounded-xl border bg-border sm:grid-cols-4 [&>*]:bg-card">
-          <Kpi label="Limite de crédito" value={formatMoney(c?.limite ?? 0)} />
+        <div className="mt-5 grid grid-cols-2 overflow-hidden rounded-xl border bg-border sm:grid-cols-3 [&>*]:bg-card">
           <Kpi
             label="A receber"
             value={formatMoney(aReceber)}

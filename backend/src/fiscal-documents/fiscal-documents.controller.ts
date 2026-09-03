@@ -191,6 +191,27 @@ export class FiscalDocumentsController {
     return this.fiscalDocuments.reparseAll(user);
   }
 
+  @Post('admin/sync-service-notes')
+  @ApiOperation({
+    summary:
+      'Ingesta as notas de SERVIÇO (NFS-e) do Linx pra tela (ADMIN, idempotente). sinceDays opcional (default 120).',
+  })
+  async triggerServiceNotesSync(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('companyId') companyId?: string,
+    @Query('sinceDays') sinceDays?: string,
+  ) {
+    if (user.profile !== 'ADMIN') {
+      return { ok: false, error: 'Apenas ADMIN pode disparar a carga de serviço' };
+    }
+    const days = sinceDays ? Number(sinceDays) : 120;
+    const r = await this.fiscalDocuments.ingestServiceNotes(
+      Number.isFinite(days) ? days : 120,
+      companyId,
+    );
+    return { ok: true, ...r };
+  }
+
   @Post('admin/sync')
   @ApiOperation({
     summary:

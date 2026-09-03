@@ -6,7 +6,6 @@ import type { SignOptions } from 'jsonwebtoken';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { LocalAuthService } from './local-auth.service';
-import { StoreAuthService } from './store-auth.service';
 import { AccountLockoutService } from './account-lockout.service';
 import { TurnstileService } from './turnstile.service';
 import { LdapStrategy } from './strategies/ldap.strategy';
@@ -33,7 +32,6 @@ import { CryptoModule } from '../common/crypto/crypto.module';
   providers: [
     AuthService,
     LocalAuthService,
-    StoreAuthService,
     AccountLockoutService,
     TurnstileService,
     LdapStrategy,
@@ -42,7 +40,6 @@ import { CryptoModule } from '../common/crypto/crypto.module';
   exports: [
     AuthService,
     LocalAuthService,
-    StoreAuthService,
     AccountLockoutService,
     TurnstileService,
   ],

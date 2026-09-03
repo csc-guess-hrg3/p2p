@@ -77,12 +77,26 @@ export class ProductOrdersPaService {
     return c;
   }
 
-  private assertUserHasCompany(user: AuthenticatedUser, companyCode: string) {
-    // O usuário precisa ter acesso a alguma empresa com o code dado.
-    // A camada de Integration usa a mesma checagem por code, então
-    // confiamos que o frontend sempre passa um code válido para o usuário.
-    void user;
-    void companyCode;
+  /**
+   * Escopo de empresa (segurança): o usuário só acessa PA da(s) empresa(s) a
+   * que tem vínculo — impede um comprador/diretor de uma marca (GUESS) ver
+   * pedidos/preços/fornecedores da outra (HRG3). Mesmo padrão do fluxo de
+   * consumíveis (resolveCompany), sem bypass de admin (admin é vinculado a
+   * todas as empresas via user_companies).
+   */
+  private async assertUserHasCompany(
+    user: AuthenticatedUser,
+    companyCode: string,
+  ): Promise<void> {
+    const company = await this.prisma.company.findFirst({
+      where: { code: companyCode, deletedAt: null },
+      select: { id: true },
+    });
+    if (!company || !user.companyIds.includes(company.id)) {
+      throw new ForbiddenException(
+        `Sem acesso aos pedidos da empresa ${companyCode}.`,
+      );
+    }
   }
 
   /** Resolve o nome do banco do ERP a partir do code da empresa.
@@ -121,7 +135,7 @@ export class ProductOrdersPaService {
    */
   async approve(user: AuthenticatedUser, company: string, pedido: string) {
     const c = this.assertCompany(company);
-    this.assertUserHasCompany(user, c);
+    await this.assertUserHasCompany(user, c);
     const { company: comp, config } = await this.resolveConfig(c);
     if (!config?.paApproverUserId) {
       throw new BadRequestException(
@@ -198,7 +212,7 @@ export class ProductOrdersPaService {
     reason: string,
   ) {
     const c = this.assertCompany(company);
-    this.assertUserHasCompany(user, c);
+    await this.assertUserHasCompany(user, c);
     if (!reason || reason.trim().length < 10) {
       throw new BadRequestException(
         'Motivo da reprovação obrigatório (mínimo 10 caracteres).',
@@ -291,7 +305,7 @@ export class ProductOrdersPaService {
     },
   ) {
     const c = this.assertCompany(company);
-    this.assertUserHasCompany(user, c);
+    await this.assertUserHasCompany(user, c);
 
     const numero = pedido.trim();
     const reason = (payload.reason ?? '').trim();
@@ -443,7 +457,7 @@ export class ProductOrdersPaService {
     options: { status?: string; search?: string } = {},
   ) {
     const c = this.assertCompany(company);
-    this.assertUserHasCompany(user, c);
+    await this.assertUserHasCompany(user, c);
 
     const { status, search } = options;
     const filters: Prisma.Sql[] = [
@@ -525,7 +539,7 @@ export class ProductOrdersPaService {
    */
   async findOne(user: AuthenticatedUser, company: string, pedido: string) {
     const c = this.assertCompany(company);
-    this.assertUserHasCompany(user, c);
+    await this.assertUserHasCompany(user, c);
 
     const numero = pedido.trim();
     const headerRows = await this.prisma.$queryRaw<PaOrderRow[]>`
@@ -742,7 +756,7 @@ export class ProductOrdersPaService {
     entrega: string,
   ) {
     const c = this.assertCompany(company);
-    this.assertUserHasCompany(user, c);
+    await this.assertUserHasCompany(user, c);
 
     // Resolve o produto-grade a partir do mestre PRODUTOS. O cliente
     // poderia ter mandado o `grade` direto, mas resolver no backend
@@ -789,7 +803,7 @@ export class ProductOrdersPaService {
    */
   async listNfes(user: AuthenticatedUser, company: string, pedido: string) {
     const c = this.assertCompany(company);
-    this.assertUserHasCompany(user, c);
+    await this.assertUserHasCompany(user, c);
     const erpDb = await this.resolveErpDb(c);
     const ped = pedido.replace(/[^0-9A-Za-z]/g, '').slice(0, 20);
 

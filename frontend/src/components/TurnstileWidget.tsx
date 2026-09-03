@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 /**
  * Wrapper do widget Cloudflare Turnstile.
@@ -10,9 +10,21 @@ import { useEffect, useRef } from 'react';
  *   funciona em dev/intranet/demo sem a chave (e o backend também aceita
  *   token vazio quando `TURNSTILE_SECRET_KEY` não está setada).
  *
- * Modo `invisible` por padrão — só mostra desafio quando a Cloudflare
- * desconfia do tráfego (IP suspeito, ausência de fingerprint, etc.).
+ * Modo `interaction-only` — o widget fica invisível e só mostra um desafio
+ * quando a Cloudflare desconfia do tráfego. Em modo Gerenciado o token é
+ * emitido em silêncio ~1-2s após carregar; por isso o formulário deve
+ * ESPERAR o token (ver `TURNSTILE_ENABLED`) antes de habilitar o submit —
+ * senão o usuário clica antes do token chegar e o backend recusa ("ausente").
  */
+
+/**
+ * `true` quando há site key configurada (build de produção). Os formulários
+ * usam isto para travar o botão de envio até o token do Turnstile chegar.
+ * Em dev (sem chave) é `false` e o envio é liberado direto.
+ */
+export const TURNSTILE_ENABLED = !!(
+  import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined
+);
 
 declare global {
   interface Window {
@@ -59,7 +71,11 @@ function loadScript(): Promise<void> {
 export function TurnstileWidget({ onVerify }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<string | null>(null);
+  const gotTokenRef = useRef(false);
   const siteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined;
+  // Escape se a verificação travar: se o token não chegar em ~15s, mostramos
+  // um aviso com "recarregar" em vez de deixar o botão travado em silêncio.
+  const [stuck, setStuck] = useState(false);
 
   useEffect(() => {
     // Sem site key configurado = dev/demo. Libera o login imediatamente.
@@ -68,6 +84,11 @@ export function TurnstileWidget({ onVerify }: Props) {
       return;
     }
     let cancelled = false;
+    // Em modo Gerenciado o token costuma chegar em 1-2s; 15s é folga p/ redes
+    // lentas antes de sugerir recarregar.
+    const stuckTimer = setTimeout(() => {
+      if (!cancelled && !gotTokenRef.current) setStuck(true);
+    }, 15000);
     loadScript()
       .then(() => {
         if (cancelled || !containerRef.current || !window.turnstile) return;
@@ -75,14 +96,28 @@ export function TurnstileWidget({ onVerify }: Props) {
           sitekey: siteKey,
           appearance: 'interaction-only',
           size: 'normal',
-          callback: (token: string) => onVerify(token),
-          'error-callback': () => onVerify(''),
-          'expired-callback': () => onVerify(''),
+          callback: (token: string) => {
+            gotTokenRef.current = true;
+            setStuck(false);
+            onVerify(token);
+          },
+          'error-callback': () => {
+            gotTokenRef.current = false;
+            onVerify('');
+          },
+          'expired-callback': () => {
+            gotTokenRef.current = false;
+            onVerify('');
+          },
         });
       })
-      .catch(() => onVerify(''));
+      .catch(() => {
+        setStuck(true);
+        onVerify('');
+      });
     return () => {
       cancelled = true;
+      clearTimeout(stuckTimer);
       if (widgetIdRef.current && window.turnstile) {
         try {
           window.turnstile.remove(widgetIdRef.current);
@@ -95,5 +130,22 @@ export function TurnstileWidget({ onVerify }: Props) {
   }, [siteKey]);
 
   if (!siteKey) return null;
-  return <div ref={containerRef} className="cf-turnstile" />;
+  return (
+    <div>
+      <div ref={containerRef} className="cf-turnstile" />
+      {stuck && (
+        <p className="text-xs text-muted-foreground">
+          A verificação de segurança demorou.{' '}
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="font-medium text-primary hover:underline"
+          >
+            Recarregar a página
+          </button>
+          .
+        </p>
+      )}
+    </div>
+  );
 }

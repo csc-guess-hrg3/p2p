@@ -6,20 +6,23 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TurnstileWidget, TURNSTILE_ENABLED } from '@/components/TurnstileWidget';
 
 /**
  * Login do portal externo — usuário = CÓDIGO do representante + senha.
  * Reusa o /auth/login-local (mesmo mecanismo dos usuários locais). No 1º
  * acesso o rep define a senha pelo link recebido por e-mail (/definir-senha).
  *
- * OBS go-live: se o PROD exigir Turnstile no login-local, incluir aqui o
- * <TurnstileWidget/> como na LoginPage interna e passar o token ao loginLocal.
+ * Anti-bot: envia o token do Turnstile ao login-local, igual à LoginPage
+ * interna. Sem a chave (VITE_TURNSTILE_SITE_KEY) o widget não renderiza e
+ * emite token vazio, que o backend aceita — funciona com ou sem Turnstile.
  */
 export function ExternalLoginPage() {
   const { user, loginLocal } = useAuth();
   const navigate = useNavigate();
   const [codigo, setCodigo] = useState('');
   const [senha, setSenha] = useState('');
+  const [turnstileToken, setTurnstileToken] = useState('');
   const [erro, setErro] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
 
@@ -34,7 +37,7 @@ export function ExternalLoginPage() {
     setErro(null);
     setEnviando(true);
     try {
-      await loginLocal(codigo.trim(), senha);
+      await loginLocal(codigo.trim(), senha, turnstileToken);
       navigate('/externo', { replace: true });
     } catch (err) {
       setErro(extractApiMessage(err, 'Não foi possível entrar.'));
@@ -75,14 +78,31 @@ export function ExternalLoginPage() {
                 onChange={(e) => setSenha(e.target.value)}
               />
             </div>
+            <TurnstileWidget onVerify={setTurnstileToken} />
             {erro && <p className="text-sm text-destructive">{erro}</p>}
             <Button
               type="submit"
               className="w-full"
-              disabled={enviando || !codigo || !senha}
+              disabled={
+                enviando ||
+                !codigo ||
+                !senha ||
+                (TURNSTILE_ENABLED && !turnstileToken)
+              }
             >
-              {enviando ? 'Entrando…' : 'Entrar'}
+              {enviando
+                ? 'Entrando…'
+                : TURNSTILE_ENABLED && !turnstileToken
+                  ? 'Verificando…'
+                  : 'Entrar'}
             </Button>
+            <button
+              type="button"
+              onClick={() => navigate('/recuperar-acesso')}
+              className="w-full text-center text-xs text-muted-foreground hover:text-foreground"
+            >
+              Primeiro acesso ou esqueci minha senha
+            </button>
           </form>
         </CardContent>
       </Card>

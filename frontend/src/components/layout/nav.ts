@@ -167,6 +167,12 @@ export const NAV_SECTIONS: NavSection[] = [
         badgeKey: 'fiscal-pending',
       },
       {
+        to: '/fornecedores/validacoes',
+        label: 'Validação de Fornecedor',
+        icon: ClipboardCheck,
+        roles: FISCAL,
+      },
+      {
         to: '/fiscal/notas-fiscais',
         label: 'Notas Fiscais',
         icon: ClipboardCheck,
@@ -176,48 +182,41 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   // ─── Grupo Financeiro ───
-  // Contas a Pagar é sub-grupo pra deixar espaço lateral pra outras
-  // áreas futuras dentro de Financeiro (caixa, fluxo, conciliação
-  // bancária etc.) sem entupir o top-level.
+  // Rótulos em português direto (as siglas ITP/IAD viram contexto na tela,
+  // não no menu). Sem o sub-grupo "Contas a Pagar" que rotulava adiantamento
+  // e DDA — que não são título a pagar — como se fossem.
   {
     key: 'financeiro',
     label: 'Financeiro',
     icon: Landmark,
     children: [
       {
-        key: 'financeiro.contas-pagar',
-        label: 'Contas a Pagar',
+        to: '/financeiro/contas-pagar',
+        label: 'Títulos a pagar',
         icon: Wallet,
-        children: [
-          {
-            to: '/financeiro/contas-pagar',
-            label: 'Títulos a Pagar (ITP)',
-            icon: Wallet,
-            roles: FINANCE_ROLES,
-            module: 'FINANCE',
-          },
-          {
-            to: '/financeiro/iads',
-            label: 'Adiantamentos (IAD)',
-            icon: Banknote,
-            roles: FINANCE_ROLES,
-            module: 'FINANCE',
-          },
-          {
-            to: '/financeiro/ddas',
-            label: 'DDAs',
-            icon: Barcode,
-            roles: FINANCE_ROLES,
-            module: 'FINANCE',
-          },
-          {
-            to: '/financeiro/provisoes',
-            label: 'Provisões',
-            icon: Receipt,
-            roles: FINANCE_ROLES,
-            module: 'FINANCE',
-          },
-        ],
+        roles: FINANCE_ROLES,
+        module: 'FINANCE',
+      },
+      {
+        to: '/financeiro/iads',
+        label: 'Adiantamentos',
+        icon: Banknote,
+        roles: FINANCE_ROLES,
+        module: 'FINANCE',
+      },
+      {
+        to: '/financeiro/ddas',
+        label: 'DDA',
+        icon: Barcode,
+        roles: FINANCE_ROLES,
+        module: 'FINANCE',
+      },
+      {
+        to: '/financeiro/provisoes',
+        label: 'Provisões',
+        icon: Receipt,
+        roles: FINANCE_ROLES,
+        module: 'FINANCE',
       },
     ],
   },
@@ -234,12 +233,9 @@ export const NAV_SECTIONS: NavSection[] = [
     // ── Administração / Governança — separada da operação ──
     heading: 'Administração',
     entries: [
-      {
-        to: '/legacy-orders',
-        label: 'Pedidos externos',
-        icon: ShoppingCart,
-        roles: ['ADMIN'],
-      },
+      // "Pedidos externos" (/legacy-orders) foi absorvido pelo cutover: os
+      // pedidos do Linx são importados como origin=EXTERNO e aparecem em
+      // /pedidos com filtro de origem.
       { to: '/admin', label: 'Administração', icon: Settings, roles: ['ADMIN'] },
     ],
   },

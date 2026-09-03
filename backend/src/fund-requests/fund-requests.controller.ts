@@ -1,7 +1,16 @@
-import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FundRequestsService } from './fund-requests.service';
 import { QueryFundRequestsDto } from './dto/query-fund-requests.dto';
+import { CreateFundRequestDto } from './dto/create-fund-request.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
@@ -12,6 +21,23 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 @Controller('fund-requests')
 export class FundRequestsController {
   constructor(private readonly fundRequests: FundRequestsService) {}
+
+  @Post()
+  @ApiOperation({
+    summary: 'Cria uma Solicitação de Verba avulsa (pagamento sem NF)',
+  })
+  create(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateFundRequestDto,
+  ) {
+    return this.fundRequests.create(user, dto);
+  }
+
+  @Post(':id/submit')
+  @ApiOperation({ summary: 'Submete a SV avulsa para aprovação' })
+  submit(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.fundRequests.submit(user, id);
+  }
 
   @Get()
   @ApiOperation({ summary: 'Lista solicitações de verba do escopo do usuário' })

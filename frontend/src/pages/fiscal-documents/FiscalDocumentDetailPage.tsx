@@ -127,14 +127,27 @@ export function FiscalDocumentDetailPage() {
           Voltar
         </Button>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => tryDownload('xml')}>
-            <Download className="mr-2 h-4 w-4" />
-            XML
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => tryDownload('danfe')}>
-            <Download className="mr-2 h-4 w-4" />
-            DANFe (PDF)
-          </Button>
+          {/* Serviço (NFS-e) não tem XML/DANFe — só NF-e de mercadoria. */}
+          {doc.type !== 'NFSe' && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => tryDownload('xml')}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                XML
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => tryDownload('danfe')}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                DANFe (PDF)
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -142,7 +155,7 @@ export function FiscalDocumentDetailPage() {
         <div className="flex items-start justify-between">
           <div>
             <div className="text-xs uppercase tracking-wide text-muted-foreground">
-              NF-e {doc.numero}
+              {doc.type === 'NFSe' ? 'NFS-e' : 'NF-e'} {doc.numero}
               {doc.serie ? ` / série ${doc.serie}` : ''} — {doc.company.code}
             </div>
             <h1 className="text-xl font-semibold">{doc.supplierName}</h1>
@@ -170,8 +183,16 @@ export function FiscalDocumentDetailPage() {
           </div>
         </div>
         <div className="rounded-md border bg-card p-4">
-          <h2 className="mb-2 text-sm font-semibold">Chave de acesso</h2>
-          <div className="break-all font-mono text-xs">{doc.accessKey}</div>
+          <h2 className="mb-2 text-sm font-semibold">
+            {doc.type === 'NFSe' ? 'Nota de serviço' : 'Chave de acesso'}
+          </h2>
+          {doc.type === 'NFSe' ? (
+            <div className="text-xs text-muted-foreground">
+              Nota de serviço (NFS-e), trazida do Linx — não tem chave de NF-e.
+            </div>
+          ) : (
+            <div className="break-all font-mono text-xs">{doc.accessKey}</div>
+          )}
         </div>
       </div>
 

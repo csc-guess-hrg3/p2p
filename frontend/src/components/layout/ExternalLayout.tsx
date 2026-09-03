@@ -19,8 +19,8 @@ export function ExternalLayout() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
-      <header className="border-b bg-card">
+    <div className="flex min-h-0 flex-1 flex-col bg-background">
+      <header className="shrink-0 border-b bg-card">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3">
           <div className="flex items-center gap-3">
             <span className="text-lg font-semibold tracking-tight">GUESS</span>
@@ -47,11 +47,13 @@ export function ExternalLayout() {
         </nav>
       </header>
 
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6">
-        <Outlet />
+      <main className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-7xl px-4 py-6">
+          <Outlet />
+        </div>
       </main>
 
-      <footer className="border-t py-3 text-center text-xs text-muted-foreground">
+      <footer className="shrink-0 border-t py-3 text-center text-xs text-muted-foreground">
         GUESS · Área Externa
       </footer>
     </div>

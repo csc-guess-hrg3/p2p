@@ -3,9 +3,11 @@ import { MulterModule } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { AttachmentsService } from './attachments.service';
 import { AttachmentsController } from './attachments.controller';
+import { ApprovalsModule } from '../approvals/approvals.module';
 
 @Module({
   imports: [
+    ApprovalsModule,
     MulterModule.register({
       // O serviço grava em disco (UPLOAD_DIR). Mantemos memoryStorage para
       // permitir validação de mime/size antes de tocar o filesystem.

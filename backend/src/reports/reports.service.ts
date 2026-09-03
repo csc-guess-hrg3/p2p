@@ -110,6 +110,15 @@ export class ReportsService {
       where: {
         companyId: { in: companyIds },
         deletedAt: null,
+        // Own-only (decisão PO: "own-only em tudo", inclusive relatórios):
+        // cada um só vê os PRÓPRIOS pedidos em atraso (comprador OU solicitante
+        // da requisição de origem) — antes devolvia TODOS os pedidos da empresa
+        // a qualquer usuário (achado da revisão). Admin vê os de outro via
+        // SIMULAÇÃO.
+        OR: [
+          { buyerId: user.id },
+          { requisition: { requesterId: user.id } },
+        ],
         status: {
           notIn: [
             PurchaseOrderStatus.FULLY_RECEIVED,

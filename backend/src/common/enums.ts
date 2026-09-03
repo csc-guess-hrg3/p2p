@@ -68,6 +68,13 @@ export type RequisitionNfType =
 export const RequisitionStatus = {
   DRAFT: 'DRAFT',
   SUBMITTED: 'SUBMITTED',
+  /**
+   * Fornecedor novo (não cadastrado no ERP) aguardando validação do Revisor
+   * ANTES da cadeia de aprovação do gestor (RN do André). Ao aprovar, o
+   * fornecedor é criado no Linx e a requisição segue pra IN_APPROVAL; ao
+   * devolver, volta pra DRAFT com a justificativa.
+   */
+  SUPPLIER_VALIDATION: 'SUPPLIER_VALIDATION',
   IN_APPROVAL: 'IN_APPROVAL',
   /** Aprovador pediu ajuste — requisitante edita e ressubmete. */
   REVISION: 'REVISION',

@@ -3,10 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, Download, Search } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { usePurchaseOrders } from '@/lib/purchase-orders';
-import { useAuth } from '@/lib/auth';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
-import { ScopeSelect, useScope } from '@/components/ScopeSelect';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -23,6 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { TableStatusRow } from '@/components/TableStatusRow';
 import { Pagination } from '@/components/ui/pagination';
 import { usePagination } from '@/lib/use-pagination';
 import { exportToCsv } from '@/lib/csv';
@@ -43,18 +42,14 @@ const STATUS_OPTIONS = [
 
 export function PurchaseOrdersListPage() {
   const { activeCompany } = useCompany();
-  const { user } = useAuth();
   const navigate = useNavigate();
-  const isAdmin = user?.profile === 'ADMIN';
   const [status, setStatus] = useState('ALL');
   const [search, setSearch] = useState('');
-  const [scope, setScope] = useScope('p2p:scope:pedidos', isAdmin);
 
-  const { data, isLoading } = usePurchaseOrders({
+  const { data, isLoading, isError } = usePurchaseOrders({
     companyId: activeCompany?.id,
     status: status === 'ALL' ? undefined : status,
     search: search || undefined,
-    scope,
   });
 
   // Sinalização visual (PRD § 8.5): atrasados em vermelho, vencimento ≤ 7d
@@ -151,12 +146,6 @@ export function PurchaseOrdersListPage() {
             ))}
           </SelectContent>
         </Select>
-        <ScopeSelect
-          value={scope}
-          onChange={setScope}
-          canSeeAll={isAdmin}
-          showTeam={!!user?.teamId}
-        />
       </div>
 
       <div className="rounded-lg border bg-card">
@@ -176,26 +165,13 @@ export function PurchaseOrdersListPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading && (
-              <TableRow>
-                <TableCell
-                  colSpan={9}
-                  className="py-8 text-center text-muted-foreground"
-                >
-                  Carregando…
-                </TableCell>
-              </TableRow>
-            )}
-            {!isLoading && rows.length === 0 && (
-              <TableRow>
-                <TableCell
-                  colSpan={9}
-                  className="py-8 text-center text-muted-foreground"
-                >
-                  Nenhum pedido de compra encontrado.
-                </TableCell>
-              </TableRow>
-            )}
+            <TableStatusRow
+              colSpan={9}
+              isLoading={isLoading}
+              isError={isError}
+              isEmpty={rows.length === 0}
+              emptyLabel="Nenhum pedido de compra encontrado."
+            />
             {pag.pageRows.map((po) => {
               const deliveryClass =
                 po.deliveryFlag === 'overdue'
@@ -217,6 +193,11 @@ export function PurchaseOrdersListPage() {
                         <AlertTriangle className="size-4 text-destructive" />
                       )}
                       {po.number}
+                      {po.origin === 'EXTERNO' && (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">
+                          Externo
+                        </span>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">

@@ -474,6 +474,153 @@ export class FiscalDocumentsService {
     };
   }
 
+  /** Cron horário: traz as notas de SERVIÇO (NFS-e) do Linx pra tela. */
+  @Cron(CronExpression.EVERY_HOUR, { name: 'nfse-linx-sync' })
+  async ingestServiceNotesScheduled(): Promise<void> {
+    try {
+      const r = await this.ingestServiceNotes();
+      if (r.inserted > 0) {
+        this.logger.log(
+          `nfse-linx-sync: ${r.inserted} nota(s) de serviço nova(s) em ${r.companiesProcessed} empresa(s).`,
+        );
+      }
+    } catch (err) {
+      this.logger.error(`nfse-linx-sync falhou: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * Ingesta as NOTAS DE SERVIÇO (NFS-e) do Linx pra tela de Notas Fiscais.
+   *
+   * Diferente da NF-e de mercadoria (que vem da Qive, com chave SEFAZ), a nota
+   * de serviço entra no Linx por outro caminho (NexInvoice) e NÃO tem chave.
+   * Aqui lemos direto das ENTRADAS (TIPO_ENTRADAS='SERVIÇOS') e criamos
+   * fiscal_documents tipo NFSe, com uma `accessKey` sintética
+   * (NFSE:<empresa>:<cnpj>:<numero>:<serie>) pra manter unicidade/idempotência.
+   * CNPJ do fornecedor vem de CADASTRO_CLI_FOR (por nome) e o da filial de
+   * FILIAIS (por EMPRESA+FILIAL). O vínculo ao PC é MANUAL — o item de serviço
+   * não carrega REFERENCIA_PEDIDO como a NF-e de mercadoria.
+   */
+  async ingestServiceNotes(
+    sinceDays = 120,
+    targetCompanyId?: string,
+  ): Promise<{ companiesProcessed: number; inserted: number; existed: number }> {
+    const companies = await this.prisma.company.findMany({
+      where: {
+        active: true,
+        deletedAt: null,
+        ...(targetCompanyId ? { id: targetCompanyId } : {}),
+      },
+      select: { id: true, code: true, erpDbName: true },
+    });
+
+    let inserted = 0;
+    let existed = 0;
+    const days = Math.max(1, Math.min(sinceDays, 3650));
+
+    for (const company of companies) {
+      if (!company.erpDbName) continue;
+      // erpDbName vem da nossa config (não é input do usuário), mas saneamos
+      // mesmo assim antes de interpolar no nome do banco.
+      const dbName = company.erpDbName.replace(/[^A-Za-z0-9_]/g, '');
+      let rows: Array<{
+        numero: string | null;
+        serie: string | null;
+        supplierName: string | null;
+        supplierCnpj: string | null;
+        destCnpj: string | null;
+        destName: string | null;
+        natOp: string | null;
+        valorTotal: unknown;
+        emissao: Date | null;
+      }>;
+      try {
+        rows = await this.prisma.$queryRawUnsafe(
+          `SELECT RTRIM(e.NF_ENTRADA) AS numero,
+                  RTRIM(e.SERIE_NF_ENTRADA) AS serie,
+                  RTRIM(e.NOME_CLIFOR) AS supplierName,
+                  (SELECT TOP 1 RTRIM(cf.CGC_CPF) FROM [${dbName}].dbo.CADASTRO_CLI_FOR cf WITH (NOLOCK)
+                    WHERE RTRIM(cf.NOME_CLIFOR) = RTRIM(e.NOME_CLIFOR)) AS supplierCnpj,
+                  (SELECT TOP 1 RTRIM(f.CGC_CPF) FROM [${dbName}].dbo.FILIAIS f WITH (NOLOCK)
+                    WHERE f.EMPRESA = e.EMPRESA AND RTRIM(f.FILIAL) = RTRIM(e.FILIAL)) AS destCnpj,
+                  RTRIM(e.FILIAL) AS destName,
+                  RTRIM(ISNULL(e.NATUREZA, '')) AS natOp,
+                  e.VALOR_TOTAL AS valorTotal,
+                  e.EMISSAO AS emissao
+             FROM [${dbName}].dbo.ENTRADAS e WITH (NOLOCK)
+            WHERE RTRIM(e.TIPO_ENTRADAS) = 'SERVIÇOS'
+              AND e.EMISSAO >= DATEADD(day, -${days}, GETDATE())`,
+        );
+      } catch (err) {
+        this.logger.warn(
+          `ingestServiceNotes(${company.code}): falha ao ler ENTRADAS — ${(err as Error).message}`,
+        );
+        continue;
+      }
+
+      // Chaves já existentes desta empresa — pra não recriar (idempotência).
+      const existingKeys = new Set(
+        (
+          await this.prisma.fiscalDocument.findMany({
+            where: { companyId: company.id, type: 'NFSe' },
+            select: { accessKey: true },
+          })
+        ).map((d) => d.accessKey),
+      );
+
+      for (const r of rows) {
+        const numero =
+          (r.numero ?? '').replace(/^0+/, '') || (r.numero ?? '').trim();
+        if (!numero) continue;
+        const serie = (r.serie ?? '').trim() || null;
+        const supplierCnpj = (r.supplierCnpj ?? '').replace(/\D/g, '');
+        const destCnpj = (r.destCnpj ?? '').replace(/\D/g, '');
+        const accessKey =
+          `NFSE:${company.code}:${supplierCnpj || 'SEMCNPJ'}:${numero}:${serie ?? '-'}`.slice(
+            0,
+            80,
+          );
+        if (existingKeys.has(accessKey)) {
+          existed++;
+          continue;
+        }
+        // Emitente = nosso próprio CNPJ (mesma raiz) → uso/transferência interna.
+        const isInternal =
+          supplierCnpj.length >= 8 &&
+          destCnpj.length >= 8 &&
+          supplierCnpj.slice(0, 8) === destCnpj.slice(0, 8);
+        try {
+          await this.prisma.fiscalDocument.create({
+            data: {
+              companyId: company.id,
+              type: 'NFSe',
+              accessKey,
+              supplierCnpj: supplierCnpj.slice(0, 14),
+              supplierName: (r.supplierName ?? '').slice(0, 255),
+              destCnpj: destCnpj.slice(0, 14),
+              destName: (r.destName ?? '').slice(0, 255) || null,
+              numero: numero.slice(0, 20),
+              serie: serie?.slice(0, 10) ?? null,
+              natOp: (r.natOp ?? '').slice(0, 255) || null,
+              valorTotal: Number(r.valorTotal ?? 0),
+              emissao: r.emissao ?? new Date(),
+              status: isInternal ? 'INTERNAL' : 'PENDING',
+              rawXmlBase64: '',
+              itemsJson: null,
+            },
+          });
+          existingKeys.add(accessKey);
+          inserted++;
+        } catch (err) {
+          this.logger.warn(
+            `ingestServiceNotes(${company.code}): create ${accessKey} — ${(err as Error).message}`,
+          );
+        }
+      }
+    }
+    return { companiesProcessed: companies.length, inserted, existed };
+  }
+
   /**
    * Sincroniza UMA empresa com a Qive. Lê as CNPJs FILIAIS da empresa e
    * filtra a chamada Qive por cnpj[], garantindo que cada empresa puxe
@@ -1202,17 +1349,57 @@ export class FiscalDocumentsService {
    */
   async candidatesForLink(user: AuthenticatedUser, id: string) {
     const doc = await this.findOne(user, id);
+
+    // O PC guarda o CÓDIGO do fornecedor (CLIFOR); a NF guarda o CNPJ. Resolve
+    // o CLIFOR pelo CNPJ no Linx pra casar por código (mais firme que por nome),
+    // sem depender de a razão social estar idêntica dos dois lados.
+    let supplierErpCode: string | null = null;
+    const cnpj = (doc.supplierCnpj ?? '').replace(/\D/g, '');
+    if (cnpj.length >= 11) {
+      const company = await this.prisma.company.findFirst({
+        where: { id: doc.companyId, deletedAt: null },
+        select: { erpDbName: true },
+      });
+      if (company?.erpDbName) {
+        const dbName = safeDbName(company.erpDbName);
+        try {
+          const rows = await this.prisma.$queryRawUnsafe<
+            Array<{ clifor: string }>
+          >(
+            `SELECT TOP 1 RTRIM(CLIFOR) AS clifor FROM [${dbName}].dbo.CADASTRO_CLI_FOR WITH (NOLOCK)
+              WHERE REPLACE(REPLACE(REPLACE(ISNULL(CGC_CPF, ''), '.', ''), '/', ''), '-', '') = '${cnpj}'`,
+          );
+          supplierErpCode = rows[0]?.clifor ?? null;
+        } catch {
+          /* sem Linx / sem match — cai no match por nome */
+        }
+      }
+    }
+
+    const or: Prisma.PurchaseOrderWhereInput[] = [
+      { supplierName: { contains: doc.supplierName.slice(0, 20) } },
+      { fiscalDocuments: { some: { id } } }, // já vinculado a esta NF
+    ];
+    if (supplierErpCode) or.push({ supplierErpCode });
+
     const candidates = await this.prisma.purchaseOrder.findMany({
       where: {
         companyId: doc.companyId,
         deletedAt: null,
+        // Uma NF pode chegar pra um PC em QUALQUER estado pós-emissão —
+        // inclusive já recebidos (o serviço/entrega já ocorreu). Só ficam de
+        // fora rascunho, em aprovação e cancelado.
         status: {
-          in: ['INTEGRATED', 'PARTIALLY_RECEIVED', 'APPROVED'],
+          in: [
+            'APPROVED',
+            'PENDING_ERP',
+            'INTEGRATED',
+            'SENT_TO_SUPPLIER',
+            'PARTIALLY_RECEIVED',
+            'FULLY_RECEIVED',
+          ],
         },
-        OR: [
-          { supplierName: { contains: doc.supplierName.slice(0, 20) } },
-          { fiscalDocuments: { some: { id } } }, // já vinculado a esta NF
-        ],
+        OR: or,
       },
       orderBy: { createdAt: 'desc' },
       take: 50,
@@ -1608,7 +1795,8 @@ export class FiscalDocumentsService {
     let cursorAt = '';
     while (true) {
       const batch = await this.prisma.fiscalDocument.findMany({
-        where: { deletedAt: null, accessKey: { gt: cursorAt } },
+        // Só NF-e tem XML pra reparsear; NFS-e (serviço) não tem rawXml.
+        where: { deletedAt: null, type: 'NFe', accessKey: { gt: cursorAt } },
         orderBy: { accessKey: 'asc' },
         take: PAGE,
         select: {

@@ -17,6 +17,7 @@ interface ModelMock {
   findUnique: Fn;
   findUniqueOrThrow: Fn;
   findFirst: Fn;
+  findFirstOrThrow: Fn;
   findMany: Fn;
   create: Fn;
   createMany: Fn;
@@ -34,6 +35,7 @@ function model(): ModelMock {
     findUnique: jest.fn(),
     findUniqueOrThrow: jest.fn(),
     findFirst: jest.fn(),
+    findFirstOrThrow: jest.fn(),
     findMany: jest.fn().mockResolvedValue([]),
     create: jest.fn(),
     createMany: jest.fn(),
@@ -74,8 +76,10 @@ export interface PrismaMock {
   attachment: ModelMock;
   integrationLog: ModelMock;
   budgetEntry: ModelMock;
+  budgetControlConfig: ModelMock;
   documentSequence: ModelMock;
   fiscalItemRequest: ModelMock;
+  supplierValidation: ModelMock;
   paApprovalNotification: ModelMock;
   paDeliveryChange: ModelMock;
   $transaction: Fn;
@@ -113,8 +117,10 @@ export function createPrismaMock(): PrismaMock {
     attachment: model(),
     integrationLog: model(),
     budgetEntry: model(),
+    budgetControlConfig: model(),
     documentSequence: model(),
     fiscalItemRequest: model(),
+    supplierValidation: model(),
     paApprovalNotification: model(),
     paDeliveryChange: model(),
     // $transaction: roda o callback passando o próprio mock como tx, ou

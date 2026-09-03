@@ -30,14 +30,6 @@ import {
 import { DetailDialog, type DetailSection } from './DetailDialog';
 import type { ProvisaoRow } from '@/lib/financial';
 
-// TIPOs reais validados via SELECT DISTINCT:
-//   SV     = Solicitação de Verba (provisão do tipo "adiantamento")
-//   PEDCOM = Pedido de Compra provisionado (entrada de NF pendente)
-const TIPOS = [
-  { value: 'SV', label: 'Solicitação de Verba' },
-  { value: 'PEDCOM', label: 'Pedido de Compra' },
-];
-
 /** Prefixo amigável do número conforme o tipo. */
 function tipoLabel(tipo: string): string {
   if (tipo === 'SV') return 'SV';
@@ -61,13 +53,17 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 /**
- * Provisões / Adiantamentos — W_HRG3_CONTAS_PAGAR_PROVISAO.
+ * Provisões — pedidos de compra provisionados (NF pendente), de
+ * W_HRG3_CONTAS_PAGAR_PROVISAO. A Solicitação de Verba vive em Adiantamentos
+ * / Solicitações de Verba — não se mistura aqui.
  */
 export function ProvisoesPage() {
   const { activeCompany } = useCompany();
-  const [tipo, setTipo] = useState('SV');
+  // Provisões = só pedido provisionado (PEDCOM); SV saiu daqui.
+  const tipo = 'PEDCOM';
   const [search, setSearch] = useState('');
-  const [statusAprov, setStatusAprov] = useState('ALL');
+  // Esconde "Em digitação" (rascunho/lixo) por padrão — mostra aprovados.
+  const [statusAprov, setStatusAprov] = useState('A');
   const [advanced, setAdvanced] = useState<AdvancedFilterValues>({});
   const { data: branches } = useFinancialBranches(activeCompany?.id);
   const { data: costCenters } = useFinancialCostCenters(activeCompany?.id);
@@ -169,18 +165,6 @@ export function ProvisoesPage() {
             className="pl-8"
           />
         </div>
-        <Select value={tipo} onValueChange={setTipo}>
-          <SelectTrigger className="w-64">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {TIPOS.map((t) => (
-              <SelectItem key={t.value} value={t.value}>
-                {t.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
         <Select value={statusAprov} onValueChange={setStatusAprov}>
           <SelectTrigger className="w-36">
             <SelectValue />

@@ -9,6 +9,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NumberingService } from '../numbering/numbering.service';
 import { LinxErpService } from '../integration/linx-erp.service';
+import { ApprovalsService } from '../approvals/approvals.service';
 import {
   FundRequestStatus,
   IntegrationLogStatus,
@@ -76,6 +77,7 @@ export class PurchaseOrderConverterService {
     private readonly prisma: PrismaService,
     private readonly numbering: NumberingService,
     private readonly linx: LinxErpService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   /**
@@ -271,6 +273,20 @@ export class PurchaseOrderConverterService {
     if (!user.companyIds.includes(req.companyId)) {
       throw new ForbiddenException('Sem acesso a esta requisição.');
     }
+    // Own-only: só o SOLICITANTE (ou um APROVADOR da cadeia) converte a
+    // requisição em PC — antes qualquer usuário da empresa convertia a de
+    // outro, lendo itens/fornecedor/preço e assumindo o PC (achado da revisão).
+    // Admin converte a de outro via SIMULAÇÃO (decisão PO).
+    const isOwnerOrApprover =
+      req.requesterId === user.id ||
+      (await this.approvals.isApproverForEntity(user, {
+        requisitionId: req.id,
+      }));
+    if (!isOwnerOrApprover) {
+      throw new ForbiddenException(
+        'Só o solicitante ou um aprovador pode converter esta requisição.',
+      );
+    }
     if (req.status !== RequisitionStatus.APPROVED) {
       throw new BadRequestException(
         'Só requisições aprovadas podem virar pedido de compra.',
@@ -279,6 +295,18 @@ export class PurchaseOrderConverterService {
     if (req.tipoNotaFiscal === RequisitionNfType.SEM_NF) {
       throw new BadRequestException(
         'Requisição sem nota fiscal não gera pedido de compra — gera Solicitação de Verba.',
+      );
+    }
+    // Gate de fornecedor novo (RN André): um fornecedor não cadastrado só
+    // emite PedCom depois de validado pelo Revisor. Se a requisição ainda
+    // está marcada como "precisa cadastrar fornecedor", a validação não
+    // passou — bloqueia aqui, senão o chokepoint abaixo criaria o CLIFOR
+    // silenciosamente, sem validação. (No fluxo normal a validação já rodou
+    // no submit e este flag está false.)
+    if (req.needsSupplierErpCreation) {
+      throw new BadRequestException(
+        'Fornecedor novo aguardando validação do Revisor — o pedido de compra ' +
+          'só pode ser emitido após a validação do fornecedor.',
       );
     }
     // Chokepoint do cadastro de fornecedor. A conversão cria PC + SV, que
@@ -529,8 +557,14 @@ export class PurchaseOrderConverterService {
 
         // Gravação automática no Linx — sem botão, sem e-mail.
         // Falha aqui aborta o convert inteiro (rollback dos PCs criados).
+        // `currentErpPedido` guarda o nº do Linx assim que gravado, pra que o
+        // catch consiga CANCELAR este PC no ERP se a falha vier DEPOIS da
+        // gravação (ex.: update do P2P p/ INTEGRATED falhar) — sem isso, órfão
+        // silencioso (o PC ficaria ativo no Linx sem estar em `created`).
+        let currentErpPedido: string | null = null;
         try {
           const { pedido } = await this.linx.gravarPedidoCompra(po, user);
+          currentErpPedido = pedido;
           await this.prisma.purchaseOrder.update({
             where: { id: po.id },
             data: {
@@ -574,35 +608,55 @@ export class PurchaseOrderConverterService {
             status: PurchaseOrderStatus.INTEGRATED,
           });
         } catch (err) {
-          // Rollback dos PCs já criados — soft delete pra preservar histórico.
-          //
-          // ATENÇÃO (audit M14): os PCs já em `created` FORAM gravados no Linx
-          // (têm `erpPedido` real em COMPRAS). O soft-delete abaixo só afeta o
-          // P2P — esses pedidos ficam ÓRFÃOS no ERP, pois não há cancelamento
-          // automático no Linx. Antes de desfazer no P2P, registramos os
-          // órfãos em integration_logs pra reconciliação/cancelamento manual.
-          if (created.length > 0) {
+          // COMPENSAÇÃO no ERP (audit M14): os PCs já em `created` — e ESTE
+          // `po`, se já chegou ao Linx (currentErpPedido) — têm pedido ATIVO no
+          // COMPRAS. Antes de desfazer no P2P, CANCELAMOS cada um no Linx
+          // (STATUS_COMPRA='C '), pra não deixar pedido faturável órfão no ERP e
+          // pra que um novo convert não DUPLIQUE o pedido. Só o que falhar o
+          // cancelamento vira órfão de fato — aí sim registrado pra conserto
+          // manual. (Antes, TODO PC gravado virava órfão silencioso.)
+          const gravadosNoLinx = await this.prisma.purchaseOrder.findMany({
+            where: { id: { in: created.map((c) => c.id) } },
+            select: { id: true, companyId: true, number: true, erpPedido: true },
+          });
+          if (currentErpPedido) {
+            gravadosNoLinx.push({
+              id: po.id,
+              companyId: po.companyId,
+              number: po.number,
+              erpPedido: currentErpPedido,
+            });
+          }
+          const orfaos: string[] = [];
+          for (const row of gravadosNoLinx) {
+            if (!row.erpPedido) continue; // não chegou a gravar no Linx
             try {
-              const orphans = await this.prisma.purchaseOrder.findMany({
-                where: { id: { in: created.map((c) => c.id) } },
-                select: { number: true, erpPedido: true },
-              });
-              const orphanList =
-                orphans
-                  .filter((o) => o.erpPedido)
-                  .map((o) => `${o.number} (erpPedido ${o.erpPedido})`)
-                  .join('; ') || '(nenhum com erpPedido)';
+              await this.linx.markPedidoCancelado(
+                row,
+                `Conversão da requisição ${req.number} abortada — compensação`,
+                user,
+              );
+            } catch (cancelErr) {
+              orfaos.push(`${row.number} (erpPedido ${row.erpPedido})`);
+              this.logger.error(
+                `PC ${row.number}: cancelamento de compensação no Linx FALHOU — ÓRFÃO: ${(cancelErr as Error).message}`,
+              );
+            }
+          }
+          if (orfaos.length > 0) {
+            try {
               await this.prisma.integrationLog.create({
                 data: {
                   companyId: req.companyId,
                   source: company.code === 'HRG3' ? 'ERP_HRG3' : 'ERP_GUESS',
                   jobType: 'CONVERT_PO_ROLLBACK',
                   status: IntegrationLogStatus.PARTIAL,
-                  recordsProcessed: orphans.length,
+                  recordsProcessed: orfaos.length,
                   errorDetails:
                     `Conversão da requisição ${req.number} abortada por falha no Linx ` +
-                    `(${(err as Error).message}). PCs já gravados no ERP e soft-deletados no ` +
-                    `P2P — ÓRFÃOS no Linx, requerem cancelamento manual: ${orphanList}.`,
+                    `(${(err as Error).message}). PCs gravados no ERP cujo CANCELAMENTO ` +
+                    `de compensação também falhou — ÓRFÃOS, requerem cancelamento ` +
+                    `manual: ${orfaos.join('; ')}.`,
                 },
               });
             } catch (logErr) {
@@ -611,6 +665,7 @@ export class PurchaseOrderConverterService {
               );
             }
           }
+          // Desfaz no P2P (soft-delete preserva histórico).
           for (const c of created) {
             await this.prisma.purchaseOrder.update({
               where: { id: c.id },

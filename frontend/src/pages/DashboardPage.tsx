@@ -8,13 +8,9 @@ import {
 } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import {
-  useBudgetConsumption,
   useDashboardSummary,
-  useDashboardByTeam,
   useOpenOrders,
   useOverdueOrders,
-  type DashScope,
-  type DashboardByTeamRow,
 } from '@/lib/dashboard';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
@@ -131,12 +127,6 @@ function loadVisible(): Set<WidgetId> {
   }
 }
 
-const SCOPE_LABEL: Record<DashScope, string> = {
-  mine: 'Meus',
-  team: 'Da equipe',
-  all: 'Empresa',
-};
-
 export function DashboardPage() {
   const { activeCompany } = useCompany();
   const { user } = useAuth();
@@ -146,32 +136,6 @@ export function DashboardPage() {
   const isAdmin = user?.profile === 'ADMIN';
   const isManager = user?.profile === 'MANAGER';
   const isManagement = isAdmin || isManager;
-
-  // Escopo dos KPIs de Pedidos, gateado pelo papel:
-  //   operador/revisor: só 'mine' (sem seletor)
-  //   gestor: 'mine' | 'team'
-  //   admin: 'mine' | 'team' | 'all' (consolidado)
-  // O BACKEND rebaixa pelo papel também — o seletor é só conveniência.
-  const scopeOptions: DashScope[] = isAdmin
-    ? ['mine', 'team', 'all']
-    : isManager
-      ? ['mine', 'team']
-      : ['mine'];
-  const [scope, setScope] = useState<DashScope>(() => {
-    const saved = localStorage.getItem('p2p:dash:scope') as DashScope | null;
-    if (saved && scopeOptions.includes(saved)) return saved;
-    return isAdmin ? 'all' : 'mine';
-  });
-  useEffect(() => {
-    if (!scopeOptions.includes(scope)) setScope(isAdmin ? 'all' : 'mine');
-  }, [scope, scopeOptions, isAdmin]);
-  useEffect(() => {
-    localStorage.setItem('p2p:dash:scope', scope);
-  }, [scope]);
-
-  // Dimensão da visão consolidada do admin (só quando scope='all').
-  const [dim, setDim] = useState<'total' | 'cc' | 'team'>('total');
-  const showAdminDim = isAdmin && scope === 'all';
 
   const [tab, setTab] = useState<'open' | 'overdue'>('open');
   const [visible, setVisible] = useState<Set<WidgetId>>(() => loadVisible());
@@ -187,54 +151,27 @@ export function DashboardPage() {
     });
   }
 
-  const summaryQ = useDashboardSummary(companyId, scope);
-  const openQ = useOpenOrders(companyId, scope, tab === 'open');
-  const overdueQ = useOverdueOrders(companyId, scope, tab === 'overdue');
-  // Orçamento por CC só pro admin na dimensão "Por centro de custo".
-  const budgetQ = useBudgetConsumption(
-    isAdmin && scope === 'all' && dim === 'cc' ? companyId : undefined,
-  );
-  const byTeamQ = useDashboardByTeam(companyId, showAdminDim && dim === 'team');
+  // Own-only em tudo (decisão PO): o dashboard mostra SEMPRE só os pedidos do
+  // próprio usuário (comprador OU solicitante). Sem seletor equipe/todos — os
+  // de outros, via modo SIMULAÇÃO. O backend ignora qualquer escopo enviado.
+  const summaryQ = useDashboardSummary(companyId);
+  const openQ = useOpenOrders(companyId, undefined, tab === 'open');
+  const overdueQ = useOverdueOrders(companyId, undefined, tab === 'overdue');
 
   const summary = summaryQ.data;
-  const effScope = summary?.scope ?? scope;
 
   return (
     <div className="space-y-6 pb-10">
       {/* Sempre: o que é meu pra fazer. */}
       <PendingTasksPanel companyId={companyId} />
 
-      {/* Pedidos — em aberto / em atraso, escopados pelo papel. */}
+      {/* Pedidos — em aberto / em atraso, só os meus. */}
       <section className="space-y-4 border-t pt-6">
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div>
             <h2 className="text-base font-semibold text-foreground">Pedidos</h2>
-            <p className="text-xs text-muted-foreground">
-              {effScope === 'all'
-                ? `${activeCompany?.name ?? 'Empresa'} — visão consolidada`
-                : effScope === 'team'
-                  ? 'Pedidos da sua equipe'
-                  : 'Seus pedidos'}
-            </p>
+            <p className="text-xs text-muted-foreground">Seus pedidos</p>
           </div>
-          {scopeOptions.length > 1 && (
-            <div className="inline-flex rounded-lg border border-border bg-card p-0.5 text-xs font-medium">
-              {scopeOptions.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setScope(s)}
-                  className={`rounded-md px-3 py-1.5 transition ${
-                    scope === s
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  {SCOPE_LABEL[s]}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -275,7 +212,9 @@ export function DashboardPage() {
             active={tab === 'overdue'}
             loading={summaryQ.isLoading}
           />
-          {effScope === 'all' && summary?.budgetConsumption && (
+          {/* Orçamento é métrica de EMPRESA — KPI só do admin (não é pedido de
+              ninguém). O backend só devolve budgetConsumption para admin. */}
+          {summary?.budgetConsumption && (
             <KpiCard
               icon={PieIcon}
               label="Orçamento (mês)"
@@ -290,54 +229,6 @@ export function DashboardPage() {
             />
           )}
         </div>
-
-        {/* Admin: dimensão da visão consolidada. */}
-        {showAdminDim && (
-          <div className="space-y-3">
-            <div className="inline-flex rounded-lg border border-border bg-card p-0.5 text-xs font-medium">
-              {(
-                [
-                  ['total', 'Total'],
-                  ['cc', 'Por centro de custo'],
-                  ['team', 'Por equipe'],
-                ] as const
-              ).map(([k, lbl]) => (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => setDim(k)}
-                  className={`rounded-md px-3 py-1.5 transition ${
-                    dim === k
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  {lbl}
-                </button>
-              ))}
-            </div>
-            {dim === 'cc' && (
-              <Card>
-                <CardContent className="pt-6">
-                  <BudgetTable
-                    rows={budgetQ.data?.byCostCenter ?? []}
-                    loading={budgetQ.isLoading}
-                  />
-                </CardContent>
-              </Card>
-            )}
-            {dim === 'team' && (
-              <Card>
-                <CardContent className="pt-6">
-                  <ByTeamTable
-                    rows={byTeamQ.data?.byTeam ?? []}
-                    loading={byTeamQ.isLoading}
-                  />
-                </CardContent>
-              </Card>
-            )}
-          </div>
-        )}
 
         {/* Drill-down: a tabela do KPI selecionado. */}
         <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
@@ -376,7 +267,8 @@ export function DashboardPage() {
       {/* Minhas requisições recentes — pra todos. */}
       <MyRecentRequisitions companyId={companyId} />
 
-      {/* Análises (gráficos da empresa) — só gestão. */}
+      {/* Análises (gráficos) — só gestão. Os gráficos também são own-only no
+          backend (mesmo recorte dos KPIs). */}
       {isManagement && (
         <>
           <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-6">
@@ -499,132 +391,6 @@ function OrdersTable({
               }
             >
               {formatDate(r.expectedDelivery)}
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  );
-}
-
-function BudgetTable({
-  rows,
-  loading,
-}: {
-  rows: import('@/lib/dashboard').BudgetByCostCenter[];
-  loading: boolean;
-}) {
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Filial</TableHead>
-          <TableHead>Centro de custo</TableHead>
-          <TableHead className="text-right">Orçado</TableHead>
-          <TableHead className="text-right">Comprometido</TableHead>
-          <TableHead className="text-right">Consumido</TableHead>
-          <TableHead className="text-right">% consumido</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {loading && (
-          <TableRow>
-            <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-              Carregando…
-            </TableCell>
-          </TableRow>
-        )}
-        {!loading && rows.length === 0 && (
-          <TableRow>
-            <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-              Sem orçamento lançado para o mês corrente.
-            </TableCell>
-          </TableRow>
-        )}
-        {rows.map((r) => (
-          <TableRow key={`${r.branchErpCode}-${r.costCenterErpCode}`}>
-            <TableCell>{r.branchErpCode}</TableCell>
-            <TableCell>{r.costCenterErpCode}</TableCell>
-            <TableCell className="text-right">{formatCurrency(r.budgeted)}</TableCell>
-            <TableCell className="text-right">
-              {formatCurrency(r.committed)}
-            </TableCell>
-            <TableCell className="text-right">{formatCurrency(r.consumed)}</TableCell>
-            <TableCell
-              className={
-                r.pctConsumed > 100
-                  ? 'text-right font-medium text-destructive'
-                  : r.pctConsumed > 90
-                    ? 'text-right font-medium text-warning'
-                    : 'text-right'
-              }
-            >
-              {r.pctConsumed.toFixed(1)}%
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  );
-}
-
-function ByTeamTable({
-  rows,
-  loading,
-}: {
-  rows: DashboardByTeamRow[];
-  loading: boolean;
-}) {
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Equipe</TableHead>
-          <TableHead className="text-right">Em aberto (qtd)</TableHead>
-          <TableHead className="text-right">Em aberto (R$)</TableHead>
-          <TableHead className="text-right">Em atraso (qtd)</TableHead>
-          <TableHead className="text-right">Em atraso (R$)</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {loading && (
-          <TableRow>
-            <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
-              Carregando…
-            </TableCell>
-          </TableRow>
-        )}
-        {!loading && rows.length === 0 && (
-          <TableRow>
-            <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
-              Nenhum pedido em aberto.
-            </TableCell>
-          </TableRow>
-        )}
-        {rows.map((r) => (
-          <TableRow key={r.teamId ?? r.teamName}>
-            <TableCell className="font-medium">{r.teamName}</TableCell>
-            <TableCell className="text-right">{r.openCount}</TableCell>
-            <TableCell className="text-right">
-              {formatCurrency(r.openAmount)}
-            </TableCell>
-            <TableCell
-              className={
-                r.overdueCount > 0
-                  ? 'text-right font-medium text-destructive'
-                  : 'text-right'
-              }
-            >
-              {r.overdueCount}
-            </TableCell>
-            <TableCell
-              className={
-                r.overdueCount > 0
-                  ? 'text-right font-medium text-destructive'
-                  : 'text-right'
-              }
-            >
-              {formatCurrency(r.overdueAmount)}
             </TableCell>
           </TableRow>
         ))}

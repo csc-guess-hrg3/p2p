@@ -58,11 +58,15 @@ END;
 
 -- 4) Backfill: os vendedores de loja já existentes (login por CPF, e-mail
 --    sintético @p2p.local) passam a ser EXTERNAL/VENDEDOR_LOJA, fechando a
---    brecha de eles alcançarem o app interno. Assinatura exclusiva desse
---    público (supervisores locais usam e-mail corporativo real).
+--    brecha de eles alcançarem o app interno.
+--    IMPORTANTE: exclui ADMIN — o admin de bootstrap (seed-admin) usa o MESMO
+--    domínio @p2p.local (admin@p2p.local) e sem esse guard era rebaixado a
+--    VENDEDOR_LOJA a cada re-run desta migration, trancando-o fora do app
+--    interno. Vendedor de loja é sempre OPERATOR, então excluir ADMIN é seguro.
 EXEC sp_executesql N'
 UPDATE [dbo].[users]
    SET [realm] = ''EXTERNAL'', [externalCategory] = ''VENDEDOR_LOJA''
  WHERE [realm] = ''INTERNAL''
+   AND [profile] <> ''ADMIN''
    AND [email] LIKE ''%@p2p.local'';
 ';

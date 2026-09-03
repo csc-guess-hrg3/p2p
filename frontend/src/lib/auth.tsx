@@ -42,12 +42,11 @@ interface AuthContextValue {
    */
   login: (username: string, password: string, turnstileToken?: string) => Promise<void>;
   loginLocal: (username: string, password: string, turnstileToken?: string) => Promise<void>;
-  loginStore: (
-    cpf: string,
-    password: string,
-    options?: { isSetup?: boolean; turnstileToken?: string },
-  ) => Promise<void>;
   logout: () => Promise<void>;
+  /** Simulação de login (admin): "ver como" o usuário. Devolve o efetivo. */
+  impersonate: (userId: string) => Promise<AuthUser>;
+  /** Sai da simulação e volta a ser o admin. Devolve o admin. */
+  exitImpersonation: () => Promise<AuthUser>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -145,43 +144,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  /**
-   * Login do vendedor de loja — CPF + senha. `isSetup=true` chama o
-   * endpoint que ATIVA o vendedor (primeiro acesso); senão, o de login.
-   */
-  const loginStore = useCallback(
-    async (
-      cpf: string,
-      password: string,
-      options: { isSetup?: boolean; turnstileToken?: string } = {},
-    ) => {
-      queryClient.clear();
-      // NÃO força env=PROD: o usuário escolheu HML/PROD no toggle do login;
-      // respeitamos a escolha. (Antes força "PROD" silenciosamente —
-      // vendedor que testava em HML caía em PROD sem aviso.)
-      localStorage.removeItem('p2p_company');
-      const endpoint = options.isSetup
-        ? '/auth/store-setup-password'
-        : '/auth/store-login';
-      const { data } = await api.post<{
-        accessToken: string;
-        refreshToken: string;
-      }>(
-        endpoint,
-        { cpf: cpf.replace(/\D/g, ''), password },
-        options.turnstileToken
-          ? { headers: { 'x-turnstile-token': options.turnstileToken } }
-          : undefined,
-      );
-      setToken(data.accessToken);
-      persistRefreshToken(data.refreshToken);
-      const me = await api.get<AuthUser>('/auth/me');
-      setUser(me.data);
-      setSessionExpired(false);
-    },
-    [],
-  );
-
   const logout = useCallback(async () => {
     // Best-effort: avisa o backend para apagar os cookies httpOnly. Se o
     // endpoint não estiver pronto (HML), seguimos com a limpeza local.
@@ -197,6 +159,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.clear();
   }, []);
 
+  /**
+   * Simulação de login (admin): passa a "ver como" o usuário-alvo. O backend
+   * re-emite a sessão com a identidade do alvo + o claim do admin; aqui só
+   * recarregamos o /auth/me e limpamos a cache (pra não herdar dados do admin).
+   */
+  const impersonate = useCallback(async (userId: string): Promise<AuthUser> => {
+    await api.post(`/auth/impersonate/${userId}`);
+    queryClient.clear();
+    localStorage.removeItem('p2p_company');
+    const me = await api.get<AuthUser>('/auth/me');
+    setUser(me.data);
+    return me.data;
+  }, []);
+
+  /** Sai da simulação: volta a ser o admin real. */
+  const exitImpersonation = useCallback(async (): Promise<AuthUser> => {
+    await api.post('/auth/impersonate/exit');
+    queryClient.clear();
+    localStorage.removeItem('p2p_company');
+    const me = await api.get<AuthUser>('/auth/me');
+    setUser(me.data);
+    return me.data;
+  }, []);
+
   const acknowledgeSessionExpired = useCallback(() => {
     setSessionExpired(false);
   }, []);
@@ -210,8 +196,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         acknowledgeSessionExpired,
         login,
         loginLocal,
-        loginStore,
         logout,
+        impersonate,
+        exitImpersonation,
       }}
     >
       {children}

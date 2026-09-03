@@ -8,6 +8,8 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { IntegrationService } from '../integration/integration.service';
 import { CnpjPublicService } from '../integration/cnpj-public.service';
+import { ApprovalsService } from '../approvals/approvals.service';
+import { SupplierValidationService } from '../supplier-validation/supplier-validation.service';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { RequisitionStatus, UserProfile } from '../common/enums';
 
@@ -34,6 +36,8 @@ export class QuotationsService {
     private readonly prisma: PrismaService,
     private readonly integration: IntegrationService,
     private readonly cnpjPublic: CnpjPublicService,
+    private readonly approvals: ApprovalsService,
+    private readonly supplierValidation: SupplierValidationService,
   ) {}
 
   /** Normaliza CNPJ pra 14 dígitos. Aceita CPF (11 dígitos) também. */
@@ -70,9 +74,11 @@ export class QuotationsService {
         `Cotações só podem ser gerenciadas em rascunho ou revisão (atual: ${req.status}).`,
       );
     }
-    if (req.requesterId !== user.id && user.profile !== UserProfile.ADMIN) {
+    // Own-only: só o solicitante gerencia as próprias cotações. Admin gerencia
+    // as de outro via SIMULAÇÃO — sem bypass por perfil (decisão PO).
+    if (req.requesterId !== user.id) {
       throw new ForbiddenException(
-        'Só o solicitante (ou Admin) pode gerenciar as cotações.',
+        'Só o solicitante pode gerenciar as cotações.',
       );
     }
     return req;
@@ -81,15 +87,19 @@ export class QuotationsService {
   async list(user: AuthenticatedUser, requisitionId: string) {
     const req = await this.prisma.requisition.findUnique({
       where: { id: requisitionId },
-      select: { companyId: true, teamId: true, deletedAt: true },
+      select: { companyId: true, requesterId: true, deletedAt: true },
     });
     if (!req || req.deletedAt) throw new NotFoundException();
     if (!user.companyIds.includes(req.companyId)) {
       throw new ForbiddenException('Sem acesso a esta empresa.');
     }
-    // Isolamento por equipe (espelha requisitions.findOne): não-admin só vê
-    // cotações da própria equipe.
-    if (user.profile !== UserProfile.ADMIN && req.teamId !== user.teamId) {
+    // View own-only (espelha requisitions.findOne): dono, revisor fiscal ou
+    // aprovador da cadeia — o aprovador precisa ver as cotações pra decidir.
+    const canView =
+      req.requesterId === user.id ||
+      user.profile === UserProfile.REVIEWER ||
+      (await this.approvals.isApproverForEntity(user, { requisitionId }));
+    if (!canView) {
       throw new ForbiddenException('Sem acesso a esta requisição.');
     }
     return this.prisma.quotation.findMany({
@@ -414,20 +424,12 @@ export class QuotationsService {
       );
     }
 
-    const isAdmin = user.profile === UserProfile.ADMIN;
-    if (!isAdmin) {
-      const myPending = await this.prisma.approvalStep.findFirst({
-        where: {
-          requisitionId: req.id,
-          status: 'PENDING',
-          assignedApproverId: user.id,
-        },
-      });
-      if (!myPending) {
-        throw new ForbiddenException(
-          'Apenas o aprovador atual (ou Admin) pode selecionar uma cotação.',
-        );
-      }
+    // Aprovador do nível ativo (fixo, delegado ou por cargo) ou Admin. Antes só
+    // via o aprovador FIXO — por cargo não conseguia escolher a vencedora (F1).
+    if (!(await this.approvals.isPendingDecider(user, { requisitionId: req.id }))) {
+      throw new ForbiddenException(
+        'Apenas o aprovador atual (ou Admin) pode selecionar uma cotação.',
+      );
     }
 
     // Resolve condição (re-busca a descrição se mudou).
@@ -554,6 +556,38 @@ export class QuotationsService {
       });
     });
 
+    // Gate de fornecedor novo (RN André): se a cotação vencedora traz um
+    // fornecedor NÃO cadastrado no ERP, a requisição SAI da aprovação e vai
+    // pra validação do Revisor antes de continuar. Ao aprovar, a cadeia
+    // reinicia (valor e fornecedor mudaram). Se este MESMO fornecedor (CNPJ)
+    // já foi validado nesta requisição, reaproveita o CLIFOR e mantém a
+    // cadeia (não re-gateia).
+    if (q.supplierErpCode === null) {
+      const cnpj = (q.supplierCnpj ?? '').replace(/\D/g, '');
+      const existing = await this.prisma.supplierValidation.findUnique({
+        where: { requisitionId: req.id },
+        select: { status: true, supplierCnpj: true, supplierErpCode: true },
+      });
+      const alreadyValidated =
+        existing?.status === 'APPROVED' && existing.supplierCnpj === cnpj;
+      if (alreadyValidated) {
+        await this.prisma.requisition.update({
+          where: { id: req.id },
+          data: {
+            supplierErpCode: existing!.supplierErpCode,
+            needsSupplierErpCreation: false,
+          },
+        });
+      } else {
+        await this.supplierValidation.openGate({
+          id: req.id,
+          companyId: req.companyId,
+          number: req.number,
+          supplierCnpj: q.supplierCnpj,
+        });
+      }
+    }
+
     // Pendência fiscal: pra cada item da nova vencedora, verifica se
     // (novoFornecedor, itemErpCode) está vinculado no Linx. Se não está
     // AND não existe FiscalItemRequest APPROVED prévio, abre uma nova
@@ -645,21 +679,12 @@ export class QuotationsService {
         'Não há proposta original salva para restaurar.',
       );
     }
-    // Aprovador da etapa pendente OU Admin (mesma regra de selectAsWinner).
-    const isAdmin = user.profile === UserProfile.ADMIN;
-    if (!isAdmin) {
-      const myPending = await this.prisma.approvalStep.findFirst({
-        where: {
-          requisitionId: req.id,
-          status: 'PENDING',
-          assignedApproverId: user.id,
-        },
-      });
-      if (!myPending) {
-        throw new ForbiddenException(
-          'Apenas o aprovador atual (ou Admin) pode restaurar a proposta.',
-        );
-      }
+    // Aprovador do nível ativo (fixo, delegado ou por cargo) OU Admin — mesma
+    // regra de selectAsWinner.
+    if (!(await this.approvals.isPendingDecider(user, { requisitionId: req.id }))) {
+      throw new ForbiddenException(
+        'Apenas o aprovador atual (ou Admin) pode restaurar a proposta.',
+      );
     }
 
     const snapshot = JSON.parse(req.originalProposalSnapshot) as {

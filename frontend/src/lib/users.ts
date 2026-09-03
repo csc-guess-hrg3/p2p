@@ -9,6 +9,10 @@ export interface AdminUser {
   name: string;
   profile: string;
   status: string;
+  /** INTERNAL (app interno) | EXTERNAL (portal). */
+  realm?: string;
+  /** REPRESENTANTE | VENDEDOR_LOJA | … quando realm=EXTERNAL; null se interno. */
+  externalCategory?: string | null;
   teamId: string | null;
   canSwitchEnv: boolean;
   loginType?: 'AD' | 'LOCAL';
@@ -55,6 +59,7 @@ export function useUser(id: string | undefined) {
 
 export interface UserPatch {
   name?: string;
+  email?: string;
   profile?: string;
   status?: string;
   teamId?: string | null;

@@ -69,6 +69,7 @@ model Company {
   purchaseOrders        PurchaseOrder[]
   fundRequests          FundRequest[]
   budgetEntries         BudgetEntry[]
+  budgetControlConfig   BudgetControlConfig?
   integrationLogs       IntegrationLog[]
   teamBranchRateios     TeamBranchRateio[]
   teamCostCenterRateios TeamCostCenterRateio[]
@@ -505,6 +506,10 @@ model User {
   // Permissão de alternar entre PROD e HML pela topbar. Admin sempre tem.
   // Para usuários não-admin, o Admin libera caso a caso (ex.: equipe de QA).
   canSwitchEnv  Boolean   @default(false)
+  // Simulação de login: id da sessão de simulação ATIVA deste admin (quando
+  // está "vendo como" alguém). Torna a simulação revogável — sair/re-simular
+  // troca o id, e a strategy/refresh recusam token cujo sessionId != este.
+  activeImpersonationSessionId String? @db.NVarChar(36)
   // Auth local — para usuários fora do AD (supervisores via link de e-mail,
   // vendedores via CPF). passwordHash é bcrypt; passwordSetAt marca quando
   // foi definida (null = ainda não definiu).
@@ -646,6 +651,25 @@ model BudgetEntry {
   @@map("budget_entries")
 }
 
+/**
+ * Configuração do Controle Orçamentário por empresa (André/OBS-03).
+ * `enabled` liga/desliga o controle; `policy` decide o comportamento no
+ * estouro: INFORMATIVE (só avisa) ou BLOCKING (impede). Começa desligado /
+ * informativo — vira impeditivo por configuração, sem rebuild.
+ */
+model BudgetControlConfig {
+  id        String   @id @default(uuid()) @db.UniqueIdentifier
+  companyId String   @unique @db.UniqueIdentifier
+  enabled   Boolean  @default(false)
+  policy    String   @default("INFORMATIVE") @db.NVarChar(15) // INFORMATIVE | BLOCKING
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@map("budget_control_configs")
+}
+
 // ============================================================
 // REQUISIÇÕES — porta de entrada do P2P
 // tipoNotaFiscal decide o que a requisição gera ao ser aprovada:
@@ -706,6 +730,10 @@ model Requisition {
   // atualizado a cada geração.
   recurrenceParentId String? @db.UniqueIdentifier
   nextRecurrenceAt   DateTime?
+  // Modelo novo (série): ao aprovar uma recorrente, gera-se a SÉRIE inteira de
+  // uma vez (N pedidos com ENTREGA mensal), em vez do pinga-a-pinga por cron.
+  // Este carimbo marca que a série já foi gerada — evita regerar no scan.
+  seriesGeneratedAt  DateTime?
   contractRef      String?   @db.NVarChar(100)  // contrato vinculado (quando aplicável)
   // Contagem em cache de anexos com kind=QUOTATION — recalculada pelo
   // AttachmentsService a cada upload/delete. A fonte da verdade pro
@@ -772,6 +800,7 @@ model Requisition {
   fundRequest    FundRequest?
   attachments    Attachment[]
   quotations     Quotation[]
+  supplierValidation SupplierValidation?
   recurrenceParent   Requisition?  @relation("ReqRecurrence", fields: [recurrenceParentId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   recurrenceChildren Requisition[] @relation("ReqRecurrence")
 
@@ -783,6 +812,34 @@ model Requisition {
   // Cobre listagens "minhas" (ADMIN, sem teamId).
   @@index([companyId, createdAt(sort: Desc)])
   @@map("requisitions")
+}
+
+/**
+ * Validação de fornecedor novo (Revisor) — RN do André (11/jun/2026).
+ * Quando a requisição traz um fornecedor NÃO cadastrado no ERP, antes de ir
+ * pro gestor ela passa por validação: o Revisor confere os dados (que moram
+ * na própria Requisition) e Aprova → cadastra no Linx via
+ * `ensureSupplierForRequisition` e a requisição segue pra cadeia de aprovação;
+ * ou Devolve com justificativa → volta pro solicitante (DRAFT). 1:1 com a
+ * requisição. (Distinção Revisor×Jurídico: futura.)
+ */
+model SupplierValidation {
+  id              String    @id @default(uuid()) @db.UniqueIdentifier
+  companyId       String    @db.UniqueIdentifier
+  requisitionId   String    @unique @db.UniqueIdentifier
+  status          String    @default("PENDING") @db.NVarChar(15) // PENDING | APPROVED | RETURNED
+  supplierCnpj    String    @db.NVarChar(14)
+  supplierErpCode String?   @db.NVarChar(20)  // CLIFOR criado no Linx ao aprovar
+  validatorId     String?   @db.UniqueIdentifier
+  justification   String?   @db.NVarChar(Max) // motivo da devolução
+  decidedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  requisition Requisition @relation(fields: [requisitionId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@index([companyId, status])
+  @@map("supplier_validations")
 }
 
 model RequisitionItem {
@@ -1151,11 +1208,17 @@ model ReceivingItem {
 
 model AuditLog {
   id         String   @id @default(uuid()) @db.UniqueIdentifier
-  companyId  String   @db.UniqueIdentifier
+  /** Nullable: toda mutação autenticada é auditada, mesmo sem empresa no contexto (ex.: rep externo em simulação). */
+  companyId  String?  @db.UniqueIdentifier
   userId     String   @db.UniqueIdentifier
+  /** Simulação de login: id do ADMIN real quando a ação foi feita "vendo como" o userId. */
+  impersonatedById String? @db.UniqueIdentifier
   action     String   @db.NVarChar(50)
   entityType String   @db.NVarChar(100)
-  entityId   String   @db.UniqueIdentifier
+  /** GUID da entidade, quando há. Nullable: recursos sem GUID usam entityRef. */
+  entityId   String?  @db.UniqueIdentifier
+  /** Identificador de negócio legível (pedido, code, key, chave...) — sempre presente. */
+  entityRef  String?  @db.NVarChar(200)
   before     String?  @db.NVarChar(Max)
   after      String?  @db.NVarChar(Max)
   ipAddress  String?  @db.NVarChar(50)
@@ -1165,6 +1228,7 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([userId, createdAt])
   @@index([companyId, createdAt])
+  @@index([impersonatedById, createdAt])
   @@map("audit_logs")
 }
 

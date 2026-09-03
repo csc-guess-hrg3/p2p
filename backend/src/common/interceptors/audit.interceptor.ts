@@ -91,14 +91,21 @@ export class AuditInterceptor implements NestInterceptor {
     const entityType = ENTITY_MAP[segments[0]] ?? segments[0];
 
     const response = this.asRecord(responseBody);
-    const entityId =
-      (response?.id as string | undefined) ?? req.params?.id ?? null;
 
+    // TODA mutação autenticada é auditada (nada de gate que dropa as ações mais
+    // sensíveis). entityId = um GUID (resposta.id ou qualquer param UUID — id,
+    // stepId, company...); entityRef = identificador de negócio legível (pedido,
+    // code, key, chave...), sempre presente. companyId é best-effort (nullable).
+    const entityId = this.firstUuid([
+      response?.id,
+      ...Object.values(req.params ?? {}),
+    ]);
+    const entityRef = this.entityRef(req, response);
     const companyId =
       (response?.companyId as string | undefined) ??
       (req.body?.companyId as string | undefined) ??
-      user.companyIds[0];
-    if (!companyId || !entityId) return; // sem contexto suficiente
+      user.companyIds[0] ??
+      null;
 
     const action = this.resolveAction(req.method, path, req.body);
     const userAgent = req.headers['user-agent'];
@@ -106,10 +113,14 @@ export class AuditInterceptor implements NestInterceptor {
     await this.prisma.auditLog.create({
       data: {
         companyId,
+        // userId = identidade EFETIVA (o alvo, se em simulação). O admin real
+        // fica em impersonatedById — trilha "admin agindo como X".
         userId: user.id,
+        impersonatedById: user.impersonatedBy ?? null,
         action,
         entityType,
         entityId,
+        entityRef,
         after: response ? this.serializeAfter(this.mask(response)) : null,
         ipAddress: req.ip ?? null,
         userAgent: Array.isArray(userAgent)
@@ -117,6 +128,37 @@ export class AuditInterceptor implements NestInterceptor {
           : (userAgent ?? null),
       },
     });
+  }
+
+  private static readonly UUID_RE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  /** Primeiro valor que parece um GUID (p/ entityId @db.UniqueIdentifier). */
+  private firstUuid(vals: unknown[]): string | null {
+    for (const v of vals) {
+      if (typeof v === 'string' && AuditInterceptor.UUID_RE.test(v)) return v;
+    }
+    return null;
+  }
+
+  /** Identificador de negócio legível — sempre presente (fallback = o caminho). */
+  private entityRef(
+    req: AuditableRequest,
+    response: Record<string, unknown> | null,
+  ): string {
+    const p = req.params ?? {};
+    const cand =
+      (response?.id as string | undefined) ??
+      p.id ??
+      p.stepId ??
+      p.pedido ??
+      p.code ??
+      p.key ??
+      p.chave ??
+      p.userId ??
+      p.companyId;
+    const path = req.path ?? req.url.split('?')[0];
+    return String(cand ?? path).slice(0, 200);
   }
 
   private resolveAction(

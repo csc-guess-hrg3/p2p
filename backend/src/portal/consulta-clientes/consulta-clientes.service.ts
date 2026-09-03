@@ -41,10 +41,41 @@ export interface ClienteListItem {
   cidade: string;
   uf: string;
   tipo: string;
-  limite: number;
   pontualidade: string;
   aReceber: number;
   vencido: number;
+  /** Data de cadastro do cliente (CADASTRAMENTO), ISO yyyy-mm-dd ou null. */
+  dataCadastro: string | null;
+  /** Última compra = MAX(EMISSAO) do faturamento, ISO yyyy-mm-dd ou null. */
+  ultimaCompra: string | null;
+}
+
+/** Um título em aberto do rep, com a comissão dele. */
+export interface ComissaoTitulo {
+  cliente: string;
+  documento: string;
+  vencimento: string | null;
+  /** A VENCER | VENCENDO HOJE | VENCIDOS. */
+  posicao: string;
+  /** Valor do título ainda em aberto (a receber do cliente). */
+  valorAReceber: number;
+  /** Taxa aplicada: 7 (padrão) ou 10 (primeiro pedido do cliente). */
+  taxa: number;
+  /** True quando é a 1ª nota do cliente feita por este rep (comissão 10%). */
+  primeiroPedido: boolean;
+  /** Comissão do rep nesse título — ele recebe quando o título é pago. */
+  comissao: number;
+}
+
+export interface ComissoesResumo {
+  /** Comissão total a receber (soma de todos os títulos em aberto). */
+  total: number;
+  /** Comissão de títulos a vencer (inclui vencendo hoje). */
+  aVencer: number;
+  /** Comissão de títulos vencidos (cliente em atraso — recebimento parado). */
+  vencidos: number;
+  titulos: number;
+  vencidosTitulos: number;
 }
 
 @Injectable()
@@ -107,8 +138,10 @@ export class ConsultaClientesService {
     // Junta o saldo a receber (e o vencido) de cada cliente — o "pulso" na lista.
     const rows = await this.prisma.$queryRawUnsafe<Record<string, unknown>[]>(
       `SELECT TOP ${CAP} c.CLIFOR, c.NOME_CLIFOR, c.RAZAO_SOCIAL, c.CIDADE, c.UF,
-              c.TIPO, c.LIMITE_CREDITO, c.PONTUALIDADE,
-              ISNULL(f.receber, 0) AS receber, ISNULL(f.vencido, 0) AS vencido
+              c.TIPO, c.PONTUALIDADE,
+              CONVERT(varchar(10), c.CADASTRAMENTO, 23) AS dt_cadastro,
+              CONVERT(varchar(10), fat.ultima_compra, 23) AS ultima_compra,
+              ISNULL(fin.receber, 0) AS receber, ISNULL(fin.vencido, 0) AS vencido
          FROM ${CLIENTES} c
          LEFT JOIN (
            SELECT LTRIM(RTRIM(NOME_CLIFOR)) AS nm,
@@ -117,7 +150,12 @@ export class ConsultaClientesService {
                            THEN VALOR_A_RECEBER ELSE 0 END) AS vencido
              FROM ${FINANCEIRO} WHERE cod_representante IN (${inl})
             GROUP BY LTRIM(RTRIM(NOME_CLIFOR))
-         ) f ON f.nm = LTRIM(RTRIM(c.NOME_CLIFOR))
+         ) fin ON fin.nm = LTRIM(RTRIM(c.NOME_CLIFOR))
+         LEFT JOIN (
+           SELECT LTRIM(RTRIM(NOME_CLIFOR)) AS nm, MAX(EMISSAO) AS ultima_compra
+             FROM ${FATURAMENTOS} WHERE cod_representante IN (${inl})
+            GROUP BY LTRIM(RTRIM(NOME_CLIFOR))
+         ) fat ON fat.nm = LTRIM(RTRIM(c.NOME_CLIFOR))
         WHERE c.cod_representante IN (${inl})
         ORDER BY c.NOME_CLIFOR, c.CLIFOR`,
     );
@@ -136,10 +174,11 @@ export class ConsultaClientesService {
         cidade: typeof r.CIDADE === 'string' ? r.CIDADE : '',
         uf: typeof r.UF === 'string' ? r.UF : '',
         tipo: typeof r.TIPO === 'string' ? r.TIPO : '',
-        limite: Number(r.LIMITE_CREDITO) || 0,
         pontualidade: typeof r.PONTUALIDADE === 'string' ? r.PONTUALIDADE : '',
         aReceber: Number(r.receber) || 0,
         vencido: Number(r.vencido) || 0,
+        dataCadastro: typeof r.dt_cadastro === 'string' ? r.dt_cadastro : null,
+        ultimaCompra: typeof r.ultima_compra === 'string' ? r.ultima_compra : null,
       });
     }
     return { clientes };
@@ -171,7 +210,6 @@ export class ConsultaClientesService {
       ddd: s('DDD1'),
       telefone: s('TELEFONE1'),
       pontualidade: s('PONTUALIDADE'),
-      limite: Number(row.LIMITE_CREDITO) || 0,
     };
     return { cliente, groups };
   }
@@ -322,5 +360,95 @@ export class ConsultaClientesService {
       total:
         Math.round((venc.total + aVenc.total + Number.EPSILON) * 100) / 100,
     };
+  }
+
+  /**
+   * Comissões A RECEBER do representante. Regra de NEGÓCIO (fonte: PO):
+   *  - PADRÃO: 7% do valor de CADA PARCELA (título), recebido conforme o
+   *    cliente paga.
+   *  - PRIMEIRO PEDIDO: 10% quando o título pertence à 1ª nota do cliente na
+   *    base (menor EMISSAO, não cancelada/devolução) FEITA por este rep — ou
+   *    seja, o rep trouxe o cliente. Como os títulos já são do rep, basta o NF
+   *    do título casar com a 1ª nota do cliente. Cada parcela desse 1º pedido
+   *    vira 10%; as demais compras do cliente voltam a 7%.
+   * Como a view v_p2p_rep_financeiro só tem títulos em ABERTO, a soma é o que
+   * ele tem a receber (some conforme o cliente paga). NÃO usa a coluna COMISSAO
+   * do ERP (é outro cálculo). Escopo por cod_representante.
+   */
+  async comissoes(
+    user: AuthenticatedUser,
+  ): Promise<{ resumo: ComissoesResumo; titulos: ComissaoTitulo[] }> {
+    const vazio: ComissoesResumo = {
+      total: 0,
+      aVencer: 0,
+      vencidos: 0,
+      titulos: 0,
+      vencidosTitulos: 0,
+    };
+    const codes = await this.repCodes(user);
+    if (!codes.length) return { resumo: vazio, titulos: [] };
+    const inl = this.inList(codes);
+    // `primeiro` = o NF do título é a 1ª nota (não cancelada/devolução) do
+    // cliente na base — e como o título é do rep, foi ELE que a fez → 10%.
+    const rows = await this.prisma.$queryRawUnsafe<Record<string, unknown>[]>(
+      `WITH tit AS (
+         SELECT RTRIM(NOME_CLIFOR) AS cliente, RTRIM(DOCUMENTO) AS nf, POSICAO,
+                VALOR_A_RECEBER,
+                CONVERT(varchar(10), VENCIMENTO_REAL, 23) AS vencimento
+           FROM ${FINANCEIRO}
+          WHERE cod_representante IN (${inl})
+       ),
+       firstn AS (
+         SELECT RTRIM(f.NOME_CLIFOR) AS cliente, RTRIM(f.NF_SAIDA) AS nf,
+                ROW_NUMBER() OVER (
+                  PARTITION BY RTRIM(f.NOME_CLIFOR)
+                  ORDER BY f.EMISSAO ASC, f.NF_SAIDA ASC) AS rn
+           FROM [GUESS_PRODUCAO].[dbo].[FATURAMENTO] f
+          WHERE ISNULL(f.NOTA_CANCELADA, 0) = 0
+            AND ISNULL(f.DEVOLUCAO, 0) = 0
+            AND RTRIM(f.NOME_CLIFOR) IN (SELECT DISTINCT cliente FROM tit)
+       )
+       SELECT TOP ${CAP} t.cliente, t.nf AS documento, t.POSICAO,
+              t.VALOR_A_RECEBER, t.vencimento,
+              CASE WHEN fn.nf IS NOT NULL THEN 1 ELSE 0 END AS primeiro
+         FROM tit t
+         LEFT JOIN firstn fn
+           ON fn.rn = 1 AND fn.cliente = t.cliente AND fn.nf = t.nf
+        ORDER BY t.vencimento`,
+    );
+    const titulos: ComissaoTitulo[] = [];
+    const resumo: ComissoesResumo = { ...vazio };
+    const cents = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+    for (const raw of rows) {
+      const r = normalizeRow(raw);
+      const posicao = typeof r.POSICAO === 'string' ? r.POSICAO.trim() : '';
+      const valorAReceber = Number(r.VALOR_A_RECEBER) || 0;
+      const primeiroPedido = Number(r.primeiro) === 1;
+      const taxa = primeiroPedido ? 10 : 7;
+      const comissao = cents(valorAReceber * (taxa / 100));
+      const vencido = posicao.toUpperCase().includes('VENCID');
+      resumo.total += comissao;
+      if (vencido) {
+        resumo.vencidos += comissao;
+        resumo.vencidosTitulos += 1;
+      } else {
+        resumo.aVencer += comissao;
+      }
+      titulos.push({
+        cliente: typeof r.cliente === 'string' ? r.cliente.trim() : '',
+        documento: typeof r.documento === 'string' ? r.documento.trim() : '',
+        vencimento: typeof r.vencimento === 'string' ? r.vencimento : null,
+        posicao,
+        valorAReceber,
+        taxa,
+        primeiroPedido,
+        comissao,
+      });
+    }
+    resumo.titulos = titulos.length;
+    resumo.total = cents(resumo.total);
+    resumo.aVencer = cents(resumo.aVencer);
+    resumo.vencidos = cents(resumo.vencidos);
+    return { resumo, titulos };
   }
 }

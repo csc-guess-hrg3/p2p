@@ -79,10 +79,24 @@ export class UsersService {
       }
     }
 
+    // E-mail é único no sistema — bloqueia colisão com outro usuário.
+    let email: string | undefined;
+    if (dto.email !== undefined) {
+      email = dto.email.trim().toLowerCase();
+      const conflict = await this.prisma.user.findFirst({
+        where: { email, id: { not: id }, deletedAt: null },
+        select: { id: true },
+      });
+      if (conflict) {
+        throw new BadRequestException('Já existe um usuário com este e-mail.');
+      }
+    }
+
     return this.prisma.user.update({
       where: { id },
       data: {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
+        ...(email !== undefined ? { email } : {}),
         ...(dto.profile !== undefined ? { profile: dto.profile } : {}),
         ...(dto.status !== undefined ? { status: dto.status } : {}),
         ...(dto.teamId !== undefined ? { teamId: dto.teamId } : {}),

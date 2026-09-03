@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PurchaseOrderStatus, UserProfile } from '../common/enums';
 import { AuthenticatedUser } from '../auth/auth.types';
+import { ApprovalsService } from '../approvals/approvals.service';
 
 // Status que encerram o pedido — fora do conjunto "em aberto".
 const FINALIZED_PO_STATUS: string[] = [
@@ -18,7 +19,10 @@ const FINALIZED_PO_STATUS: string[] = [
  */
 @Injectable()
 export class DashboardService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly approvals: ApprovalsService,
+  ) {}
 
   /** Resolve o conjunto de empresas a consultar. */
   private resolveScope(user: AuthenticatedUser, companyId?: string): string[] {
@@ -32,35 +36,25 @@ export class DashboardService {
   }
 
   /**
-   * Rebaixa o escopo pedido conforme o papel (SEGURANÇA — não confia no
-   * frontend) e devolve o filtro de Pedido correspondente:
-   *   - operador/revisor: sempre 'mine'
-   *   - gestor: 'mine' ou 'team' (pede 'all' → vira 'team')
-   *   - admin: 'mine' | 'team' | 'all'
-   * 'mine' = comprador OU solicitante da requisição de origem.
+   * Filtro de Pedido do dashboard — SEMPRE own-only (decisão PO: "own-only em
+   * tudo", inclusive gestor/admin; os de outros, via SIMULAÇÃO). Não há mais
+   * escopo 'equipe'/'todos'. 'mine' = sou o COMPRADOR (buyerId) OU o SOLICITANTE
+   * da requisição de origem — é a mesma compra. O parâmetro `requested` do
+   * frontend é ignorado por segurança.
    */
-  private resolvePoScope(
-    user: AuthenticatedUser,
-    requested?: 'mine' | 'team' | 'all',
-  ): { scope: 'mine' | 'team' | 'all'; where: Prisma.PurchaseOrderWhereInput } {
-    const isAdmin = user.profile === UserProfile.ADMIN;
-    const isManager = user.profile === UserProfile.MANAGER;
-    let scope: 'mine' | 'team' | 'all' =
-      requested ?? (isAdmin ? 'all' : 'mine');
-    if (scope === 'all' && !isAdmin) scope = isManager ? 'team' : 'mine';
-    if (scope === 'team' && !isAdmin && !isManager) scope = 'mine';
-    const where: Prisma.PurchaseOrderWhereInput =
-      scope === 'mine'
-        ? {
-            OR: [
-              { buyerId: user.id },
-              { requisition: { requesterId: user.id } },
-            ],
-          }
-        : scope === 'team'
-          ? { requisition: { teamId: user.teamId } }
-          : {};
-    return { scope, where };
+  private resolvePoScope(user: AuthenticatedUser): {
+    scope: 'mine';
+    where: Prisma.PurchaseOrderWhereInput;
+  } {
+    return {
+      scope: 'mine',
+      where: {
+        OR: [
+          { buyerId: user.id },
+          { requisition: { requesterId: user.id } },
+        ],
+      },
+    };
   }
 
   private openWhere(
@@ -89,13 +83,14 @@ export class DashboardService {
   async summary(
     user: AuthenticatedUser,
     companyId?: string,
-    requestedScope?: 'mine' | 'team' | 'all',
+    _requestedScope?: 'mine' | 'team' | 'all', // ignorado (own-only em tudo)
   ) {
     const companyIds = this.resolveScope(user, companyId);
-    const { scope, where } = this.resolvePoScope(user, requestedScope);
-    // Orçamento (consumo da empresa) só faz sentido — e só é liberado — na
-    // visão consolidada (admin / scope=all). Não vaza pra operador/gestor.
-    const wantBudget = scope === 'all';
+    const { scope, where } = this.resolvePoScope(user);
+    // Orçamento é métrica de EMPRESA (não pedido de ninguém) — segue como KPI
+    // do admin. Não vaza pedidos de outros; a checagem de papel vive em
+    // budgetConsumption(). Operador/gestor não recebem.
+    const wantBudget = user.profile === UserProfile.ADMIN;
 
     const [open, overdue, budget] = await Promise.all([
       this.prisma.purchaseOrder.aggregate({
@@ -139,15 +134,25 @@ export class DashboardService {
   async openOrders(
     user: AuthenticatedUser,
     companyId?: string,
-    requestedScope?: 'mine' | 'team' | 'all',
+    _requestedScope?: 'mine' | 'team' | 'all', // ignorado (own-only em tudo)
   ) {
     const companyIds = this.resolveScope(user, companyId);
-    const { where } = this.resolvePoScope(user, requestedScope);
+    const { where } = this.resolvePoScope(user);
     return this.prisma.purchaseOrder.findMany({
       where: this.openWhere(companyIds, where),
       orderBy: { createdAt: 'desc' },
       take: 200,
-      include: { buyer: { select: { id: true, name: true } } },
+      select: {
+        id: true,
+        number: true,
+        supplierName: true,
+        branchName: true,
+        status: true,
+        totalAmount: true,
+        expectedDelivery: true,
+        createdAt: true,
+        buyer: { select: { id: true, name: true } },
+      },
     });
   }
 
@@ -155,15 +160,25 @@ export class DashboardService {
   async overdueOrders(
     user: AuthenticatedUser,
     companyId?: string,
-    requestedScope?: 'mine' | 'team' | 'all',
+    _requestedScope?: 'mine' | 'team' | 'all', // ignorado (own-only em tudo)
   ) {
     const companyIds = this.resolveScope(user, companyId);
-    const { where } = this.resolvePoScope(user, requestedScope);
+    const { where } = this.resolvePoScope(user);
     return this.prisma.purchaseOrder.findMany({
       where: this.overdueWhere(companyIds, where),
       orderBy: { expectedDelivery: 'asc' },
       take: 200,
-      include: { buyer: { select: { id: true, name: true } } },
+      select: {
+        id: true,
+        number: true,
+        supplierName: true,
+        branchName: true,
+        status: true,
+        totalAmount: true,
+        expectedDelivery: true,
+        createdAt: true,
+        buyer: { select: { id: true, name: true } },
+      },
     });
   }
 
@@ -240,12 +255,17 @@ export class DashboardService {
     Array<{ year: number; month: number; count: number; total: number }>
   > {
     const companyIds = this.resolveScope(user, companyId);
+    // Own-only para TODOS (inclusive admin) — mesmo recorte dos demais KPIs.
+    // Sem isto o agregado somava pedidos de todos os donos p/ qualquer operador
+    // (achado da revisão own-only). NÃO reintroduzir escopo equipe/all aqui.
+    const { where: scopeWhere } = this.resolvePoScope(user);
     const now = new Date();
     const since = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
     const orders = await this.prisma.purchaseOrder.findMany({
       where: {
         deletedAt: null,
         companyId: { in: companyIds },
+        ...scopeWhere,
         createdAt: { gte: since },
       },
       select: { createdAt: true, totalAmount: true },
@@ -282,6 +302,7 @@ export class DashboardService {
    */
   async topSuppliers(user: AuthenticatedUser, companyId?: string, limit = 10) {
     const companyIds = this.resolveScope(user, companyId);
+    const { where: scopeWhere } = this.resolvePoScope(user);
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), 1);
     const end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
@@ -291,6 +312,7 @@ export class DashboardService {
       where: {
         deletedAt: null,
         companyId: { in: companyIds },
+        ...scopeWhere,
         createdAt: { gte: start, lt: end },
       },
       _count: true,
@@ -311,11 +333,13 @@ export class DashboardService {
    */
   async ordersByStatus(user: AuthenticatedUser, companyId?: string) {
     const companyIds = this.resolveScope(user, companyId);
+    const { where: scopeWhere } = this.resolvePoScope(user);
     const grouped = await this.prisma.purchaseOrder.groupBy({
       by: ['status'],
       where: {
         deletedAt: null,
         companyId: { in: companyIds },
+        ...scopeWhere,
       },
       _count: true,
       _sum: { totalAmount: true },
@@ -337,14 +361,11 @@ export class DashboardService {
   async myActions(user: AuthenticatedUser, companyId?: string) {
     const companyIds = this.resolveScope(user, companyId);
 
-    // 1) Aprovações pendentes do próprio usuário (qualquer doc).
-    const approvalsPending = await this.prisma.approvalStep.count({
-      where: {
-        assignedApproverId: user.id,
-        status: 'PENDING',
-        companyId: { in: companyIds },
-      },
-    });
+    // 1) Aprovações pendentes do próprio usuário (qualquer doc). Reusa a MESMA
+    //    lógica da fila /aprovacoes (pendingForUser) — cobre aprovador fixo,
+    //    delegado e por CARGO (+ filial) e o nível ativo; o antigo count por
+    //    assignedApproverId só via o fixo e destoava do badge (F1).
+    const approvalsPending = (await this.approvals.pendingForUser(user)).length;
 
     // 2) Pedidos PA da empresa aguardando aprovação (só se ele é o
     //    paApproverUserId em alguma das empresas em escopo).

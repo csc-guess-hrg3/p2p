@@ -25,8 +25,9 @@ function makePo(over: Record<string, unknown> = {}) {
     companyId: 'company-test',
     erpPedido: '00060500',
     deletedAt: null,
+    buyerId: 'user-test',
     requisition: { teamId: 'team-test' },
-    buyer: { id: 'u1', name: 'Comprador' },
+    buyer: { id: 'user-test', name: 'Comprador' },
     receivings: [],
     items: [
       {

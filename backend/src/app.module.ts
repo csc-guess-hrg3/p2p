@@ -20,6 +20,7 @@ import { PositionsModule } from './positions/positions.module';
 import { BranchesModule } from './branches/branches.module';
 import { BudgetModule } from './budget/budget.module';
 import { ApprovalsModule } from './approvals/approvals.module';
+import { SupplierValidationModule } from './supplier-validation/supplier-validation.module';
 import { DelegationsModule } from './delegations/delegations.module';
 import { RequisitionsModule } from './requisitions/requisitions.module';
 import { PurchaseOrdersModule } from './purchase-orders/purchase-orders.module';
@@ -65,6 +66,7 @@ import { PortalModule } from './portal/portal.module';
     BranchesModule,
     BudgetModule,
     ApprovalsModule,
+    SupplierValidationModule,
     DelegationsModule,
     RequisitionsModule,
     PurchaseOrdersModule,
