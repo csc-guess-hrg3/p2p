@@ -36,7 +36,11 @@ export function SupplierCombobox({
     queryFn: async () =>
       (
         await api.get<ErpSupplier[]>(`/integration/${company}/suppliers`, {
-          params: { search },
+          // Traz também os INATIVOS — em vez de sumir, aparecem com selo e
+          // bloqueados (o solicitante vê que existe, mas precisa reativar no
+          // Linx antes de usar). "inativo" = inativo no cadastro OU como
+          // fornecedor (as duas flags, via a view).
+          params: { search, includeInactive: 'true' },
         })
       ).data,
     enabled: !!company && open && search.trim().length >= 2,
@@ -94,17 +98,32 @@ export function SupplierCombobox({
               <button
                 key={s.codigo}
                 type="button"
+                disabled={s.inativo}
                 onClick={() => {
+                  if (s.inativo) return; // bloqueado — reative no Linx
                   onChange(s.codigo, s);
                   setOpen(false);
                   setSearch('');
                 }}
-                className="flex w-full flex-col items-start rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                className={cn(
+                  'flex w-full flex-col items-start rounded-sm px-2 py-1.5 text-left text-sm',
+                  s.inativo
+                    ? 'cursor-not-allowed opacity-70'
+                    : 'hover:bg-accent',
+                )}
               >
-                <span className="font-medium">{s.nome}</span>
+                <span className="flex items-center gap-2 font-medium">
+                  {s.nome}
+                  {s.inativo && (
+                    <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-warning">
+                      inativo
+                    </span>
+                  )}
+                </span>
                 <span className="text-xs text-muted-foreground">
                   {s.codigo}
                   {s.cnpjCpf ? ` · ${s.cnpjCpf}` : ''}
+                  {s.inativo && ' · reative no Linx para poder usar'}
                 </span>
               </button>
             ))}
