@@ -1,15 +1,29 @@
-import { useEffect, useState } from 'react';
-import { AlertCircle, Ban, CheckCircle2, Search, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
-  lookupSupplierByCnpj,
+  AlertCircle,
+  Ban,
+  Building2,
+  CheckCircle2,
+  ChevronsUpDown,
+  Search,
+  UserPlus,
+  X,
+} from 'lucide-react';
+import { api } from '@/lib/api';
+import type { ErpSupplier } from '@/lib/integration';
+import {
   lookupCnpjPublic,
   maskCnpj,
   type PublicCnpjData,
 } from '@/lib/quotations';
-import type { ErpSupplier } from '@/lib/integration';
+import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { SupplierCombobox } from './SupplierCombobox';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 
 export interface SupplierPickerValue {
   /** Cadastrado: ERP code preenchido. Externo: vazio. */
@@ -39,326 +53,292 @@ const EMPTY: SupplierPickerValue = {
 };
 
 /**
- * Seletor de fornecedor — fluxo ÚNICO e progressivo (sem abas):
- *
- *  1. Busca por NOME (ou CNPJ) no cadastro do ERP (combobox). Fornecedor
- *     INATIVO aparece marcado e BLOQUEADO (reative no Linx antes de usar).
- *  2. Não achou pelo nome → "Buscar por CNPJ": digita o CNPJ e o sistema
- *     resolve em cascata:
- *       - achou no ERP e ativo   → usa o cadastrado;
- *       - achou no ERP e inativo → BLOQUEIA e orienta a reativar no Linx;
- *       - não está no ERP, mas a Receita conhece → "será encaminhado para
- *         cadastro" (cadastrado no Linx quando a requisição for aprovada);
- *       - não achou em lugar nenhum → confira o CNPJ.
+ * Seletor de fornecedor — UM campo só. Você digita nome OU CNPJ e o dropdown
+ * resolve tudo:
+ *  - acha no ERP e ativo   → seleciona;
+ *  - acha no ERP e inativo → mostra bloqueado (reative no Linx antes);
+ *  - é um CNPJ que não está no ERP → oferece "cadastrar novo" (dados da
+ *    Receita quando houver) → vai pra fila de Validação de Fornecedor ao
+ *    aprovar a requisição;
+ *  - não achou → confira o CNPJ / informe o nome.
  */
 export function SupplierPicker({ company, value, onChange }: Props) {
-  // Abre o bloco de CNPJ automaticamente se a seleção atual já é externa.
-  const [showCnpj, setShowCnpj] = useState(value.isExternal);
-  const [cnpj, setCnpj] = useState(
-    value.isExternal ? maskCnpj(value.supplierCnpj) : '',
-  );
-  const [supplierName, setSupplierName] = useState(
-    value.isExternal ? value.supplierName : '',
-  );
-  const [erpMatch, setErpMatch] = useState<ErpSupplier | null>(null);
-  /** Achou no ERP mas está INATIVO — bloqueia o uso. */
-  const [inactiveMatch, setInactiveMatch] = useState<ErpSupplier | null>(null);
-  const [publicMatch, setPublicMatch] = useState<PublicCnpjData | null>(null);
-  const [lookingUp, setLookingUp] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [manualName, setManualName] = useState('');
 
-  // Lookup cascata (ERP → BrasilAPI) quando o CNPJ é digitado.
+  const digits = search.replace(/\D/g, '');
+  const isFullCnpj = digits.length === 14;
+  const term = search.trim();
+
+  const { data: results = [], isFetching } = useQuery({
+    queryKey: ['supplier-search', company, term],
+    queryFn: async () =>
+      (
+        await api.get<ErpSupplier[]>(`/integration/${company}/suppliers`, {
+          // Inclui inativos — aparecem bloqueados em vez de sumir.
+          params: { search: term, includeInactive: 'true' },
+        })
+      ).data,
+    enabled: !!company && open && term.length >= 2,
+  });
+
+  const active = useMemo(() => results.filter((s) => !s.inativo), [results]);
+  const inactive = useMemo(() => results.filter((s) => s.inativo), [results]);
+
+  // Fallback Receita: só quando é um CNPJ completo, NÃO está no ERP (nem ativo
+  // nem inativo) e a busca já respondeu. Se existe inativo com esse CNPJ, a
+  // gente NÃO oferece cadastro novo — manda reativar.
+  const notInErp = isFullCnpj && !isFetching && results.length === 0;
+  const [publicMatch, setPublicMatch] = useState<PublicCnpjData | null>(null);
+  const [receitaLoading, setReceitaLoading] = useState(false);
   useEffect(() => {
-    if (!showCnpj || !company) return;
-    const digits = cnpj.replace(/\D/g, '');
-    if (digits.length < 11) {
-      setErpMatch(null);
-      setInactiveMatch(null);
+    if (!open || !notInErp || !company) {
       setPublicMatch(null);
-      setLookingUp(false);
+      setReceitaLoading(false);
       return;
     }
     let cancelled = false;
-    setLookingUp(true);
-    const timer = setTimeout(async () => {
-      const erp = await lookupSupplierByCnpj(company, digits);
+    setReceitaLoading(true);
+    const t = setTimeout(async () => {
+      const pub = await lookupCnpjPublic(company, digits);
       if (cancelled) return;
-      if (erp && erp.inativo) {
-        // Existe no ERP mas INATIVO → bloqueia. Não seleciona nada (o form
-        // fica sem fornecedor válido); orienta a reativar no Linx.
-        setInactiveMatch(erp);
-        setErpMatch(null);
-        setPublicMatch(null);
-        setLookingUp(false);
-        onChange({ ...EMPTY, supplierCnpj: digits });
-        return;
-      }
-      if (erp) {
-        // Achou no ERP e ativo — usa o cadastrado.
-        setErpMatch(erp);
-        setInactiveMatch(null);
-        setPublicMatch(null);
-        setLookingUp(false);
-        onChange({
-          supplierErpCode: erp.codigo,
-          supplierCnpj: digits,
-          supplierName: erp.nome,
-          isExternal: false,
-          suggestedPaymentCondition: erp.condicaoPgto ?? null,
-        });
-        return;
-      }
-      setErpMatch(null);
-      setInactiveMatch(null);
-      if (digits.length === 14) {
-        const pub = await lookupCnpjPublic(company, digits);
-        if (cancelled) return;
-        setPublicMatch(pub);
-        if (pub) {
-          setSupplierName(pub.razaoSocial);
-          onChange({
-            supplierErpCode: '',
-            supplierCnpj: digits,
-            supplierName: pub.razaoSocial,
-            isExternal: true,
-            suggestedPaymentCondition: null,
-          });
-        }
-      } else {
-        setPublicMatch(null);
-      }
-      setLookingUp(false);
-    }, 500);
+      setPublicMatch(pub);
+      setManualName(pub?.razaoSocial ?? '');
+      setReceitaLoading(false);
+    }, 400);
     return () => {
       cancelled = true;
-      clearTimeout(timer);
+      clearTimeout(t);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cnpj, showCnpj, company]);
+  }, [notInErp, digits, company, open]);
 
-  /** Nome digitado manualmente (último fallback, quando a Receita não achou). */
-  function handleNameChange(name: string) {
-    setSupplierName(name);
-    const digits = cnpj.replace(/\D/g, '');
+  const hasSelection =
+    !!value.supplierErpCode || (value.isExternal && !!value.supplierName);
+
+  function selectErp(s: ErpSupplier) {
+    onChange({
+      supplierErpCode: s.codigo,
+      supplierCnpj: (s.cnpjCpf ?? '').replace(/\D/g, ''),
+      supplierName: s.nome,
+      isExternal: false,
+      suggestedPaymentCondition: s.condicaoPgto ?? null,
+    });
+    setSearch('');
+    setOpen(false);
+  }
+
+  function selectExternal(name: string) {
+    const nm = name.trim();
+    if (!nm) return;
     onChange({
       supplierErpCode: '',
       supplierCnpj: digits,
-      supplierName: name,
+      supplierName: nm,
       isExternal: true,
       suggestedPaymentCondition: null,
     });
+    setSearch('');
+    setOpen(false);
   }
 
-  /** Zera tudo (seleção do ERP e caminho por CNPJ). */
-  function clearAll() {
-    setShowCnpj(false);
-    setCnpj('');
-    setSupplierName('');
-    setErpMatch(null);
-    setInactiveMatch(null);
-    setPublicMatch(null);
-    setLookingUp(false);
+  function clearSelection() {
     onChange({ ...EMPTY });
-  }
-
-  function clearCnpj() {
-    setCnpj('');
-    setSupplierName('');
-    setErpMatch(null);
-    setInactiveMatch(null);
+    setSearch('');
+    setManualName('');
     setPublicMatch(null);
-    setLookingUp(false);
-    onChange({ ...EMPTY });
   }
 
-  const cnpjDigits = cnpj.replace(/\D/g, '');
-  const cnpjValid = cnpjDigits.length === 14 || cnpjDigits.length === 11;
-  const autoIdentified = !!erpMatch || !!publicMatch;
-  const needsName =
-    cnpjValid &&
-    !lookingUp &&
-    !autoIdentified &&
-    !inactiveMatch &&
-    !supplierName.trim();
+  const showEmptyHint = term.length >= 2 && !isFetching && results.length === 0;
 
   return (
-    <div className="space-y-2">
-      {/* 1) Busca por nome/CNPJ no ERP */}
-      <SupplierCombobox
-        company={company}
-        value={value.isExternal ? '' : value.supplierErpCode}
-        selectedName={value.isExternal ? '' : value.supplierName}
-        onChange={(codigo, supplier) => {
-          // Escolheu pelo nome → some o caminho de CNPJ.
-          setShowCnpj(false);
-          setCnpj('');
-          setErpMatch(null);
-          setInactiveMatch(null);
-          setPublicMatch(null);
-          onChange({
-            supplierErpCode: codigo,
-            supplierCnpj: (supplier.cnpjCpf ?? '').replace(/\D/g, ''),
-            supplierName: supplier.nome,
-            isExternal: false,
-            suggestedPaymentCondition: supplier.condicaoPgto ?? null,
-          });
-        }}
-        onClear={clearAll}
-      />
-
-      {/* 2) Atalho pro caminho por CNPJ — só quando nada foi escolhido pelo
-          nome. É o que a gente "recomenda" quando a busca por nome falha. */}
-      {!value.supplierErpCode && !showCnpj && (
-        <button
-          type="button"
-          onClick={() => setShowCnpj(true)}
-          className="flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+    <div className="relative">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger
+          className={cn(
+            'flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring',
+            hasSelection ? 'pr-16' : 'pr-3',
+          )}
         >
-          <Search className="size-3.5" />
-          Não encontrou pelo nome? Buscar por CNPJ
-        </button>
-      )}
-
-      {showCnpj && (
-        <div className="space-y-2 rounded-lg border p-3">
-          <div className="flex items-center justify-between">
-            <Label className="text-[11px] font-medium text-muted-foreground">
-              Buscar / cadastrar por CNPJ
-            </Label>
-            <button
-              type="button"
-              onClick={clearAll}
-              className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-              title="Fechar"
-              aria-label="Fechar"
-            >
-              <X className="size-3.5" />
-            </button>
-          </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[200px_1fr]">
-            <div className="space-y-1">
-              <Label className="text-[11px] text-muted-foreground">CNPJ</Label>
-              <div className="relative">
-                <Input
-                  value={cnpj}
-                  onChange={(e) => setCnpj(maskCnpj(e.target.value))}
-                  placeholder="00.000.000/0000-00"
-                  inputMode="numeric"
-                  className={cnpj ? 'pr-8' : ''}
-                />
-                {cnpj && (
-                  <button
-                    type="button"
-                    onClick={clearCnpj}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                    title="Limpar"
-                    aria-label="Limpar"
-                  >
-                    <X className="size-3.5" />
-                  </button>
+          <span
+            className={cn(
+              'flex items-center gap-2 truncate',
+              !hasSelection && 'text-muted-foreground',
+            )}
+          >
+            {hasSelection ? (
+              <>
+                {value.isExternal ? (
+                  <UserPlus className="size-4 shrink-0 text-info" />
+                ) : (
+                  <Building2 className="size-4 shrink-0 text-muted-foreground" />
                 )}
-              </div>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-[11px] text-muted-foreground">
-                Razão social
-                {needsName && <span className="ml-1 text-destructive">*</span>}
-              </Label>
+                <span className="truncate">
+                  {value.supplierName}
+                  {value.isExternal && (
+                    <span className="ml-1 text-xs text-muted-foreground">
+                      (novo — pra cadastro)
+                    </span>
+                  )}
+                </span>
+              </>
+            ) : (
+              'Selecione o fornecedor (nome ou CNPJ)'
+            )}
+          </span>
+          <ChevronsUpDown className="size-4 opacity-50" />
+        </PopoverTrigger>
+        <PopoverContent className="w-[var(--radix-popover-trigger-width)]">
+          <div className="border-b p-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
               <Input
-                value={supplierName}
-                onChange={(e) => handleNameChange(e.target.value)}
-                disabled={autoIdentified || !!inactiveMatch}
-                placeholder={
-                  autoIdentified
-                    ? ''
-                    : lookingUp
-                      ? 'Consultando…'
-                      : 'Nome do fornecedor'
-                }
+                autoFocus
+                className="pl-8"
+                placeholder="Nome ou CNPJ…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
               />
             </div>
           </div>
+          <div
+            onWheel={(e) => e.stopPropagation()}
+            onTouchMove={(e) => e.stopPropagation()}
+            className="max-h-72 overflow-y-auto overflow-x-hidden p-1 overscroll-contain"
+          >
+            {term.length < 2 && (
+              <p className="px-2 py-3 text-sm text-muted-foreground">
+                Digite o nome ou o CNPJ do fornecedor.
+              </p>
+            )}
+            {term.length >= 2 && isFetching && (
+              <p className="px-2 py-3 text-sm text-muted-foreground">
+                Buscando…
+              </p>
+            )}
 
-          {/* Achou no ERP e ativo */}
-          {cnpjValid && erpMatch && (
-            <div className="flex items-start gap-2 rounded-md border border-success/40 bg-success/5 p-2 text-xs">
-              <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-success" />
-              <div className="text-foreground">
-                <p className="font-medium text-success">
-                  Fornecedor já existe no ERP — vamos usar o cadastrado
-                </p>
-                <p className="text-[11px] text-muted-foreground">
-                  <span className="font-mono">{erpMatch.codigo}</span> —{' '}
-                  {erpMatch.nome}
-                </p>
+            {/* Ativos — selecionáveis */}
+            {active.map((s) => (
+              <button
+                key={s.codigo}
+                type="button"
+                onClick={() => selectErp(s)}
+                className="flex w-full flex-col items-start rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+              >
+                <span className="font-medium">{s.nome}</span>
+                <span className="text-xs text-muted-foreground">
+                  {s.codigo}
+                  {s.cnpjCpf ? ` · ${s.cnpjCpf}` : ''}
+                </span>
+              </button>
+            ))}
+
+            {/* Inativos — bloqueados */}
+            {inactive.map((s) => (
+              <div
+                key={s.codigo}
+                className="flex w-full cursor-not-allowed flex-col items-start rounded-sm px-2 py-1.5 text-left text-sm opacity-70"
+              >
+                <span className="flex items-center gap-2 font-medium">
+                  {s.nome}
+                  <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-warning">
+                    inativo
+                  </span>
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {s.codigo}
+                  {s.cnpjCpf ? ` · ${s.cnpjCpf}` : ''} · reative no Linx para
+                  poder usar
+                </span>
               </div>
-            </div>
-          )}
+            ))}
 
-          {/* Achou no ERP mas INATIVO — bloqueado */}
-          {cnpjValid && inactiveMatch && (
-            <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs">
-              <Ban className="mt-0.5 size-3.5 shrink-0 text-destructive" />
-              <div className="text-foreground">
-                <p className="font-medium text-destructive">
-                  Fornecedor cadastrado, porém INATIVO — não pode ser usado
-                </p>
-                <p className="text-[11px] text-muted-foreground">
-                  <span className="font-mono">{inactiveMatch.codigo}</span> —{' '}
-                  {inactiveMatch.nome}. Reative o cadastro no Linx antes de
-                  incluí-lo na requisição.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Não está no ERP, mas a Receita conhece → encaminhar pra cadastro */}
-          {cnpjValid && !erpMatch && !inactiveMatch && publicMatch && (
-            <div className="flex items-start gap-2 rounded-md border border-info/40 bg-info/5 p-2 text-xs">
-              <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-info" />
-              <div className="flex-1 text-foreground">
-                <p className="font-medium text-info">
-                  Fornecedor novo — dados da Receita Federal
-                </p>
-                {(publicMatch.logradouro || publicMatch.cidade) && (
-                  <p className="text-[11px] text-muted-foreground">
-                    {[
-                      publicMatch.logradouro,
-                      publicMatch.numero,
-                      publicMatch.cidade && publicMatch.uf
-                        ? `${publicMatch.cidade}/${publicMatch.uf}`
-                        : publicMatch.cidade,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
+            {/* Fallback: CNPJ completo que não está no ERP */}
+            {notInErp && (
+              <div className="border-t p-2">
+                {receitaLoading ? (
+                  <p className="px-1 py-2 text-sm text-muted-foreground">
+                    Consultando a Receita Federal…
                   </p>
+                ) : publicMatch ? (
+                  <div className="space-y-2 rounded-md border border-info/40 bg-info/5 p-2 text-xs">
+                    <div className="flex items-start gap-2">
+                      <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-info" />
+                      <div>
+                        <p className="font-medium text-info">
+                          {publicMatch.razaoSocial}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {maskCnpj(digits)} — não está no ERP. Será
+                          encaminhado para cadastro (a equipe fiscal cria no
+                          Linx ao aprovar).
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => selectExternal(publicMatch.razaoSocial)}
+                      className="w-full rounded-md bg-primary px-2 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                    >
+                      Cadastrar novo fornecedor
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2 rounded-md border border-warning/40 bg-warning/10 p-2 text-xs">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-warning" />
+                      <p className="text-[11px] text-muted-foreground">
+                        CNPJ não encontrado no ERP nem na Receita. Confira o
+                        número, ou informe o nome para cadastrar mesmo assim.
+                      </p>
+                    </div>
+                    <Input
+                      className="h-8 text-xs"
+                      placeholder="Nome do fornecedor"
+                      value={manualName}
+                      onChange={(e) => setManualName(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      disabled={!manualName.trim()}
+                      onClick={() => selectExternal(manualName)}
+                      className="w-full rounded-md bg-primary px-2 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                    >
+                      Cadastrar novo fornecedor
+                    </button>
+                  </div>
                 )}
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  Será encaminhado para cadastro — a equipe fiscal cria no Linx
-                  ao aprovar a requisição.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Não achou em lugar nenhum */}
-          {cnpjValid &&
-            !lookingUp &&
-            !erpMatch &&
-            !inactiveMatch &&
-            !publicMatch && (
-              <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-2 text-xs">
-                <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-warning" />
-                <div className="text-foreground">
-                  <p className="font-medium text-warning">
-                    CNPJ não encontrado no ERP nem na Receita Federal
-                  </p>
-                  <p className="text-[11px] text-muted-foreground">
-                    Confira o CNPJ ou informe o nome do fornecedor manualmente.
-                  </p>
-                </div>
               </div>
             )}
-        </div>
+
+            {/* Nome digitado, sem CNPJ completo, e sem resultado no ERP */}
+            {showEmptyHint && !isFullCnpj && (
+              <div className="flex items-start gap-2 px-2 py-3 text-xs text-muted-foreground">
+                <Ban className="mt-0.5 size-3.5 shrink-0" />
+                <span>
+                  Nenhum fornecedor encontrado. Para cadastrar um novo, digite o
+                  CNPJ completo.
+                </span>
+              </div>
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
+
+      {hasSelection && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            clearSelection();
+          }}
+          className="absolute right-9 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+          title="Limpar seleção"
+          aria-label="Limpar seleção"
+        >
+          <X className="size-3.5" />
+        </button>
       )}
     </div>
   );
