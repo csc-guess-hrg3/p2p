@@ -159,10 +159,12 @@ export const NAV_SECTIONS: NavSection[] = [
     icon: Gavel,
     children: [
       {
+        // Só o REVISOR classifica (o admin age por simulação) — não incluir
+        // ADMIN aqui, senão ele via a fila mas o detalhe o barrava.
         to: '/fiscal/classificacao',
         label: 'Classificação Fiscal',
         icon: ClipboardCheck,
-        roles: FISCAL,
+        roles: ['REVIEWER'],
       },
       {
         to: '/fiscal/pendencias-fiscais',

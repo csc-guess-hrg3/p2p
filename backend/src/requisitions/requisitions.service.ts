@@ -560,10 +560,11 @@ export class RequisitionsService {
     user: AuthenticatedUser,
     query: QueryRequisitionsDto,
   ) {
-    if (
-      user.profile !== UserProfile.REVIEWER &&
-      user.profile !== UserProfile.ADMIN
-    ) {
+    // Só o REVISOR — que é quem DE FATO classifica (o backend recusa os
+    // demais no fiscalClassify, admin incluído). Incluir o ADMIN aqui gerava
+    // dead-end: ele via as linhas mas o detalhe o barrava (own-only). Admin
+    // monitora/classifica entrando em SIMULAÇÃO de um revisor.
+    if (user.profile !== UserProfile.REVIEWER) {
       throw new ForbiddenException(
         'Apenas o revisor fiscal acessa a fila de classificação.',
       );

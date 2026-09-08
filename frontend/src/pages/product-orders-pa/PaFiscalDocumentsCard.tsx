@@ -9,6 +9,7 @@ import {
 } from '@/lib/fiscal-documents';
 import { downloadLegacyDanfe } from '@/lib/legacy-orders';
 import { useCompany } from '@/lib/company';
+import { useAuth } from '@/lib/auth';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { useToast } from '@/components/ui/use-toast';
 import { extractApiMessage } from '@/lib/api-errors';
@@ -43,6 +44,11 @@ export function PaFiscalDocumentsCard({
 }) {
   const { data, isLoading } = usePaOrderNfes(company, pedido);
   const { activeCompany } = useCompany();
+  const { user } = useAuth();
+  // O atalho "abrir no módulo Notas Fiscais" leva a uma tela restrita a
+  // ADMIN/REVISOR — só mostra pra quem tem acesso (senão cai na home).
+  const isFiscal =
+    user?.profile === 'ADMIN' || user?.profile === 'REVIEWER';
   const { toast } = useToast();
   const qc = useQueryClient();
   const fetchByChave = useFetchFiscalByChave();
@@ -147,7 +153,7 @@ export function PaFiscalDocumentsCard({
                     {formatCurrency(nfe.valorTotal)}
                   </TableCell>
                   <TableCell className="text-right">
-                    {nfe.fiscalDocumentId && (
+                    {nfe.fiscalDocumentId && isFiscal && (
                       <Button
                         asChild
                         variant="ghost"

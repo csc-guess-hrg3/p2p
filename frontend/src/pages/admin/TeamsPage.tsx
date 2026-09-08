@@ -531,9 +531,26 @@ export function TeamsPage() {
                     <TeamModulesCell
                       teamId={t.id}
                       current={(t.moduleAccess ?? []).map((m) => m.module)}
-                      onSave={(modules) =>
-                        modulesMut.mutate({ id: t.id, modules })
-                      }
+                      onSave={async (modules) => {
+                        // Sem tratamento de erro, um save que falha passava
+                        // batido — o admin achava que liberou o acesso e não
+                        // liberou, e o membro batia no bounce sem ninguém
+                        // entender. Agora avisa (como rename/desativar).
+                        try {
+                          await modulesMut.mutateAsync({ id: t.id, modules });
+                          toast({
+                            title: 'Módulos atualizados',
+                            description: t.name,
+                            variant: 'success',
+                          });
+                        } catch {
+                          toast({
+                            title: 'Falha ao salvar os módulos',
+                            description: 'Tente de novo.',
+                            variant: 'destructive',
+                          });
+                        }
+                      }}
                       busy={modulesMut.isPending}
                     />
                   </TableCell>

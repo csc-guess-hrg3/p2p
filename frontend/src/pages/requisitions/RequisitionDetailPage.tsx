@@ -137,8 +137,11 @@ export function RequisitionDetailPage() {
     Number(req.totalAmount) >= policy.thresholdAmount &&
     !req.quotationWaiverReason &&
     quotationsCount + 1 < policy.minRequired;
-  const isFiscal = user?.profile === 'REVIEWER' || user?.profile === 'ADMIN';
-  const canClassify = isFiscal && req.status !== 'CONVERTED';
+  // Classificar fiscalmente é ação EXCLUSIVA do REVISOR (o backend recusa os
+  // demais, admin incluído — que classifica via simulação de um revisor).
+  // Antes o ADMIN via o botão/CTA e tomava 403.
+  const canClassify =
+    user?.profile === 'REVIEWER' && req.status !== 'CONVERTED';
   const fiscalReady = req.ctbTipoOperacao != null && !!req.naturezaEntrada;
   const needsFiscalClassification =
     req.status === 'APPROVED' &&
@@ -263,7 +266,7 @@ export function RequisitionDetailPage() {
               {cloneMut.isPending ? 'Duplicando…' : 'Duplicar'}
             </Button>
           )}
-        {isDraft && (
+        {isDraft && isOwner && (
           <div className="flex gap-2">
             <Button variant="outline" asChild>
               <Link to={`/requisicoes/${req.id}/editar`}>
@@ -293,7 +296,7 @@ export function RequisitionDetailPage() {
             </Button>
           </div>
         )}
-        {isRevision && (
+        {isRevision && isOwner && (
           <div className="flex gap-2">
             <Button variant="outline" asChild>
               <Link to={`/requisicoes/${req.id}/editar`}>
@@ -420,7 +423,7 @@ export function RequisitionDetailPage() {
             <p className="text-sm text-muted-foreground">
               Antes de virar pedido de compra, esta requisição precisa de
               uma classificação fiscal e contábil.
-              {isFiscal
+              {canClassify
                 ? ' Clique em "Classificar fiscalmente" para preencher.'
                 : ' Aguardando o fiscal preencher.'}
             </p>
@@ -518,7 +521,7 @@ export function RequisitionDetailPage() {
               !isDraft &&
               !!myPendingStep
             }
-            canEdit={canEdit}
+            canEdit={canEdit && isOwner}
             requisitionForEdit={req}
             // Proposta do solicitante = Cotação 1 implícita. Renderizada
             // no topo do card pra que o aprovador veja todas as cotações

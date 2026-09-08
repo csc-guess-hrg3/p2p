@@ -132,6 +132,10 @@ export function FundRequestDetailPage() {
                 <div className="font-medium text-destructive">
                   Falha ao integrar com o Linx
                 </div>
+                {/* Reintegrar é ação do SOLICITANTE (o backend recusa os
+                    demais). A mensagem de erro fica visível pra todos que
+                    abrem a SV; o botão, só pro dono. */}
+                {user?.id === sv.requester?.id && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -156,6 +160,7 @@ export function FundRequestDetailPage() {
                   <RotateCw className="size-4" />
                   {retryMut.isPending ? 'Reintegrando…' : 'Reintegrar Linx'}
                 </Button>
+                )}
               </div>
               <div className="whitespace-pre-wrap break-words text-xs text-destructive/90">
                 {sv.lastErpError}

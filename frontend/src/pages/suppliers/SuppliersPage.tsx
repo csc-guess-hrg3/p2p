@@ -35,7 +35,7 @@ export function SuppliersPage() {
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  const { data: rows = [], isLoading } = useSupplierList(code, search);
+  const { data: rows = [], isLoading, isError } = useSupplierList(code, search);
   const pag = usePagination(rows);
 
   function openDetail(codigo: string) {
@@ -95,11 +95,18 @@ export function SuppliersPage() {
                   <TableRow>
                     <TableCell
                       colSpan={6}
-                      className="py-8 text-center text-muted-foreground"
+                      className={
+                        'py-8 text-center ' +
+                        (isError
+                          ? 'text-destructive'
+                          : 'text-muted-foreground')
+                      }
                     >
-                      {search
-                        ? 'Nenhum fornecedor encontrado para a busca.'
-                        : 'Digite acima para buscar um fornecedor.'}
+                      {isError
+                        ? 'Não foi possível carregar os fornecedores. Tente de novo.'
+                        : search
+                          ? 'Nenhum fornecedor encontrado para a busca.'
+                          : 'Digite acima para buscar um fornecedor.'}
                     </TableCell>
                   </TableRow>
                 )}

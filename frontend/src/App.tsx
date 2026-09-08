@@ -4,6 +4,7 @@ import { AuthProvider } from '@/lib/auth';
 import { CompanyProvider } from '@/lib/company';
 import { RequireAuth } from '@/components/auth/RequireAuth';
 import { RequireProfile } from '@/components/auth/RequireProfile';
+import { NotFoundPage } from '@/pages/StatusPages';
 import { RequireExternal } from '@/components/auth/RequireExternal';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ExternalLayout } from '@/components/layout/ExternalLayout';
@@ -349,9 +350,7 @@ function App() {
                   {/* Classificação Fiscal — fila do revisor (aprovadas
                       aguardando CTB+natureza). Admin/Revisor, sem exigir o
                       módulo FISCAL_QUEUE (é a função-base do revisor). */}
-                  <Route
-                    element={<RequireProfile roles={['ADMIN', 'REVIEWER']} />}
-                  >
+                  <Route element={<RequireProfile roles={['REVIEWER']} />}>
                     <Route
                       path="fiscal/classificacao"
                       element={<FiscalClassificationQueuePage />}
@@ -426,7 +425,7 @@ function App() {
                   </Route>
                   </Route>
                 </Route>
-                <Route path="*" element={<Navigate to="/" replace />} />
+                <Route path="*" element={<NotFoundPage />} />
               </Routes>
                 </Suspense>
               </div>

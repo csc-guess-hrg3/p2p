@@ -84,7 +84,12 @@ export function PurchaseOrderDetailPage() {
   // Cutover Fase 1: pedido EXTERNO (importado do Linx) é SOMENTE-LEITURA no
   // P2P — sem editar/cancelar/receber (controle de saldo é Fase 2 / D-01).
   const isExterno = po.origin === 'EXTERNO';
+  // Só o DONO do pedido (comprador) edita/cancela/recebe. O backend já exige
+  // isso (levaria 403); sem esta trava, o REVISOR — que abre qualquer PC pra
+  // casar a NF — via os botões e clicava neles pra tomar erro.
+  const isOwner = !!user && po.buyer?.id === user.id;
   const canReceive =
+    isOwner &&
     !isExterno &&
     (po.status === 'APPROVED' ||
       po.status === 'INTEGRATED' ||
@@ -96,19 +101,25 @@ export function PurchaseOrderDetailPage() {
   // botão fica visível pra o usuário ver a mensagem clara em vez de "sumir
   // sem explicação".
   const canCancel =
-    !isExterno && !['CANCELLED', 'FULLY_RECEIVED'].includes(po.status);
+    isOwner &&
+    !isExterno &&
+    !['CANCELLED', 'FULLY_RECEIVED'].includes(po.status);
   // Existe saldo aberto pra cancelar item-a-item?
   const hasOpenBalance = (po.items ?? []).some(
     (it) =>
       !it.cancelledAt && Number(it.quantity) - Number(it.receivedQty) > 0,
   );
   const canCancelItems =
-    !isExterno && !['CANCELLED'].includes(po.status) && hasOpenBalance;
+    isOwner &&
+    !isExterno &&
+    !['CANCELLED'].includes(po.status) &&
+    hasOpenBalance;
   // Edição: bloqueia se já recebeu ou se está fechado.
   const anyReceived = (po.items ?? []).some(
     (it) => Number(it.receivedQty) > 0,
   );
   const canEdit =
+    isOwner &&
     !isExterno &&
     !['CANCELLED', 'FULLY_RECEIVED'].includes(po.status) &&
     !anyReceived;

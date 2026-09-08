@@ -184,6 +184,9 @@ export function ContasPagarPage() {
   });
 
   const isLoading = viewMode === 'title' ? titleQ.isLoading : docsQ.isLoading;
+  // Distingue "vazio" de "falhou": sem isError, uma falha ao ler o ERP virava
+  // "Nenhum título encontrado" — e o financeiro lia como "não há títulos".
+  const isError = viewMode === 'title' ? titleQ.isError : docsQ.isError;
   const rows = viewMode === 'title' ? (titleQ.data?.items ?? []) : [];
   const docRows = viewMode === 'document' ? (docsQ.data?.items ?? []) : [];
 
@@ -276,9 +279,14 @@ export function ContasPagarPage() {
                 <TableRow>
                   <TableCell
                     colSpan={9}
-                    className="text-center text-sm text-muted-foreground"
+                    className={
+                      'text-center text-sm ' +
+                      (isError ? 'text-destructive' : 'text-muted-foreground')
+                    }
                   >
-                    Nenhum documento encontrado.
+                    {isError
+                      ? 'Não foi possível carregar. Tente de novo.'
+                      : 'Nenhum documento encontrado.'}
                   </TableCell>
                 </TableRow>
               )}
@@ -347,8 +355,16 @@ export function ContasPagarPage() {
           <TableBody>
             {rows.length === 0 && !isLoading && (
               <TableRow>
-                <TableCell colSpan={9} className="text-center text-sm text-muted-foreground">
-                  Nenhum título encontrado.
+                <TableCell
+                  colSpan={9}
+                  className={
+                    'text-center text-sm ' +
+                    (isError ? 'text-destructive' : 'text-muted-foreground')
+                  }
+                >
+                  {isError
+                    ? 'Não foi possível carregar os títulos. Tente de novo.'
+                    : 'Nenhum título encontrado.'}
                 </TableCell>
               </TableRow>
             )}
