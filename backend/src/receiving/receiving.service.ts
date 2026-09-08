@@ -8,11 +8,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NumberingService } from '../numbering/numbering.service';
-import {
-  PurchaseOrderStatus,
-  ReceivingStatus,
-  UserProfile,
-} from '../common/enums';
+import { PurchaseOrderStatus, ReceivingStatus } from '../common/enums';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { SettingsService } from '../settings/settings.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -42,10 +38,6 @@ export class ReceivingService {
 
   /** Registra um recebimento (em rascunho) contra um Pedido de Compra. */
   async create(user: AuthenticatedUser, dto: CreateReceivingDto) {
-    if (user.profile === UserProfile.REVIEWER) {
-      throw new ForbiddenException('Revisor não registra recebimentos.');
-    }
-
     const po = await this.prisma.purchaseOrder.findUnique({
       where: { id: dto.purchaseOrderId },
       include: {
@@ -224,9 +216,6 @@ export class ReceivingService {
    *  - a quantidade recebida supera a pedida acima do %.
    */
   async confirm(user: AuthenticatedUser, id: string) {
-    if (user.profile === UserProfile.REVIEWER) {
-      throw new ForbiddenException('Revisor não confirma recebimentos.');
-    }
     const receiving = await this.findOne(user, id);
     if (receiving.status !== ReceivingStatus.DRAFT) {
       throw new BadRequestException(

@@ -1,19 +1,14 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { LinxErpService } from '../integration/linx-erp.service';
-import {
-  IntegrationLogStatus,
-  PurchaseOrderStatus,
-  UserProfile,
-} from '../common/enums';
+import { IntegrationLogStatus, PurchaseOrderStatus } from '../common/enums';
 import { AuthenticatedUser } from '../auth/auth.types';
-import { assertPoTeamAccess } from './po-access';
+import { assertPoOwnerAccess } from './po-access';
 
 /**
  * Cancelamento de Pedido de Compra — total e parcial (RN-OC-03).
@@ -89,9 +84,6 @@ export class PurchaseOrderCancellerService {
     id: string,
     cancellationReason: string,
   ) {
-    if (user.profile === UserProfile.REVIEWER) {
-      throw new ForbiddenException('Revisor não cancela pedido de compra.');
-    }
     const po = await this.loadPO(user, id);
     if (po.status === PurchaseOrderStatus.CANCELLED) {
       throw new BadRequestException('Pedido já está cancelado.');
@@ -175,9 +167,6 @@ export class PurchaseOrderCancellerService {
     id: string,
     payload: { itemIds: string[]; reason: string },
   ) {
-    if (user.profile === UserProfile.REVIEWER) {
-      throw new ForbiddenException('Revisor não cancela itens de pedido.');
-    }
     const reason = (payload.reason ?? '').trim();
     if (reason.length < 5) {
       throw new BadRequestException(
@@ -284,7 +273,9 @@ export class PurchaseOrderCancellerService {
     if (!po || po.deletedAt) {
       throw new NotFoundException('Pedido de compra não encontrado.');
     }
-    assertPoTeamAccess(user, po);
+    // Cancelar é mutação: gate só-dono (o revisor cancela quando é o dono,
+    // como requisitante; não pela leitura fiscal de qualquer PC).
+    assertPoOwnerAccess(user, po);
     return po;
   }
 }

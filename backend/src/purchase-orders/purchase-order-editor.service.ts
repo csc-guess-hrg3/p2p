@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -8,14 +7,10 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { LinxErpService } from '../integration/linx-erp.service';
 import { ApprovalsService } from '../approvals/approvals.service';
-import {
-  ApprovalEntityType,
-  PurchaseOrderStatus,
-  UserProfile,
-} from '../common/enums';
+import { ApprovalEntityType, PurchaseOrderStatus } from '../common/enums';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { EditPurchaseOrderDto } from './dto/edit-po.dto';
-import { assertPoTeamAccess } from './po-access';
+import { assertPoOwnerAccess } from './po-access';
 
 /**
  * Edição in-place de Pedidos de Compra (PRD RN-OC-01).
@@ -42,9 +37,6 @@ export class PurchaseOrderEditorService {
   ) {}
 
   async edit(user: AuthenticatedUser, id: string, dto: EditPurchaseOrderDto) {
-    if (user.profile === UserProfile.REVIEWER) {
-      throw new ForbiddenException('Revisor não edita pedidos de compra.');
-    }
     const reason = dto.reason.trim();
 
     const po = await this.prisma.purchaseOrder.findUnique({
@@ -57,7 +49,9 @@ export class PurchaseOrderEditorService {
     if (!po || po.deletedAt) {
       throw new NotFoundException('Pedido não encontrado.');
     }
-    assertPoTeamAccess(user, po);
+    // Editar é mutação: só o DONO (não o atalho de leitura fiscal do revisor).
+    // Um revisor que seja o dono edita como qualquer requisitante.
+    assertPoOwnerAccess(user, po);
     const closed: string[] = [
       PurchaseOrderStatus.CANCELLED,
       PurchaseOrderStatus.FULLY_RECEIVED,

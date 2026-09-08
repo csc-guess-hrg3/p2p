@@ -2,7 +2,8 @@
  * Testes do ReceivingService — cobrem as regras de PRD § 9:
  *  - Validação aceito + rejeitado = recebido em cada linha.
  *  - Recebimento só em PCs com status receptivo (RN-OC-04 implícito).
- *  - Revisor não pode criar recebimento.
+ *  - Só o DONO do PC registra recebimento (own-only; perfil não importa —
+ *    um revisor que seja o dono registra como qualquer requisitante).
  *  - confirm: PARTIALLY → FULLY quando saldo zera; marca DIVERGENT
  *    quando a rejeição supera a tolerância configurada.
  */
@@ -97,10 +98,16 @@ describe('ReceivingService.create', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('bloqueia revisor de registrar recebimento', async () => {
-    const reviewer = { ...TEST_USER, profile: 'REVIEWER' };
+  it('bloqueia quem não é dono do PC (own-only) — inclusive revisor não-dono', async () => {
+    // PC de outra pessoa; o gate é ownership, não perfil. Um revisor que não
+    // seja o dono é barrado igual a qualquer não-dono (a leitura fiscal de
+    // NF-e↔PC não dá direito de OPERAR o pedido).
+    prisma.purchaseOrder.findUnique.mockResolvedValue(
+      makePo({ buyerId: 'outro', requisition: { requesterId: 'outro' } }),
+    );
+    const reviewerNaoDono = { ...TEST_USER, id: 'rev-x', profile: 'REVIEWER' };
     await expect(
-      service.create(reviewer, {
+      service.create(reviewerNaoDono, {
         purchaseOrderId: 'po-1',
         items: [
           {
@@ -112,6 +119,29 @@ describe('ReceivingService.create', () => {
         ],
       }),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('permite o DONO registrar recebimento mesmo sendo revisor', async () => {
+    // Revisor no papel de requisitante (é o comprador do PC) — registra
+    // normalmente. Prova que a trava não é por perfil.
+    prisma.purchaseOrder.findUnique.mockResolvedValue(
+      makePo({ buyerId: 'rev-dono', requisition: { requesterId: 'rev-dono' } }),
+    );
+    prisma.receiving.create.mockResolvedValue({ id: 'rec-1', items: [] });
+    const reviewerDono = { ...TEST_USER, id: 'rev-dono', profile: 'REVIEWER' };
+    const rec = await service.create(reviewerDono, {
+      purchaseOrderId: 'po-1',
+      items: [
+        {
+          purchaseOrderItemId: 'poit-1',
+          receivedQty: 10,
+          acceptedQty: 10,
+          rejectedQty: 0,
+        },
+      ],
+    });
+    expect(rec).toBeTruthy();
+    expect(prisma.receiving.create).toHaveBeenCalled();
   });
 
   it('rejeita PC em estado não receptivo (FULLY_RECEIVED)', async () => {

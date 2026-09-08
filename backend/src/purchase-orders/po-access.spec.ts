@@ -1,5 +1,5 @@
 import { ForbiddenException } from '@nestjs/common';
-import { assertPoTeamAccess } from './po-access';
+import { assertPoTeamAccess, assertPoOwnerAccess } from './po-access';
 import type { AuthenticatedUser } from '../auth/auth.types';
 
 const user = {
@@ -92,5 +92,64 @@ describe('assertPoTeamAccess', () => {
     expect(() =>
       assertPoTeamAccess(admin, { companyId: 'comp-1', buyerId: null }),
     ).toThrow(ForbiddenException);
+  });
+});
+
+describe('assertPoOwnerAccess (mutação — editar/cancelar)', () => {
+  it('libera o DONO (comprador)', () => {
+    expect(() =>
+      assertPoOwnerAccess(user, { companyId: 'comp-1', buyerId: 'u1' }),
+    ).not.toThrow();
+  });
+
+  it('libera o SOLICITANTE da requisição de origem', () => {
+    expect(() =>
+      assertPoOwnerAccess(user, {
+        companyId: 'comp-1',
+        buyerId: 'outro',
+        requisition: { requesterId: 'u1' },
+      }),
+    ).not.toThrow();
+  });
+
+  it('libera o revisor quando ele é o DONO (papel de requisitante)', () => {
+    const reviewerDono = { ...user, id: 'rev', profile: 'REVIEWER' };
+    expect(() =>
+      assertPoOwnerAccess(reviewerDono, {
+        companyId: 'comp-1',
+        buyerId: 'rev',
+      }),
+    ).not.toThrow();
+  });
+
+  it('BARRA o revisor NÃO-dono (ver ≠ operar) — diferente de assertPoTeamAccess', () => {
+    const reviewer = { ...user, id: 'rev', profile: 'REVIEWER' };
+    // A leitura fiscal libera (assertPoTeamAccess), a mutação não.
+    expect(() =>
+      assertPoTeamAccess(reviewer, {
+        companyId: 'comp-1',
+        buyerId: 'outro',
+        requisition: { requesterId: 'mais-outro' },
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertPoOwnerAccess(reviewer, {
+        companyId: 'comp-1',
+        buyerId: 'outro',
+        requisition: { requesterId: 'mais-outro' },
+      }),
+    ).toThrow(ForbiddenException);
+  });
+
+  it('admin NÃO tem bypass de mutação (age via simulação)', () => {
+    expect(() =>
+      assertPoOwnerAccess(admin, { companyId: 'comp-1', buyerId: 'u1' }),
+    ).toThrow(ForbiddenException);
+  });
+
+  it('conta PADRÃO admin opera pedido órfão (sem dono a simular)', () => {
+    expect(() =>
+      assertPoOwnerAccess(defaultAdmin, { companyId: 'comp-1', buyerId: null }),
+    ).not.toThrow();
   });
 });
