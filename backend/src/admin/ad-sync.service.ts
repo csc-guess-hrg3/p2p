@@ -112,12 +112,14 @@ export class AdSyncService {
   ): Promise<{
     teamsCreated: number;
     usersCreated: number;
+    usersReactivated: number;
     usersLinked: number;
   }> {
     const adUsers = await this.searchActiveUsers();
     const byLogin = new Map(adUsers.map((u) => [u.login.toLowerCase(), u]));
     let teamsCreated = 0;
     let usersCreated = 0;
+    let usersReactivated = 0;
     let usersLinked = 0;
 
     for (const sel of selections) {
@@ -130,9 +132,12 @@ export class AdSyncService {
         );
         continue;
       }
-      // Cria/atualiza time (busca por nome — não há código).
+      // Cria/atualiza time (busca por nome — não há código). Prefere o time
+      // ATIVO quando há mais de um com o mesmo nome (ex.: um antigo inativo),
+      // pra não grudar os usuários num time desativado que ninguém vê.
       let team = await this.prisma.team.findFirst({
         where: { name: sel.teamName, deletedAt: null },
+        orderBy: { active: 'desc' },
       });
       if (!team) {
         team = await this.prisma.team.create({
@@ -158,11 +163,29 @@ export class AdSyncService {
             },
           });
           usersCreated++;
-        } else if (user.teamId !== team.id) {
-          await this.prisma.user.update({
-            where: { id: user.id },
-            data: { teamId: team.id },
-          });
+        } else {
+          // Usuário já existe. Pode estar INATIVO/excluído de um setup
+          // anterior — antes o sync só via "já existe" e não fazia nada
+          // (0/0/0 silencioso). Agora reativa (limpa deletedAt + ACTIVE) e
+          // move de equipe se preciso. NÃO mexe no perfil (Revisor etc. é
+          // decisão do admin na tela de Usuários).
+          const patch: {
+            deletedAt?: null;
+            status?: string;
+            teamId?: string;
+          } = {};
+          if (user.deletedAt || user.status !== UserStatus.ACTIVE) {
+            patch.deletedAt = null;
+            patch.status = UserStatus.ACTIVE;
+          }
+          if (user.teamId !== team.id) patch.teamId = team.id;
+          if (Object.keys(patch).length > 0) {
+            await this.prisma.user.update({
+              where: { id: user.id },
+              data: patch,
+            });
+            if (patch.status) usersReactivated++;
+          }
         }
         // Vincula à empresa.
         const link = await this.prisma.userCompany.findUnique({
@@ -178,7 +201,7 @@ export class AdSyncService {
         }
       }
     }
-    return { teamsCreated, usersCreated, usersLinked };
+    return { teamsCreated, usersCreated, usersReactivated, usersLinked };
   }
 
   /* -------------------------------------------------------------- */

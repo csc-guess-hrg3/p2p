@@ -115,6 +115,10 @@ const FiscalDocumentDetailPage = lazyPage(
   () => import('@/pages/fiscal-documents/FiscalDocumentDetailPage'),
   'FiscalDocumentDetailPage',
 );
+const FiscalClassificationQueuePage = lazyPage(
+  () => import('@/pages/fiscal/FiscalClassificationQueuePage'),
+  'FiscalClassificationQueuePage',
+);
 const ContasPagarPage = lazyPage(
   () => import('@/pages/financeiro/ContasPagarPage'),
   'ContasPagarPage',
@@ -341,6 +345,19 @@ function App() {
                     path="pendencias-fiscais"
                     element={<Navigate to="/fiscal/pendencias-fiscais" replace />}
                   />
+
+                  {/* Classificação Fiscal — fila do revisor (aprovadas
+                      aguardando CTB+natureza). Admin/Revisor, sem exigir o
+                      módulo FISCAL_QUEUE (é a função-base do revisor). */}
+                  <Route
+                    element={<RequireProfile roles={['ADMIN', 'REVIEWER']} />}
+                  >
+                    <Route
+                      path="fiscal/classificacao"
+                      element={<FiscalClassificationQueuePage />}
+                    />
+                  </Route>
+
 
                   {/* Financeiro — Admin + equipes com módulo FINANCE
                       liberado (padrão FISCAL_QUEUE). */}

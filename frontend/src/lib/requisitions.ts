@@ -225,6 +225,39 @@ export function useRequisition(id: string | undefined) {
   });
 }
 
+/** Item da fila de classificação fiscal (subset devolvido pelo backend). */
+export interface FiscalQueueItem {
+  id: string;
+  number: string;
+  title: string;
+  supplierName: string | null;
+  tipoNotaFiscal: NfType;
+  status: string;
+  totalAmount: number | string;
+  ctbTipoOperacao: number | null;
+  naturezaEntrada: string | null;
+  createdAt: string;
+  approvedAt: string | null;
+  requester: { id: string; name: string } | null;
+}
+
+/**
+ * Fila de classificação fiscal — requisições aprovadas aguardando CTB+natureza.
+ * Só REVIEWER/ADMIN; escopo por empresa (função do revisor, não own-only).
+ */
+export function useFiscalQueue(params: { companyId?: string; search?: string }) {
+  return useQuery({
+    queryKey: ['fiscal-queue', params],
+    queryFn: async () =>
+      (
+        await api.get<Paginated<FiscalQueueItem>>('/requisitions/fiscal-queue', {
+          params,
+        })
+      ).data,
+    enabled: !!params.companyId,
+  });
+}
+
 export interface HistoryEvent {
   at: string;
   kind: string;

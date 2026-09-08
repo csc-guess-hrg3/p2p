@@ -70,6 +70,18 @@ export class RequisitionsController {
     return this.requisitions.findAll(user, query);
   }
 
+  @Get('fiscal-queue')
+  @ApiOperation({
+    summary:
+      'Fila de classificação fiscal — requisições aprovadas aguardando CTB+natureza (revisor fiscal). Por empresa, não own-only.',
+  })
+  fiscalQueue(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: QueryRequisitionsDto,
+  ) {
+    return this.requisitions.fiscalClassificationQueue(user, query);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Detalhe da requisição' })
   findOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {

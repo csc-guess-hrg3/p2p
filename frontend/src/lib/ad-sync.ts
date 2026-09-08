@@ -39,6 +39,7 @@ export function useAdApply() {
         await api.post<{
           teamsCreated: number;
           usersCreated: number;
+          usersReactivated: number;
           usersLinked: number;
         }>('/admin/ad/apply', payload)
       ).data,

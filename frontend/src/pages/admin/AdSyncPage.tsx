@@ -157,10 +157,17 @@ export function AdSyncPage() {
     }
     try {
       const r = await apply.mutateAsync({ selections: payload });
+      const nada =
+        r.teamsCreated === 0 &&
+        r.usersCreated === 0 &&
+        r.usersReactivated === 0 &&
+        r.usersLinked === 0;
       toast({
-        title: 'Sincronização concluída',
-        description: `${r.teamsCreated} times criados, ${r.usersCreated} usuários criados, ${r.usersLinked} vínculos com empresa.`,
-        variant: 'success',
+        title: nada ? 'Nada a fazer' : 'Sincronização concluída',
+        description: nada
+          ? 'Os usuários selecionados já existem, ativos e vinculados — nada mudou.'
+          : `${r.teamsCreated} times criados, ${r.usersCreated} usuários criados, ${r.usersReactivated} reativados, ${r.usersLinked} vínculos com empresa.`,
+        variant: nada ? 'default' : 'success',
       });
     } catch (err) {
       const msg = isAxiosError(err)

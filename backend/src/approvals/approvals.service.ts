@@ -448,6 +448,71 @@ export class ApprovalsService {
     });
   }
 
+  /**
+   * Requisições que o usuário JÁ DECIDIU (aprovou / reprovou / devolveu) —
+   * histórico do aprovador. Depois de decidir, o item sai da fila de
+   * pendentes; e a lista de Requisições é own-only (o gestor não é o
+   * solicitante), então sem esta visão ele perdia de vista tudo que decidiu.
+   * Mostra o status ATUAL do documento (inclui CANCELLED — algo que ele
+   * aprovou e depois foi cancelado) e qual foi a decisão dele.
+   */
+  async decidedByUser(user: AuthenticatedUser) {
+    const steps = await this.prisma.approvalStep.findMany({
+      where: {
+        decidedById: user.id,
+        companyId: { in: user.companyIds },
+        entityType: ApprovalEntityType.REQUISITION,
+        requisitionId: { not: null },
+        status: { not: ApprovalStepStatus.PENDING },
+      },
+      orderBy: { decidedAt: 'desc' },
+      select: {
+        requisitionId: true,
+        status: true,
+        decidedAt: true,
+        requisition: {
+          select: {
+            id: true,
+            number: true,
+            title: true,
+            status: true,
+            totalAmount: true,
+            deletedAt: true,
+            requester: { select: { name: true } },
+          },
+        },
+      },
+    });
+    const seen = new Set<string>();
+    const out: Array<{
+      requisitionId: string;
+      number: string;
+      title: string;
+      docStatus: string;
+      myDecision: string;
+      decidedAt: Date | null;
+      totalAmount: unknown;
+      requesterName: string | null;
+    }> = [];
+    for (const s of steps) {
+      const req = s.requisition;
+      if (!req || req.deletedAt || !s.requisitionId) continue;
+      if (seen.has(s.requisitionId)) continue; // decisão mais recente por req
+      seen.add(s.requisitionId);
+      out.push({
+        requisitionId: s.requisitionId,
+        number: req.number,
+        title: req.title,
+        docStatus: req.status,
+        myDecision: s.status,
+        decidedAt: s.decidedAt,
+        totalAmount: req.totalAmount,
+        requesterName: req.requester?.name ?? null,
+      });
+    }
+    return out;
+  }
+
   /** Registra a decisão (aprovar/rejeitar) de um step. */
   async decide(
     user: AuthenticatedUser,

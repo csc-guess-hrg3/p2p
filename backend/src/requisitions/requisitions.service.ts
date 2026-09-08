@@ -16,6 +16,7 @@ import { SETTING_KEYS } from '../settings/setting-defs';
 import {
   ApprovalEntityType,
   RequisitionStatus,
+  RequisitionNfType,
   UserProfile,
 } from '../common/enums';
 import { AuthenticatedUser } from '../auth/auth.types';
@@ -537,6 +538,79 @@ export class RequisitionsService {
           ctbTipoOperacao: true,
           naturezaEntrada: true,
           createdAt: true,
+          requester: { select: { id: true, name: true } },
+        },
+      }),
+      this.prisma.requisition.count({ where }),
+    ]);
+    return { data, total, skip, take };
+  }
+
+  /**
+   * Fila de CLASSIFICAÇÃO FISCAL — requisições APROVADAS que ainda não têm a
+   * classificação fiscal (CTB + natureza) e vão virar pedido (tipoNotaFiscal
+   * != SEM_NF). É FUNÇÃO do revisor fiscal, não own-only: escopo por EMPRESA.
+   * Sem esta fila, uma requisição aprovada some da vista (o solicitante a vê
+   * como "aprovada", mas ninguém tinha onde achar as que faltam classificar).
+   * Só REVIEWER (quem de fato classifica) e ADMIN (monitora; classifica via
+   * simulação de um revisor — decisão PO: admin não classifica na própria
+   * identidade).
+   */
+  async fiscalClassificationQueue(
+    user: AuthenticatedUser,
+    query: QueryRequisitionsDto,
+  ) {
+    if (
+      user.profile !== UserProfile.REVIEWER &&
+      user.profile !== UserProfile.ADMIN
+    ) {
+      throw new ForbiddenException(
+        'Apenas o revisor fiscal acessa a fila de classificação.',
+      );
+    }
+    const { companyId, search, skip = 0, take = 50 } = query;
+    if (companyId && !user.companyIds.includes(companyId)) {
+      throw new ForbiddenException('Sem acesso a esta empresa.');
+    }
+    const where: Prisma.RequisitionWhereInput = {
+      deletedAt: null,
+      companyId: companyId ? companyId : { in: user.companyIds },
+      status: RequisitionStatus.APPROVED,
+      tipoNotaFiscal: { not: RequisitionNfType.SEM_NF },
+      recurrenceParentId: null,
+      // Pendente de classificação = falta CTB (tipo de operação) OU natureza.
+      OR: [{ ctbTipoOperacao: null }, { naturezaEntrada: null }],
+      ...(search
+        ? {
+            AND: [
+              {
+                OR: [
+                  { number: { contains: search } },
+                  { title: { contains: search } },
+                ],
+              },
+            ],
+          }
+        : {}),
+    };
+    const [data, total] = await Promise.all([
+      this.prisma.requisition.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { approvedAt: 'asc' },
+        select: {
+          id: true,
+          number: true,
+          title: true,
+          supplierName: true,
+          tipoNotaFiscal: true,
+          status: true,
+          totalAmount: true,
+          ctbTipoOperacao: true,
+          naturezaEntrada: true,
+          createdAt: true,
+          approvedAt: true,
           requester: { select: { id: true, name: true } },
         },
       }),

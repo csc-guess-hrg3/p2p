@@ -61,6 +61,29 @@ export function useMineWaitingApproval() {
   });
 }
 
+/** Requisição que o aprovador já decidiu (histórico). */
+export interface DecidedApproval {
+  requisitionId: string;
+  number: string;
+  title: string;
+  /** Status ATUAL do documento (pode ter sido cancelado depois). */
+  docStatus: string;
+  /** Minha decisão na etapa: APPROVED | REJECTED | REVISION. */
+  myDecision: string;
+  decidedAt: string | null;
+  totalAmount: number | string;
+  requesterName: string | null;
+}
+
+/** Requisições que EU já decidi — histórico do aprovador (não some da vista). */
+export function useDecidedApprovals() {
+  return useQuery({
+    queryKey: ['approvals', 'decided'],
+    queryFn: async () =>
+      (await api.get<DecidedApproval[]>('/approvals/decided')).data,
+  });
+}
+
 /** Pedir revisão da requisição/PC — devolve pro solicitante com motivo. */
 export function useRequestRevision() {
   const qc = useQueryClient();

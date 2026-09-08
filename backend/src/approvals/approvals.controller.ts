@@ -28,6 +28,15 @@ export class ApprovalsController {
     return this.approvals.mineWaitingApproval(user);
   }
 
+  @Get('decided')
+  @ApiOperation({
+    summary:
+      'Requisições que eu já decidi (histórico do aprovador — aprovadas/reprovadas/devolvidas/canceladas depois)',
+  })
+  decided(@CurrentUser() user: AuthenticatedUser) {
+    return this.approvals.decidedByUser(user);
+  }
+
   @Post(':stepId/decide')
   @ApiOperation({ summary: 'Aprova ou rejeita uma etapa de aprovação' })
   decide(

@@ -159,6 +159,12 @@ export const NAV_SECTIONS: NavSection[] = [
     icon: Gavel,
     children: [
       {
+        to: '/fiscal/classificacao',
+        label: 'Classificação Fiscal',
+        icon: ClipboardCheck,
+        roles: FISCAL,
+      },
+      {
         to: '/fiscal/pendencias-fiscais',
         label: 'Pendências Fiscais',
         icon: ClipboardCheck,

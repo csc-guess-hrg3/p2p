@@ -5,6 +5,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import {
   usePendingApprovals,
   useMineWaitingApproval,
+  useDecidedApprovals,
   type PendingApproval,
 } from '@/lib/approvals';
 import { useAuth } from '@/lib/auth';
@@ -61,9 +62,32 @@ function ApproverView() {
   const [revisionStep, setRevisionStep] = useState<PendingApproval | null>(
     null,
   );
+  const [tab, setTab] = useState<'pending' | 'decided'>('pending');
 
   return (
     <div className="space-y-4">
+      {/* Gestor mantém a visão do que já decidiu (aprovou/reprovou/devolveu),
+          inclusive itens cancelados depois — a lista de Requisições é
+          own-only, então sem esta aba o decidido sumia da vista dele. */}
+      <div className="inline-flex rounded-lg border p-0.5">
+        <Button
+          variant={tab === 'pending' ? 'default' : 'ghost'}
+          size="sm"
+          onClick={() => setTab('pending')}
+        >
+          Pendentes
+        </Button>
+        <Button
+          variant={tab === 'decided' ? 'default' : 'ghost'}
+          size="sm"
+          onClick={() => setTab('decided')}
+        >
+          Já decididas
+        </Button>
+      </div>
+
+      {tab === 'pending' && (
+        <>
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
           {isLoading
@@ -225,6 +249,10 @@ function ApproverView() {
           onPageSizeChange={pag.setPageSize}
         />
       </div>
+        </>
+      )}
+
+      {tab === 'decided' && <DecidedApprovalsPanel />}
 
       {decision && (
         <DecideDialog
@@ -247,6 +275,86 @@ function ApproverView() {
           }
         />
       )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Histórico do APROVADOR — "Já decididas por mim"                     */
+/* ------------------------------------------------------------------ */
+
+function DecidedApprovalsPanel() {
+  const navigate = useNavigate();
+  const { data: rows = [], isLoading } = useDecidedApprovals();
+  const pag = usePagination(rows);
+  const decisionLabel = (d: string) =>
+    d === 'APPROVED'
+      ? 'Aprovei'
+      : d === 'REJECTED'
+        ? 'Reprovei'
+        : d === 'REVISION'
+          ? 'Devolvi'
+          : d;
+  return (
+    <div className="rounded-lg border bg-card">
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Número</TableHead>
+              <TableHead>Título</TableHead>
+              <TableHead>Solicitante</TableHead>
+              <TableHead>Minha decisão</TableHead>
+              <TableHead>Situação atual</TableHead>
+              <TableHead className="text-right">Valor</TableHead>
+              <TableHead>Decidido em</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {!isLoading && rows.length === 0 && (
+              <TableRow>
+                <TableCell
+                  colSpan={7}
+                  className="py-8 text-center text-muted-foreground"
+                >
+                  Você ainda não decidiu nenhuma requisição.
+                </TableCell>
+              </TableRow>
+            )}
+            {pag.pageRows.map((r) => (
+              <TableRow
+                key={r.requisitionId}
+                className="cursor-pointer"
+                onClick={() => navigate(`/requisicoes/${r.requisitionId}`)}
+              >
+                <TableCell className="font-medium">{r.number}</TableCell>
+                <TableCell>{r.title}</TableCell>
+                <TableCell className="text-muted-foreground">
+                  {r.requesterName ?? '—'}
+                </TableCell>
+                <TableCell>{decisionLabel(r.myDecision)}</TableCell>
+                <TableCell>
+                  <StatusBadge status={r.docStatus} />
+                </TableCell>
+                <TableCell className="text-right">
+                  {formatCurrency(r.totalAmount)}
+                </TableCell>
+                <TableCell className="text-muted-foreground">
+                  {formatDate(r.decidedAt)}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      <Pagination
+        page={pag.page}
+        pageSize={pag.pageSize}
+        total={pag.total}
+        totalPages={pag.totalPages}
+        onPageChange={pag.setPage}
+        onPageSizeChange={pag.setPageSize}
+      />
     </div>
   );
 }
