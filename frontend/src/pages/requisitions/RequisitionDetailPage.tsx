@@ -144,7 +144,12 @@ export function RequisitionDetailPage() {
     req.status === 'APPROVED' &&
     req.tipoNotaFiscal !== 'SEM_NF' &&
     !fiscalReady;
+  // Converter em pedido é ação do DONO (solicitante) — não do revisor fiscal,
+  // que só abre a requisição pra classificar. O backend já exige dono/aprovador
+  // (levaria Forbidden), mas o botão não deve aparecer pra quem não é dono.
+  const isOwner = req.requester?.id === user?.id;
   const canConvert =
+    isOwner &&
     req.status === 'APPROVED' &&
     req.tipoNotaFiscal !== 'SEM_NF' &&
     fiscalReady;
