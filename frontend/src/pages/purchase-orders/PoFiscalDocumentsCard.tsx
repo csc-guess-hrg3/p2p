@@ -20,13 +20,16 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { StatusBadge } from '@/components/StatusBadge';
+import { useAuth } from '@/lib/auth';
 
 /**
  * Card exibido no detalhe do Pedido de Compra mostrando as NFes
  * vinculadas (XML/PDF disponíveis para download).
  *
- * O vínculo é feito do lado da NF (tela Fiscal > Notas Fiscais).
- * Aqui é só visualização + download.
+ * O vínculo é feito do lado da NF (tela Fiscal > Notas Fiscais), que é
+ * restrita a ADMIN/REVISOR. Por isso, os atalhos pra essa tela (o link do
+ * vazio e o "abrir detalhe") só aparecem pra quem TEM acesso — senão o
+ * usuário era mandado pra uma tela que o joga de volta pra home.
  */
 export function PoFiscalDocumentsCard({
   purchaseOrderId,
@@ -35,6 +38,9 @@ export function PoFiscalDocumentsCard({
 }) {
   const { data, isLoading } = useFiscalDocumentsByPo(purchaseOrderId);
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isFiscal =
+    user?.profile === 'ADMIN' || user?.profile === 'REVIEWER';
 
   async function handleDownload(
     doc: { id: string; accessKey: string },
@@ -65,14 +71,22 @@ export function PoFiscalDocumentsCard({
           <div className="text-sm text-muted-foreground">Carregando…</div>
         ) : !data?.length ? (
           <div className="text-sm text-muted-foreground">
-            Nenhuma NF vinculada a este PC ainda. Vincule pela tela{' '}
-            <Link
-              to="/fiscal/notas-fiscais"
-              className="text-primary hover:underline"
-            >
-              Fiscal &gt; Notas Fiscais
-            </Link>
-            .
+            {isFiscal ? (
+              <>
+                Nenhuma NF vinculada a este PC ainda. Vincule pela tela{' '}
+                <Link
+                  to="/fiscal/notas-fiscais"
+                  className="text-primary hover:underline"
+                >
+                  Fiscal &gt; Notas Fiscais
+                </Link>
+                .
+              </>
+            ) : (
+              // Não-fiscal não acessa a tela de Notas Fiscais — não adianta
+              // mandar pra lá. Explica quem faz o vínculo.
+              'Nenhuma nota fiscal vinculada a este pedido ainda. O vínculo é feito pela equipe fiscal.'
+            )}
           </div>
         ) : (
           <Table>
@@ -102,16 +116,18 @@ export function PoFiscalDocumentsCard({
                     <StatusBadge status={statusLabel(nf.status)} />
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button
-                      asChild
-                      variant="ghost"
-                      size="sm"
-                      title="Abrir detalhe"
-                    >
-                      <Link to={`/fiscal/notas-fiscais/${nf.id}`}>
-                        <ExternalLink className="h-4 w-4" />
-                      </Link>
-                    </Button>
+                    {isFiscal && (
+                      <Button
+                        asChild
+                        variant="ghost"
+                        size="sm"
+                        title="Abrir detalhe"
+                      >
+                        <Link to={`/fiscal/notas-fiscais/${nf.id}`}>
+                          <ExternalLink className="h-4 w-4" />
+                        </Link>
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"
