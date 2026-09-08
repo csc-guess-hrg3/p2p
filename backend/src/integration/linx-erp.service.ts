@@ -524,7 +524,10 @@ export class LinxErpService {
       // Segue o fluxo normal abaixo: recria o pedido completo.
     }
 
-    const aprovador = user.name ?? user.adUsername ?? '';
+    // APROVADO_POR / APROVADOR_POR: LOGIN do usuário no Linx (username), não
+    // o nome amigável — decisão da PO. Coincide com o LOGIN de LINX_USERS
+    // (mesmo formato do AD), igual ao REQUERIDO_POR e ao markPedidoAprovado.
+    const aprovador = user.adUsername ?? user.name ?? '';
     // REQUERIDO_POR é login do usuário no Linx — não o nome amigável.
     // Coincide com o LOGIN da tabela LINX_USERS (mesmo formato do AD).
     const requeridoPor = user.adUsername ?? user.name ?? '';
