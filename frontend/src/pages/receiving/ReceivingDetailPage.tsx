@@ -127,6 +127,22 @@ export function ReceivingDetailPage() {
               value={`${Number(receiving.completionPct).toFixed(2)}%`}
             />
           )}
+          {receiving.fiscalDocument && (
+            <Field
+              label="Nota fiscal"
+              value={
+                <span>
+                  {receiving.fiscalDocument.type === 'NFSe' ? 'NFS-e' : 'NF-e'}{' '}
+                  {receiving.fiscalDocument.numero}
+                  {receiving.fiscalDocument.serie
+                    ? `/${receiving.fiscalDocument.serie}`
+                    : ''}{' '}
+                  · {receiving.fiscalDocument.supplierName} ·{' '}
+                  {formatCurrency(receiving.fiscalDocument.valorTotal)}
+                </span>
+              }
+            />
+          )}
           {receiving.notes && (
             <div className="col-span-3">
               <Field label="Observações" value={receiving.notes} />

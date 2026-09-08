@@ -29,9 +29,40 @@ export interface Receiving {
   divergenceNotes: string | null;
   confirmedAt: string | null;
   createdAt: string;
+  fiscalDocumentId?: string | null;
   receivedBy?: { id: string; name: string };
   purchaseOrder?: { id: string; number: string; status?: string };
+  fiscalDocument?: {
+    id: string;
+    type: string;
+    numero: string;
+    serie: string | null;
+    supplierName: string;
+    supplierCnpj: string;
+    valorTotal: string;
+    emissao: string;
+    status: string;
+  } | null;
   items?: ReceivingItem[];
+}
+
+/** Nota candidata a lastrear o recebimento (com conferência de cabeçalho). */
+export interface ReceivingCandidateNote {
+  id: string;
+  type: string;
+  numero: string;
+  serie: string | null;
+  supplierName: string;
+  supplierCnpj: string;
+  valorTotal: string;
+  emissao: string;
+  status: string;
+  purchaseOrderId: string | null;
+  alreadyLinked: boolean;
+  supplierMatch: boolean;
+  valorNota: number;
+  totalPedido: number;
+  excedePedido: boolean;
 }
 
 export interface ReceivingItemInput {
@@ -49,6 +80,7 @@ export interface ReceivingInput {
   measurementEnd?: string;
   completionPct?: number;
   notes?: string;
+  fiscalDocumentId?: string;
   items: ReceivingItemInput[];
 }
 
@@ -76,6 +108,23 @@ export function useReceiving(id: string | undefined) {
     queryKey: ['receiving', id],
     queryFn: async () => (await api.get<Receiving>(`/receiving/${id}`)).data,
     enabled: !!id,
+  });
+}
+
+/**
+ * Notas candidatas para lastrear um recebimento deste pedido — usadas na tela
+ * de registrar recebimento (anexar a nota + conferência de cabeçalho).
+ */
+export function useReceivingCandidateNotes(poId: string | undefined) {
+  return useQuery({
+    queryKey: ['receiving-candidate-notes', poId],
+    queryFn: async () =>
+      (
+        await api.get<ReceivingCandidateNote[]>(
+          `/fiscal-documents/receiving-candidates/${poId}`,
+        )
+      ).data,
+    enabled: !!poId,
   });
 }
 

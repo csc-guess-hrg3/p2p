@@ -168,6 +168,21 @@ export class FiscalDocumentsController {
     return this.fiscalDocuments.findByPurchaseOrder(user, purchaseOrderId);
   }
 
+  @Get('receiving-candidates/:purchaseOrderId')
+  @ApiOperation({
+    summary:
+      'Notas candidatas para lastrear um recebimento deste PC (anexar + conferência de fornecedor/valor)',
+  })
+  receivingCandidates(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('purchaseOrderId') purchaseOrderId: string,
+  ) {
+    return this.fiscalDocuments.candidatesForPurchaseOrder(
+      user,
+      purchaseOrderId,
+    );
+  }
+
   @Post('fetch-by-chave/:chave')
   @ApiOperation({
     summary: 'Busca a NFe na Qive pela chave e persiste no P2P (idempotente)',

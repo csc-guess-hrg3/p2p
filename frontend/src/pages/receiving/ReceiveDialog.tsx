@@ -1,14 +1,25 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { isAxiosError } from 'axios';
-import { useCreateReceiving } from '@/lib/receiving';
+import { Check, AlertTriangle, FileText } from 'lucide-react';
+import {
+  useCreateReceiving,
+  useReceivingCandidateNotes,
+} from '@/lib/receiving';
 import type { PurchaseOrder, PurchaseOrderItem } from '@/lib/purchase-orders';
-import { formatNumber } from '@/lib/format';
+import { formatNumber, formatCurrency, formatDate } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -38,15 +49,24 @@ interface LineState {
   rejectionReason: string;
 }
 
+const NO_NOTE = '__none__';
+
 /**
  * Diálogo para registrar um recebimento contra um Pedido de Compra.
- * Pré-preenche o "Aceito" com o saldo aberto do item (qtd - recebido).
- * Validação ao salvar: aceito + rejeitado == recebido (regra do backend).
+ *
+ * Camada 1 (clareza): mostra o contexto do pedido (fornecedor/total) e separa
+ * visualmente "nota fiscal", "itens recebidos" e "medição de serviço".
+ * Camada 2 (nota): anexa a nota fiscal que justifica o recebimento e confere
+ * fornecedor/valor contra o pedido (alerta, não bloqueio). O abatimento por
+ * ITEM a partir da nota (pré-preencher quantidades) é etapa seguinte.
  */
 export function ReceiveDialog({ open, onOpenChange, po }: Props) {
   const navigate = useNavigate();
   const { toast } = useToast();
   const createMut = useCreateReceiving();
+  const { data: candidateNotes } = useReceivingCandidateNotes(
+    open ? po.id : undefined,
+  );
 
   const openItems = useMemo(() => {
     return (po.items ?? []).map((it) => {
@@ -66,6 +86,7 @@ export function ReceiveDialog({ open, onOpenChange, po }: Props) {
     ),
   );
   const [notes, setNotes] = useState('');
+  const [noteId, setNoteId] = useState<string>(NO_NOTE);
   // Campos de medição (PRD § 9.2 RN-REC-02): obrigatórios quando se trata
   // de serviço — exibidos sempre, mas só validados quando o operador marcar.
   const [isService, setIsService] = useState(false);
@@ -73,6 +94,9 @@ export function ReceiveDialog({ open, onOpenChange, po }: Props) {
   const [measurementEnd, setMeasurementEnd] = useState('');
   const [completionPct, setCompletionPct] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  const selectedNote =
+    candidateNotes?.find((n) => n.id === noteId) ?? null;
 
   function update(id: string, patch: Partial<LineState>) {
     setLines((p) => ({ ...p, [id]: { ...p[id], ...patch } }));
@@ -131,6 +155,7 @@ export function ReceiveDialog({ open, onOpenChange, po }: Props) {
       const created = await createMut.mutateAsync({
         purchaseOrderId: po.id,
         notes: notes.trim() || undefined,
+        fiscalDocumentId: noteId !== NO_NOTE ? noteId : undefined,
         items,
         measurementStart: isService
           ? new Date(measurementStart).toISOString()
@@ -164,104 +189,174 @@ export function ReceiveDialog({ open, onOpenChange, po }: Props) {
         <DialogHeader>
           <DialogTitle>Registrar recebimento</DialogTitle>
           <DialogDescription>
-            Pedido {po.number} — {po.supplierName}. Informe as quantidades
-            recebidas; o aceito vai para o saldo do pedido na confirmação.
+            Pedido {po.number} · {po.supplierName} · total{' '}
+            {formatCurrency(po.totalAmount)}. Confira a nota, informe o que
+            chegou e confirme para abater o saldo do pedido.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3">
-          <div className="rounded-lg border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Item</TableHead>
-                  <TableHead className="text-right">Pedido</TableHead>
-                  <TableHead className="text-right">Já recebido</TableHead>
-                  <TableHead className="text-right">Aceito</TableHead>
-                  <TableHead className="text-right">Rejeitado</TableHead>
-                  <TableHead>Motivo da rejeição</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {openItems.map(({ item, remaining }) => {
-                  const line = lines[item.id];
-                  return (
-                    <TableRow key={item.id}>
-                      <TableCell className="align-top">
-                        <p>{item.itemDescription}</p>
-                        <p className="text-xs text-muted-foreground">
-                          un. {item.unit}
-                        </p>
-                      </TableCell>
-                      <TableCell className="align-top text-right text-muted-foreground">
-                        {formatNumber(item.quantity)}
-                      </TableCell>
-                      <TableCell className="align-top text-right text-muted-foreground">
-                        {formatNumber(item.receivedQty)}
-                        <p className="text-xs text-muted-foreground">
-                          saldo {formatNumber(remaining)}
-                        </p>
-                      </TableCell>
-                      <TableCell className="align-top text-right">
-                        <Input
-                          type="number"
-                          inputMode="decimal"
-                          min={0}
-                          step="0.0001"
-                          className="w-24 text-right"
-                          value={line?.acceptedQty ?? 0}
-                          onChange={(e) =>
-                            update(item.id, {
-                              acceptedQty: Number(e.target.value),
-                            })
-                          }
-                        />
-                      </TableCell>
-                      <TableCell className="align-top text-right">
-                        <Input
-                          type="number"
-                          inputMode="decimal"
-                          min={0}
-                          step="0.0001"
-                          className="w-24 text-right"
-                          value={line?.rejectedQty ?? 0}
-                          onChange={(e) =>
-                            update(item.id, {
-                              rejectedQty: Number(e.target.value),
-                            })
-                          }
-                        />
-                      </TableCell>
-                      <TableCell className="align-top">
-                        <Input
-                          className="w-full"
-                          placeholder={
-                            (line?.rejectedQty ?? 0) > 0
-                              ? 'Obrigatório'
-                              : 'Opcional'
-                          }
-                          value={line?.rejectionReason ?? ''}
-                          onChange={(e) =>
-                            update(item.id, {
-                              rejectionReason: e.target.value,
-                            })
-                          }
-                        />
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
+        <div className="space-y-4">
+          {/* ── Nota fiscal (camada 2) ── */}
+          <section className="space-y-2 rounded-lg border p-3">
+            <div className="flex items-center gap-2">
+              <FileText className="size-4 text-muted-foreground" />
+              <p className="text-sm font-medium">Nota fiscal</p>
+              <span className="text-xs text-muted-foreground">(opcional)</span>
+            </div>
+            <Select value={noteId} onValueChange={setNoteId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione a nota que veio com a entrega" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_NOTE}>
+                  Sem nota / ainda não recebi a nota
+                </SelectItem>
+                {(candidateNotes ?? []).map((n) => (
+                  <SelectItem key={n.id} value={n.id}>
+                    {n.type === 'NFSe' ? 'NFS-e' : 'NF-e'} {n.numero}
+                    {n.serie ? `/${n.serie}` : ''} · {n.supplierName} ·{' '}
+                    {formatCurrency(n.valorTotal)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-          <div className="space-y-3 rounded-lg border p-3">
-            <label className="flex items-center justify-between text-sm">
+            {candidateNotes && candidateNotes.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                Nenhuma nota encontrada para este fornecedor ainda. Você pode
+                registrar o recebimento sem nota e vinculá-la depois.
+              </p>
+            )}
+
+            {selectedNote && (
+              <div className="grid gap-2 rounded-md bg-muted/40 p-3 text-sm sm:grid-cols-2">
+                <ConfEntry
+                  ok={selectedNote.supplierMatch}
+                  label="Fornecedor"
+                  okText={`Confere: ${selectedNote.supplierName}`}
+                  warnText={`Verificar: nota é de "${selectedNote.supplierName}", pedido é de "${po.supplierName}"`}
+                />
+                <ConfEntry
+                  ok={!selectedNote.excedePedido}
+                  label="Valor"
+                  okText={`${formatCurrency(selectedNote.valorNota)} (pedido ${formatCurrency(selectedNote.totalPedido)})`}
+                  warnText={`Nota ${formatCurrency(selectedNote.valorNota)} acima do pedido ${formatCurrency(selectedNote.totalPedido)}`}
+                />
+                <p className="text-xs text-muted-foreground sm:col-span-2">
+                  Emissão {formatDate(selectedNote.emissao)}
+                  {selectedNote.type === 'NFSe' &&
+                    ' · nota de serviço (sem itens padronizados — confira as quantidades manualmente)'}
+                  . Ao confirmar o recebimento, a nota fica vinculada a este
+                  pedido.
+                </p>
+              </div>
+            )}
+          </section>
+
+          {/* ── Itens recebidos (camada 1) ── */}
+          <section className="space-y-1">
+            <p className="text-sm font-medium">Itens recebidos</p>
+            <p className="text-xs text-muted-foreground">
+              O campo "Aceito" já vem com o saldo em aberto — ajuste conforme o
+              que realmente chegou. O aceito entra no saldo do pedido quando
+              você confirmar.
+            </p>
+            <div className="rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Item</TableHead>
+                    <TableHead className="text-right">Pedido</TableHead>
+                    <TableHead className="text-right">Saldo em aberto</TableHead>
+                    <TableHead className="text-right">Aceito</TableHead>
+                    <TableHead className="text-right">Rejeitado</TableHead>
+                    <TableHead>Motivo da rejeição</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {openItems.map(({ item, remaining }) => {
+                    const line = lines[item.id];
+                    return (
+                      <TableRow key={item.id}>
+                        <TableCell className="align-top">
+                          <p>{item.itemDescription}</p>
+                          <p className="text-xs text-muted-foreground">
+                            un. {item.unit}
+                          </p>
+                        </TableCell>
+                        <TableCell className="align-top text-right text-muted-foreground">
+                          {formatNumber(item.quantity)}
+                        </TableCell>
+                        <TableCell className="align-top text-right">
+                          <span className="font-medium">
+                            {formatNumber(remaining)}
+                          </span>
+                          <p className="text-xs text-muted-foreground">
+                            já recebido {formatNumber(item.receivedQty)}
+                          </p>
+                        </TableCell>
+                        <TableCell className="align-top text-right">
+                          <Input
+                            type="number"
+                            inputMode="decimal"
+                            min={0}
+                            step="0.0001"
+                            className="w-24 text-right"
+                            value={line?.acceptedQty ?? 0}
+                            onChange={(e) =>
+                              update(item.id, {
+                                acceptedQty: Number(e.target.value),
+                              })
+                            }
+                          />
+                        </TableCell>
+                        <TableCell className="align-top text-right">
+                          <Input
+                            type="number"
+                            inputMode="decimal"
+                            min={0}
+                            step="0.0001"
+                            className="w-24 text-right"
+                            value={line?.rejectedQty ?? 0}
+                            onChange={(e) =>
+                              update(item.id, {
+                                rejectedQty: Number(e.target.value),
+                              })
+                            }
+                          />
+                        </TableCell>
+                        <TableCell className="align-top">
+                          <Input
+                            className="w-full"
+                            placeholder={
+                              (line?.rejectedQty ?? 0) > 0
+                                ? 'Obrigatório'
+                                : 'Opcional'
+                            }
+                            value={line?.rejectionReason ?? ''}
+                            onChange={(e) =>
+                              update(item.id, {
+                                rejectionReason: e.target.value,
+                              })
+                            }
+                          />
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </section>
+
+          {/* ── Medição de serviço (camada 1: framing claro) ── */}
+          <section className="space-y-3 rounded-lg border p-3">
+            <label className="flex items-center justify-between gap-3 text-sm">
               <div>
-                <p className="font-medium">Este recebimento é uma medição de serviço</p>
+                <p className="font-medium">Isto é uma medição de serviço</p>
                 <p className="text-xs text-muted-foreground">
-                  Marque quando estiver registrando a execução de um serviço
-                  com período e % concluído (em vez de entrega física).
+                  Marque para registrar execução de serviço (período + %
+                  concluído) em vez de entrega física de itens.
                 </p>
               </div>
               <input
@@ -306,7 +401,7 @@ export function ReceiveDialog({ open, onOpenChange, po }: Props) {
                 </div>
               </div>
             )}
-          </div>
+          </section>
 
           <div className="space-y-1.5">
             <Label htmlFor="rec-notes">Observações (opcional)</Label>
@@ -335,5 +430,34 @@ export function ReceiveDialog({ open, onOpenChange, po }: Props) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Uma linha da conferência de cabeçalho (fornecedor/valor) da nota. */
+function ConfEntry({
+  ok,
+  label,
+  okText,
+  warnText,
+}: {
+  ok: boolean;
+  label: string;
+  okText: string;
+  warnText: string;
+}) {
+  return (
+    <div className="flex items-start gap-2">
+      {ok ? (
+        <Check className="mt-0.5 size-4 shrink-0 text-success" />
+      ) : (
+        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
+      )}
+      <div>
+        <p className="text-xs font-medium uppercase text-muted-foreground">
+          {label}
+        </p>
+        <p className={ok ? '' : 'text-warning'}>{ok ? okText : warnText}</p>
+      </div>
+    </div>
   );
 }

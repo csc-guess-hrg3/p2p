@@ -144,6 +144,60 @@ describe('ReceivingService.create', () => {
     expect(prisma.receiving.create).toHaveBeenCalled();
   });
 
+  it('anexa nota: rejeita nota de OUTRA empresa (camada 2)', async () => {
+    prisma.purchaseOrder.findUnique.mockResolvedValue(makePo());
+    prisma.fiscalDocument.findUnique.mockResolvedValue({
+      id: 'fd-1',
+      companyId: 'outra-empresa',
+      purchaseOrderId: null,
+      deletedAt: null,
+    });
+    await expect(
+      service.create(TEST_USER, {
+        purchaseOrderId: 'po-1',
+        fiscalDocumentId: 'fd-1',
+        items: [{ purchaseOrderItemId: 'poit-1', receivedQty: 10, acceptedQty: 10 }],
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('anexa nota: rejeita nota já vinculada a OUTRO pedido (camada 2)', async () => {
+    prisma.purchaseOrder.findUnique.mockResolvedValue(makePo());
+    prisma.fiscalDocument.findUnique.mockResolvedValue({
+      id: 'fd-1',
+      companyId: 'company-test',
+      purchaseOrderId: 'outro-po',
+      deletedAt: null,
+    });
+    await expect(
+      service.create(TEST_USER, {
+        purchaseOrderId: 'po-1',
+        fiscalDocumentId: 'fd-1',
+        items: [{ purchaseOrderItemId: 'poit-1', receivedQty: 10, acceptedQty: 10 }],
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('anexa nota válida (solta, mesma empresa): grava fiscalDocumentId no recebimento', async () => {
+    prisma.purchaseOrder.findUnique.mockResolvedValue(makePo());
+    prisma.fiscalDocument.findUnique.mockResolvedValue({
+      id: 'fd-1',
+      companyId: 'company-test',
+      purchaseOrderId: null,
+      deletedAt: null,
+    });
+    prisma.receiving.create.mockResolvedValue({ id: 'rec-1', items: [] });
+    await service.create(TEST_USER, {
+      purchaseOrderId: 'po-1',
+      fiscalDocumentId: 'fd-1',
+      items: [{ purchaseOrderItemId: 'poit-1', receivedQty: 10, acceptedQty: 10 }],
+    });
+    const arg = prisma.receiving.create.mock.calls[0][0] as {
+      data?: { fiscalDocumentId?: string | null };
+    };
+    expect(arg.data?.fiscalDocumentId).toBe('fd-1');
+  });
+
   it('rejeita PC em estado não receptivo (FULLY_RECEIVED)', async () => {
     prisma.purchaseOrder.findUnique.mockResolvedValue(
       makePo({ status: 'FULLY_RECEIVED' }),

@@ -80,6 +80,15 @@ export class CreateReceivingDto {
   @IsString()
   notes?: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Nota fiscal (fiscal_documents) que justifica o recebimento. ' +
+      'Ao confirmar, a nota é vinculada ao pedido (se ainda solta).',
+  })
+  @IsOptional()
+  @IsString()
+  fiscalDocumentId?: string;
+
   @ApiProperty({ type: [CreateReceivingItemDto] })
   @IsArray()
   @ArrayMinSize(1)

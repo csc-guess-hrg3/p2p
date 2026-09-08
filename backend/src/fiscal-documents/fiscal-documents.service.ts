@@ -1419,6 +1419,123 @@ export class FiscalDocumentsService {
   }
 
   /**
+   * Notas candidatas a lastrear um RECEBIMENTO deste pedido — usadas na tela
+   * de registrar recebimento (anexar a nota + conferência de cabeçalho).
+   * Traz as já vinculadas a este PC + as PENDENTES da empresa que casam por
+   * fornecedor (CNPJ resolvido via CLIFOR, com fallback por nome). Marca, por
+   * candidata, se fornecedor e valor batem com o pedido — a decisão fica com
+   * quem recebe (a conferência é um alerta, não um bloqueio).
+   */
+  async candidatesForPurchaseOrder(user: AuthenticatedUser, poId: string) {
+    const po = await this.prisma.purchaseOrder.findUnique({
+      where: { id: poId },
+      select: {
+        id: true,
+        companyId: true,
+        supplierName: true,
+        supplierErpCode: true,
+        totalAmount: true,
+        buyerId: true,
+        requisition: { select: { requesterId: true } },
+      },
+    });
+    if (!po) throw new NotFoundException('Pedido de compra não encontrado.');
+    if (!user.companyIds.includes(po.companyId)) {
+      throw new ForbiddenException('Sem acesso a este pedido.');
+    }
+    // Quem recebe (dono do PC) usa esta lista; o fiscal também. Admin, via
+    // simulação, entra como o dono — sem bypass por perfil.
+    const isOwner =
+      po.buyerId === user.id || po.requisition?.requesterId === user.id;
+    const isFiscal = user.profile === 'ADMIN' || user.profile === 'REVIEWER';
+    if (!isOwner && !isFiscal) {
+      throw new ForbiddenException('Sem acesso a este pedido.');
+    }
+
+    // Resolve o CNPJ do fornecedor do pedido (CLIFOR → CGC_CPF) para casar por
+    // CNPJ (mais firme que por nome). Uma consulta só — não por candidata.
+    let poSupplierCnpj: string | null = null;
+    if (po.supplierErpCode) {
+      const company = await this.prisma.company.findFirst({
+        where: { id: po.companyId, deletedAt: null },
+        select: { erpDbName: true },
+      });
+      if (company?.erpDbName) {
+        const dbName = safeDbName(company.erpDbName);
+        try {
+          const clifor = po.supplierErpCode.replace(/'/g, '');
+          const rows = await this.prisma.$queryRawUnsafe<
+            Array<{ cnpj: string }>
+          >(
+            `SELECT TOP 1 REPLACE(REPLACE(REPLACE(ISNULL(CGC_CPF,''),'.',''),'/',''),'-','') AS cnpj
+               FROM [${dbName}].dbo.CADASTRO_CLI_FOR WITH (NOLOCK)
+              WHERE RTRIM(CLIFOR) = '${clifor}'`,
+          );
+          poSupplierCnpj = rows[0]?.cnpj?.replace(/\D/g, '') || null;
+        } catch {
+          /* sem Linx / sem match — cai no nome */
+        }
+      }
+    }
+
+    const nameSlice = (po.supplierName ?? '').slice(0, 15);
+    const pendingMatch: Prisma.FiscalDocumentWhereInput = poSupplierCnpj
+      ? { supplierCnpj: poSupplierCnpj }
+      : { supplierName: { contains: nameSlice } };
+    const or: Prisma.FiscalDocumentWhereInput[] = [
+      { purchaseOrderId: poId }, // já vinculada a este pedido
+      { AND: [{ purchaseOrderId: null }, { status: 'PENDING' }, pendingMatch] },
+    ];
+    // Com CNPJ resolvido, ainda oferece o fallback por nome (cadastro incompleto).
+    if (poSupplierCnpj && nameSlice) {
+      or.push({
+        AND: [
+          { purchaseOrderId: null },
+          { status: 'PENDING' },
+          { supplierName: { contains: nameSlice } },
+        ],
+      });
+    }
+
+    const docs = await this.prisma.fiscalDocument.findMany({
+      where: { companyId: po.companyId, deletedAt: null, OR: or },
+      orderBy: { emissao: 'desc' },
+      take: 50,
+      select: {
+        id: true,
+        type: true,
+        numero: true,
+        serie: true,
+        supplierName: true,
+        supplierCnpj: true,
+        valorTotal: true,
+        emissao: true,
+        status: true,
+        purchaseOrderId: true,
+      },
+    });
+
+    const totalPedido = Number(po.totalAmount);
+    return docs.map((d) => {
+      const supplierMatch = poSupplierCnpj
+        ? d.supplierCnpj === poSupplierCnpj
+        : nameSlice
+          ? d.supplierName.toLowerCase().includes(nameSlice.toLowerCase())
+          : false;
+      const valorNota = Number(d.valorTotal);
+      const excedePedido = totalPedido > 0 && valorNota > totalPedido * 1.01;
+      return {
+        ...d,
+        alreadyLinked: d.purchaseOrderId === poId,
+        supplierMatch,
+        valorNota,
+        totalPedido,
+        excedePedido,
+      };
+    });
+  }
+
+  /**
    * Procura pedidos legados (Linx) que tenham essa NF lançada — via
    * ENTRADAS.CHAVE_NFE → ENTRADAS_ITEM.REFERENCIA_PEDIDO → COMPRAS.
    * Filtra só pedidos consumível. Útil pra oferecer o vínculo automático

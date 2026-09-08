@@ -79,6 +79,7 @@ export interface PrismaMock {
   budgetControlConfig: ModelMock;
   documentSequence: ModelMock;
   fiscalItemRequest: ModelMock;
+  fiscalDocument: ModelMock;
   supplierValidation: ModelMock;
   paApprovalNotification: ModelMock;
   paDeliveryChange: ModelMock;
@@ -120,6 +121,7 @@ export function createPrismaMock(): PrismaMock {
     budgetControlConfig: model(),
     documentSequence: model(),
     fiscalItemRequest: model(),
+    fiscalDocument: model(),
     supplierValidation: model(),
     paApprovalNotification: model(),
     paDeliveryChange: model(),

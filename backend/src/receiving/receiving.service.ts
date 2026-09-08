@@ -65,6 +65,31 @@ export class ReceivingService {
       );
     }
 
+    // Nota fiscal (opcional) — camada 2 do recebimento. Valida antes de amarrar:
+    // mesma empresa do pedido e ainda não vinculada a OUTRO pedido. O vínculo
+    // oficial da nota ao pedido (status LINKED) é selado na confirmação.
+    let fiscalDocumentId: string | null = null;
+    if (dto.fiscalDocumentId) {
+      const fd = await this.prisma.fiscalDocument.findUnique({
+        where: { id: dto.fiscalDocumentId },
+        select: {
+          id: true,
+          companyId: true,
+          purchaseOrderId: true,
+          deletedAt: true,
+        },
+      });
+      if (!fd || fd.deletedAt || fd.companyId !== po.companyId) {
+        throw new BadRequestException('Nota fiscal inválida para este pedido.');
+      }
+      if (fd.purchaseOrderId && fd.purchaseOrderId !== po.id) {
+        throw new BadRequestException(
+          'Esta nota já está vinculada a outro pedido de compra.',
+        );
+      }
+      fiscalDocumentId = fd.id;
+    }
+
     const poItemById = new Map(po.items.map((it) => [it.id, it]));
 
     // Valida cada linha do recebimento contra o item do pedido.
@@ -101,6 +126,7 @@ export class ReceivingService {
         purchaseOrderId: po.id,
         companyId: po.companyId,
         receivedById: user.id,
+        fiscalDocumentId,
         status: ReceivingStatus.DRAFT,
         receivedAt: dto.receivedAt ? new Date(dto.receivedAt) : new Date(),
         measurementStart: dto.measurementStart
@@ -176,6 +202,19 @@ export class ReceivingService {
       include: {
         items: true,
         receivedBy: { select: { id: true, name: true } },
+        fiscalDocument: {
+          select: {
+            id: true,
+            type: true,
+            numero: true,
+            serie: true,
+            supplierName: true,
+            supplierCnpj: true,
+            valorTotal: true,
+            emissao: true,
+            status: true,
+          },
+        },
         purchaseOrder: {
           select: {
             id: true,
@@ -303,6 +342,27 @@ export class ReceivingService {
       },
       { maxWait: 15000, timeout: 30000 },
     );
+
+    // Sela o vínculo da nota ao pedido no momento em que o recebimento vira
+    // real (confirmação). Só quando a nota está solta — não rouba um vínculo
+    // que o fiscal já fez para OUTRO pedido (o create já barra esse caso).
+    if (receiving.fiscalDocumentId) {
+      const fd = await this.prisma.fiscalDocument.findUnique({
+        where: { id: receiving.fiscalDocumentId },
+        select: { id: true, purchaseOrderId: true },
+      });
+      if (fd && !fd.purchaseOrderId) {
+        await this.prisma.fiscalDocument.update({
+          where: { id: fd.id },
+          data: {
+            purchaseOrderId: receiving.purchaseOrder.id,
+            status: 'LINKED',
+            linkedById: user.id,
+            linkedAt: now,
+          },
+        });
+      }
+    }
 
     // Notifica o comprador e o solicitante da requisição original.
     // Falhas viram log no NotificationsService — não bloqueiam o confirm.

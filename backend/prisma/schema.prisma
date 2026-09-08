@@ -255,6 +255,7 @@ model FiscalDocument {
   company       Company        @relation(fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   purchaseOrder PurchaseOrder? @relation("FiscalDocumentLinked", fields: [purchaseOrderId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   linkedBy      User?          @relation("FiscalDocumentLinker", fields: [linkedById], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  receivings    Receiving[]    @relation("FiscalDocumentReceiving")
 
   @@index([companyId, status, emissao])
   @@index([supplierCnpj])
@@ -1171,17 +1172,26 @@ model Receiving {
   completionPct    Decimal?  @db.Decimal(5, 2)
   notes            String?   @db.NVarChar(Max)
   divergenceNotes  String?   @db.NVarChar(Max)
+  /**
+   * Nota fiscal que justifica este recebimento (NF-e ou NFS-e da
+   * fiscal_documents). Opcional: nem toda entrega chega já com a nota
+   * disponível no P2P. Quando presente, a tela confere fornecedor/valor
+   * contra o pedido (conferência de cabeçalho — camada 2 do recebimento).
+   */
+  fiscalDocumentId String?   @db.UniqueIdentifier
   confirmedAt      DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   deletedAt        DateTime?
 
-  purchaseOrder PurchaseOrder   @relation(fields: [purchaseOrderId], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  receivedBy    User            @relation(fields: [receivedById], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  items         ReceivingItem[]
-  attachments   Attachment[]
+  purchaseOrder  PurchaseOrder   @relation(fields: [purchaseOrderId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  receivedBy     User            @relation(fields: [receivedById], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  fiscalDocument FiscalDocument? @relation("FiscalDocumentReceiving", fields: [fiscalDocumentId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  items          ReceivingItem[]
+  attachments    Attachment[]
 
   @@index([purchaseOrderId])
+  @@index([fiscalDocumentId])
   @@map("receivings")
 }
 
