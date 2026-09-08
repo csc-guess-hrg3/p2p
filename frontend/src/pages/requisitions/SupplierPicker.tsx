@@ -177,8 +177,8 @@ export function SupplierPicker({ company, value, onChange }: Props) {
                 <span className="truncate">
                   {value.supplierName}
                   {value.isExternal && (
-                    <span className="ml-1 text-xs text-muted-foreground">
-                      (novo — pra cadastro)
+                    <span className="ml-1 rounded-full bg-info/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-info">
+                      em validação
                     </span>
                   )}
                 </span>
