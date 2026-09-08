@@ -169,6 +169,16 @@ export class AuthService {
     // gerencia em /admin/equipes. Frontend faz UNIÃO com o que o perfil
     // já vê por padrão.
     const extraModules = row?.team?.moduleAccess.map((m) => m.module) ?? [];
+    // Aprovador de PA configurado (CompanyErpConfig.paApproverUserId) precisa
+    // ALCANÇAR a tela de Produto Acabado mesmo sem perfil/módulo — senão
+    // recebia a intimação por e-mail, clicava e caía na home. Injeta o módulo
+    // 'PA' só pra ele (o backend já o autoriza a aprovar pelo id configurado).
+    const isPaApprover = await this.prisma.companyErpConfig.findFirst({
+      where: { paApproverUserId: user.id },
+    });
+    if (isPaApprover && !extraModules.includes('PA')) {
+      extraModules.push('PA');
+    }
     return {
       ...user,
       canSwitchEnv: row?.canSwitchEnv ?? false,

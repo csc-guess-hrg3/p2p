@@ -284,15 +284,28 @@ function App() {
                     element={<FundRequestDetailPage />}
                   />
 
-                  {/* Fornecedores — módulo (De-Para Linx). Admin/Revisor. */}
+                  {/* Validação de Fornecedor — ADMIN/REVISOR por perfil OU
+                      equipe Fiscal via módulo FISCAL_QUEUE, alinhado ao
+                      backend (isReviewer = ADMIN|isFiscal). */}
                   <Route
-                    element={<RequireProfile roles={['ADMIN', 'REVIEWER']} />}
+                    element={
+                      <RequireProfile
+                        roles={['ADMIN', 'REVIEWER']}
+                        module="FISCAL_QUEUE"
+                      />
+                    }
                   >
-                    <Route path="fornecedores" element={<SuppliersPage />} />
                     <Route
                       path="fornecedores/validacoes"
                       element={<SupplierValidationQueuePage />}
                     />
+                  </Route>
+
+                  {/* Fornecedores (cadastro De-Para Linx) — Admin/Revisor. */}
+                  <Route
+                    element={<RequireProfile roles={['ADMIN', 'REVIEWER']} />}
+                  >
+                    <Route path="fornecedores" element={<SuppliersPage />} />
                     <Route
                       path="fornecedores/:codigo"
                       element={<SupplierDetailPage />}

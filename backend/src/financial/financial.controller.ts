@@ -2,9 +2,8 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FinancialService } from './financial.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../common/guards/roles.guard';
-import { Roles } from '../common/decorators/roles.decorator';
-import { UserProfile } from '../common/enums';
+import { ModuleGuard } from '../common/guards/module.guard';
+import { RequireModule } from '../common/decorators/require-module.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
 
@@ -24,8 +23,10 @@ import type { AuthenticatedUser } from '../auth/auth.types';
  */
 @ApiTags('Financeiro')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserProfile.ADMIN)
+// Acesso por MÓDULO (não só admin): ADMIN sempre, ou equipe com o módulo
+// FINANCE liberado — quem opera o Contas a Pagar entra na equipe Financeiro.
+@UseGuards(JwtAuthGuard, ModuleGuard)
+@RequireModule('FINANCE')
 @Controller('financial')
 export class FinancialController {
   constructor(private readonly financial: FinancialService) {}

@@ -175,10 +175,13 @@ export const NAV_SECTIONS: NavSection[] = [
         badgeKey: 'fiscal-pending',
       },
       {
+        // ADMIN/REVISOR por perfil OU membro de equipe Fiscal via módulo
+        // FISCAL_QUEUE — alinhado ao backend (isReviewer = ADMIN|isFiscal).
         to: '/fornecedores/validacoes',
         label: 'Validação de Fornecedor',
         icon: ClipboardCheck,
         roles: FISCAL,
+        module: 'FISCAL_QUEUE',
       },
       {
         to: '/fiscal/notas-fiscais',
