@@ -106,6 +106,36 @@ describe('ApprovalsService.decide', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
+  it('admin NÃO faz override — não é o aprovador da etapa → Forbidden (sem bypass)', async () => {
+    const admin = { ...TEST_USER, id: 'admin-1', profile: 'ADMIN' };
+    prisma.approvalStep.findUnique.mockResolvedValue(
+      makeStep({ assignedApproverId: 'outro-aprovador' }),
+    );
+    prisma.delegation.findMany.mockResolvedValue([]);
+
+    await expect(
+      service.decide(admin, 'step-1', true, 'Titular de férias, aprovando.'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('admin NÃO aprova documento que ele mesmo criou, mesmo sendo o aprovador (RN-ALC-03, sem bypass)', async () => {
+    const admin = { ...TEST_USER, id: 'admin-1', profile: 'ADMIN' };
+    // Admin É o aprovador atribuído (passa no userCanDecideStep)...
+    prisma.approvalStep.findUnique.mockResolvedValue(
+      makeStep({ assignedApproverId: 'admin-1' }),
+    );
+    prisma.delegation.findMany.mockResolvedValue([]);
+    // ...mas também é o solicitante → auto-aprovação barrada para todos.
+    prisma.requisition.findUnique.mockResolvedValue({
+      status: 'IN_APPROVAL',
+      requesterId: 'admin-1',
+    });
+
+    await expect(
+      service.decide(admin, 'step-1', true, 'Preciso destravar.'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
   it('lança BadRequest quando há nível anterior pendente', async () => {
     prisma.approvalStep.findUnique.mockResolvedValue(makeStep({ level: 2 }));
     prisma.delegation.findMany.mockResolvedValue([]);

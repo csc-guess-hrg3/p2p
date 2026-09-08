@@ -48,16 +48,11 @@ export function ApprovalsPage() {
 
 function ApproverView() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  // A fila (pendingForUser) já traz só as etapas que ESTE usuário pode
+  // decidir — inclusive para o admin, que não tem mais visão global nem
+  // override. Para decidir no lugar de outro aprovador, o admin usa o modo
+  // Simulação e age na visão dele.
   const { data: steps = [], isLoading } = usePendingApprovals();
-  const isAdmin = user?.profile === 'ADMIN';
-  // Admin enxerga TODAS as aprovações pendentes da empresa — separamos
-  // visualmente "as suas" (titular) das "demais" (overrides) pra ele
-  // saber onde está agindo fora da alçada.
-  const ownSteps = steps.filter((s) => s.assignedApprover?.id === user?.id);
-  const overrideSteps = steps.filter(
-    (s) => s.assignedApprover?.id && s.assignedApprover.id !== user?.id,
-  );
   const pag = usePagination(steps);
   const [decision, setDecision] = useState<{
     step: PendingApproval;
@@ -73,9 +68,7 @@ function ApproverView() {
         <p className="text-sm text-muted-foreground">
           {isLoading
             ? 'Carregando…'
-            : isAdmin
-              ? `${steps.length} pendente(s) — ${ownSteps.length} sua(s) e ${overrideSteps.length} de outros aprovadores.`
-              : `${steps.length} requisição(ões) aguardando sua decisão.`}
+            : `${steps.length} requisição(ões) aguardando sua decisão.`}
         </p>
         <Button
           variant="outline"
@@ -121,7 +114,6 @@ function ApproverView() {
                 <TableHead>Título</TableHead>
                 <TableHead>Solicitante</TableHead>
                 <TableHead>Nível</TableHead>
-                {isAdmin && <TableHead>Aprovador titular</TableHead>}
                 <TableHead className="text-right">Valor</TableHead>
                 <TableHead className="w-48" />
               </TableRow>
@@ -130,7 +122,7 @@ function ApproverView() {
               {!isLoading && steps.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={isAdmin ? 7 : 6}
+                    colSpan={6}
                     className="py-8 text-center text-muted-foreground"
                   >
                     Nenhuma aprovação pendente.
@@ -178,24 +170,6 @@ function ApproverView() {
                   <TableCell className="text-muted-foreground">
                     {s.levelName ?? `Nível ${s.level}`}
                   </TableCell>
-                  {isAdmin && (
-                    <TableCell className="text-muted-foreground">
-                      {s.assignedApprover?.name ? (
-                        s.assignedApprover.id === user?.id ? (
-                          <span className="text-foreground">Você</span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1">
-                            {s.assignedApprover.name}
-                            <span className="rounded bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-warning">
-                              override
-                            </span>
-                          </span>
-                        )
-                      ) : (
-                        <span className="italic">—</span>
-                      )}
-                    </TableCell>
-                  )}
                   <TableCell className="text-right">
                     {formatCurrency(s.requisition.totalAmount)}
                   </TableCell>

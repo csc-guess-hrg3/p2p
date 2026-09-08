@@ -565,8 +565,9 @@ export class RequisitionsService {
    *    qualquer solicitante; é função do papel, não visibilidade entre pares;
    *  - o APROVADOR da cadeia — a tela de aprovação abre o detalhe (findOne)
    *    do documento que ele precisa decidir (fixo/delegado ou dinâmico por
-   *    cargo+filial; admin com step pendente pelo override).
-   * Os demais (inclusive admin sem step) abrem a de outro via SIMULAÇÃO.
+   *    cargo+filial).
+   * Os demais (inclusive admin, que não tem bypass) abrem a de outro via
+   * SIMULAÇÃO — age na visão do dono/aprovador.
    */
   private async assertCanView(
     user: AuthenticatedUser,

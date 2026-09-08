@@ -14,7 +14,6 @@ import {
   PurchaseOrderStatus,
   RequisitionStatus,
   FundRequestStatus,
-  UserProfile,
 } from '../common/enums';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { LinxErpService } from '../integration/linx-erp.service';
@@ -237,35 +236,28 @@ export class ApprovalsService {
   /**
    * Lista os steps pendentes que o usuário pode decidir agora.
    *
-   * - Admin: vê TODOS os pendentes das empresas a que tem acesso (mesmo
-   *   sem ser o aprovador atribuído). Isso permite destravar fluxos
-   *   quando o aprovador original está fora — a decisão fica registrada
-   *   como override de admin e exige justificativa.
-   * - Demais perfis: só os steps onde ele é o aprovador atribuído
-   *   (direto ou por delegação).
+   * TODOS os perfis (inclusive Admin): só os steps onde o usuário é o
+   * aprovador — fixo (dele ou por delegação) ou dinâmico por cargo (+ filial).
+   * Admin NÃO tem bypass: para decidir no lugar de outro aprovador (ex.:
+   * titular ausente), o admin entra no modo SIMULAÇÃO e age na visão do
+   * aprovador (decisão PO — nada de fila global nem override na identidade
+   * do próprio admin).
    */
   async pendingForUser(user: AuthenticatedUser) {
-    const isAdmin = user.profile === UserProfile.ADMIN;
-    const approverIds = isAdmin
-      ? null
-      : await this.engine.getActingApproverIds(user.id);
+    const approverIds = await this.engine.getActingApproverIds(user.id);
 
     const steps = await this.prisma.approvalStep.findMany({
       where: {
         status: ApprovalStepStatus.PENDING,
         companyId: { in: user.companyIds },
-        // Não-admin: aprovador FIXO (meu ou delegado) OU nível DINÂMICO por
-        // cargo (assignedApproverId nulo). Os dinâmicos entram todos aqui e são
+        // Aprovador FIXO (meu ou delegado) OU nível DINÂMICO por cargo
+        // (assignedApproverId nulo). Os dinâmicos entram todos aqui e são
         // filtrados por cargo/filial no laço abaixo (userCanDecideStep) — sem
         // isto, alçada por cargo NUNCA aparecia na fila (bug F1).
-        ...(isAdmin
-          ? {}
-          : {
-              OR: [
-                { assignedApproverId: { in: approverIds! } },
-                { assignedApproverId: null },
-              ],
-            }),
+        OR: [
+          { assignedApproverId: { in: approverIds } },
+          { assignedApproverId: null },
+        ],
       },
       include: {
         requisition: {
@@ -294,7 +286,6 @@ export class ApprovalsService {
       // Nível dinâmico (sem aprovador fixo): confirma que o usuário tem o cargo
       // exigido (e a filial, quando o nível é escopado por filial).
       if (
-        !isAdmin &&
         step.assignedApproverId === null &&
         !(await this.engine.userCanDecideStep(user.id, step))
       ) {
@@ -323,9 +314,8 @@ export class ApprovalsService {
    * fixo/delegado OU dinâmico por cargo+filial, via engine.userCanDecideStep),
    * cobrindo também níveis já decididos por ele (referência).
    *
-   * Admin: também true se houver step PENDENTE — mesmo override de destrave do
-   * pendingForUser (admin decide quando o aprovador está fora). Sem step
-   * pendente, admin não ganha visão: usa o modo SIMULAÇÃO (decisão PO).
+   * Admin NÃO ganha visão por ser admin: se não é aprovador da cadeia, abre
+   * o documento de outro pelo modo SIMULAÇÃO (decisão PO — sem bypass).
    */
   async isApproverForEntity(
     user: AuthenticatedUser,
@@ -359,12 +349,6 @@ export class ApprovalsService {
       },
     });
     if (steps.length === 0) return false;
-    if (
-      user.profile === UserProfile.ADMIN &&
-      steps.some((s) => s.status === ApprovalStepStatus.PENDING)
-    ) {
-      return true;
-    }
     for (const step of steps) {
       if (await this.engine.userCanDecideStep(user.id, step)) return true;
     }
@@ -376,7 +360,7 @@ export class ApprovalsService {
    * AGORA? Usado por ações do aprovador atual — ex.: selecionar a cotação
    * vencedora. Cobre aprovador fixo, delegado e DINÂMICO por cargo (+ filial),
    * ao contrário do antigo `assignedApproverId: user.id` que só via o fixo.
-   * Admin tem override (mesma regra da fila `pendingForUser`).
+   * Admin NÃO tem override: se não é o aprovador, age via SIMULAÇÃO.
    */
   async isPendingDecider(
     user: AuthenticatedUser,
@@ -409,7 +393,6 @@ export class ApprovalsService {
       },
     });
     if (steps.length === 0) return false;
-    if (user.profile === UserProfile.ADMIN) return true;
     for (const step of steps) {
       if (await this.engine.userCanDecideStep(user.id, step)) return true;
     }
@@ -487,10 +470,9 @@ export class ApprovalsService {
     }
 
     // O documento já pode ter sido finalizado por OUTRO step (ex.: o gestor
-    // reprovou → requisição REJECTED). Como o admin enxerga todos os steps
-    // pendentes, sem este guard ele conseguia reprovar/aprovar o nível
-    // seguinte (diretor) DEPOIS do documento já estar morto. A rejeição em
-    // qualquer nível encerra o processo — nada mais é decidível.
+    // reprovou → requisição REJECTED). A rejeição em qualquer nível encerra o
+    // processo — nada mais é decidível (guard contra decidir um nível seguinte
+    // de um documento já morto, via id direto).
     const currentDocStatus = await this.engine.documentStatus(step);
     if (currentDocStatus && FINALIZED_DOC_STATUSES.has(currentDocStatus)) {
       throw new BadRequestException(
@@ -500,44 +482,26 @@ export class ApprovalsService {
 
     // O usuário precisa ser o aprovador do nível — direto, por delegação,
     // ou (na cadeia dinâmica — Fase 1) ter o cargo + filial correspondentes
-    // ao nível. Admin pode fazer override de qualquer step (precisa
-    // destravar fluxos quando o aprovador titular está fora). O override
-    // exige justificativa e fica registrado em audit + nas observações
-    // da decisão.
-    const isAdmin = user.profile === UserProfile.ADMIN;
+    // ao nível. NÃO há override de admin: quem não é o aprovador não decide.
+    // Para decidir no lugar do titular ausente, o admin usa o modo SIMULAÇÃO
+    // e age na visão dele (decisão PO — segregação de funções).
     const allowed = await this.engine.userCanDecideStep(user.id, step);
-    const isAdminOverride = isAdmin && !allowed;
-    if (!allowed && !isAdmin) {
+    if (!allowed) {
       throw new ForbiddenException('Você não é o aprovador desta etapa.');
     }
-    if (isAdminOverride && (!comments || comments.trim().length < 10)) {
-      throw new BadRequestException(
-        'Decisões fora da sua alçada exigem uma justificativa de pelo menos 10 caracteres.',
+
+    // Segregação de funções (RN-ALC-03): ninguém aprova o próprio documento —
+    // nem o admin. Um admin que precise aprovar/rejeitar um doc que ele mesmo
+    // solicitou faz isso pela cadeia normal (outro aprovador) ou simulando o
+    // aprovador correto; jamais na própria identidade.
+    const requesterId = await this.engine.documentRequester(step);
+    if (requesterId && requesterId === user.id) {
+      throw new ForbiddenException(
+        'Você não pode aprovar um documento que você mesmo solicitou.',
       );
     }
 
-    // Auto-aprovação: por padrão o solicitante não aprova o próprio
-    // documento. Admin pode (com justificativa) porque pode precisar
-    // destravar casos de exceção — fica auditado.
-    const requesterId = await this.engine.documentRequester(step);
-    if (requesterId && requesterId === user.id) {
-      if (!isAdmin) {
-        throw new ForbiddenException(
-          'Você não pode aprovar um documento que você mesmo solicitou.',
-        );
-      }
-      if (!comments || comments.trim().length < 10) {
-        throw new BadRequestException(
-          'Para aprovar um documento que você mesmo criou, escreva uma justificativa de pelo menos 10 caracteres.',
-        );
-      }
-    }
-
-    // Prefixa o comentário no override de admin pra ficar óbvio na
-    // auditoria/UX que não foi o aprovador titular.
-    const finalComments = isAdminOverride
-      ? `[Decisão por Administrador — ${user.name}] ${(comments ?? '').trim()}`
-      : (comments ?? null);
+    const finalComments = comments ?? null;
 
     const filter = this.engine.entityFilter(step);
     const lowerPending = await this.prisma.approvalStep.count({
@@ -703,18 +667,13 @@ export class ApprovalsService {
     if (step.status !== ApprovalStepStatus.PENDING) {
       throw new BadRequestException('Esta etapa já foi decidida.');
     }
-    // Admin pode devolver uma etapa de outro aprovador (mesmo princípio
-    // do decide() — destravar fluxos). Override fica registrado nos
-    // comments com prefixo "[Decisão por Administrador]".
-    const isAdmin = user.profile === UserProfile.ADMIN;
+    // Sem override de admin: só o aprovador da etapa devolve para revisão.
+    // Admin age no lugar do titular pelo modo SIMULAÇÃO (decisão PO).
     const allowed = await this.engine.userCanDecideStep(user.id, step);
-    const isOverride = isAdmin && !allowed;
-    if (!allowed && !isAdmin) {
+    if (!allowed) {
       throw new ForbiddenException('Você não é o aprovador desta etapa.');
     }
-    const finalComments = isOverride
-      ? `[Decisão por Administrador — ${user.name}] ${trimmed}`
-      : trimmed;
+    const finalComments = trimmed;
 
     const filter = this.engine.entityFilter(step);
     const now = new Date();

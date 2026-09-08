@@ -16,7 +16,6 @@ import {
   PurchaseOrderStatus,
   RequisitionNfType,
   RequisitionStatus,
-  UserProfile,
 } from '../common/enums';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { ConvertToPurchaseOrderDto } from './dto/convert-to-po.dto';
@@ -259,10 +258,11 @@ export class PurchaseOrderConverterService {
    * múltiplos PCs (ver `bucketizeForPk`).
    */
   async convert(user: AuthenticatedUser, dto: ConvertToPurchaseOrderDto) {
-    if (user.profile === UserProfile.REVIEWER) {
-      throw new ForbiddenException('Revisor não cria pedidos de compra.');
-    }
-
+    // Criar pedido de compra não é privilégio de perfil — qualquer usuário
+    // gera o PC da própria compra. O controle é de OWNERSHIP (solicitante ou
+    // aprovador da cadeia), aferido logo abaixo (isOwnerOrApprover), não um
+    // veto por perfil. (Antes o Revisor era barrado aqui — regra removida:
+    // o fiscal também cria o PC das requisições dele.)
     const req = await this.prisma.requisition.findUnique({
       where: { id: dto.requisitionId },
       include: { items: { include: { rateios: true } } },

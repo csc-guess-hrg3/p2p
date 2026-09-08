@@ -310,9 +310,9 @@ export function RequisitionDetailPage() {
             </Button>
           </div>
         )}
-        {/* Aprovador logado (ou admin em override) decide direto desta tela.
-            Inclui "Devolver para revisão" — atalho importante quando há
-            ajuste a pedir, sem precisar voltar à fila de Aprovações. */}
+        {/* Aprovador da etapa decide direto desta tela (a fila já filtra
+            quem pode). Inclui "Devolver para revisão" — atalho importante
+            quando há ajuste a pedir, sem precisar voltar à fila. */}
         {myPendingStep && (
           <div className="flex gap-2">
             <Button
@@ -511,7 +511,7 @@ export function RequisitionDetailPage() {
             canSelect={
               !isFinalized &&
               !isDraft &&
-              (!!myPendingStep || user?.profile === 'ADMIN')
+              !!myPendingStep
             }
             canEdit={canEdit}
             requisitionForEdit={req}
