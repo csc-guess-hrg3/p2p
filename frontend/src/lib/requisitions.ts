@@ -148,13 +148,15 @@ export interface RequisitionItemInput {
 }
 
 /**
- * Item no formulário (estado da tela). fiscalMode indica se, ao salvar,
- * deve ser aberta uma pendência fiscal:
+ * Item no formulário (estado da tela). fiscalMode indica o tratamento
+ * fiscal ao salvar:
  *   NONE — item já vinculado ao fornecedor;
- *   LINK — item do catálogo, falta vincular ao fornecedor.
+ *   LINK — item do catálogo, falta vincular ao fornecedor;
+ *   NEW  — descrição livre (item não existe no catálogo); a equipe fiscal
+ *          classifica e cadastra. Sem itemErpCode e sem conta contábil.
  */
 export interface RequisitionItemForm {
-  fiscalMode: 'NONE' | 'LINK';
+  fiscalMode: 'NONE' | 'LINK' | 'NEW';
   itemErpCode: string | null;
   itemDescription: string;
   unit: string;
@@ -175,6 +177,8 @@ export interface RequisitionInput {
   supplierCnpj?: string;
   /** Nome digitado manualmente (último fallback). */
   supplierNameOverride?: string;
+  /** Apelido/nome conhecido do fornecedor (ex.: "Stanley"). */
+  supplierKnownName?: string;
   title: string;
   justification: string;
   tipoNotaFiscal: NfType;

@@ -15,6 +15,11 @@ import {
   RejectFiscalItemRequestDto,
 } from './dto/resolve-fiscal-item-request.dto';
 import { QueryFiscalItemRequestsDto } from './dto/query-fiscal-item-requests.dto';
+import {
+  CreateClassifiedItemDto,
+  LinkItemDto,
+} from './dto/classify-item.dto';
+import type { ErpItem } from '../integration/integration.types';
 
 const REQUESTER = { select: { id: true, name: true } };
 
@@ -260,5 +265,362 @@ export class FiscalItemRequestsService {
       },
     });
     return updated;
+  }
+
+  // ============================================================
+  // Classificação de item LIVRE (descrição solta, sem código no ERP).
+  // O solicitante descreveu o item; a equipe fiscal vincula um item que
+  // já existe OU cria um novo no Linx. Em ambos, a conta contábil volta
+  // pro item da requisição e o vínculo item↔fornecedor é gravado (assim
+  // da próxima vez o item já aparece nos itens do fornecedor).
+  // ============================================================
+
+  /** Só itens livres em requisições vivas (enviadas/aprovadas, não convertidas). */
+  private static readonly CLASSIFY_STATUSES = ['SUBMITTED', 'APPROVED'];
+
+  /** Palavras-chave da descrição, pra buscar itens parecidos no catálogo. */
+  private keywords(text: string): string[] {
+    const stop = new Set([
+      'para', 'com', 'sem', 'dos', 'das', 'que', 'por', 'nos', 'nas', 'uma',
+      'item', 'itens', 'servico', 'serviço', 'produto', 'novo', 'nova',
+    ]);
+    return Array.from(
+      new Set(
+        (text || '')
+          .toLowerCase()
+          .split(/[^a-zà-ú0-9]+/i)
+          .filter((w) => w.length >= 4 && !stop.has(w)),
+      ),
+    ).slice(0, 4);
+  }
+
+  /** Fila do fiscal: itens livres aguardando classificação. */
+  async classificationQueue(
+    user: AuthenticatedUser,
+    query: QueryFiscalItemRequestsDto,
+  ) {
+    await this.assertFiscalUser(user);
+    const { companyId, skip = 0, take = 50 } = query;
+    const companyFilter =
+      companyId && user.companyIds.includes(companyId)
+        ? companyId
+        : { in: user.companyIds };
+    const where: Prisma.RequisitionItemWhereInput = {
+      itemErpCode: null,
+      requisition: {
+        companyId: companyFilter,
+        deletedAt: null,
+        status: { in: FiscalItemRequestsService.CLASSIFY_STATUSES },
+      },
+    };
+    const [data, total] = await Promise.all([
+      this.prisma.requisitionItem.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          itemDescription: true,
+          quantity: true,
+          unit: true,
+          estimatedPrice: true,
+          branchRateioCode: true,
+          costCenterRateioCode: true,
+          createdAt: true,
+          requisition: {
+            select: {
+              id: true,
+              number: true,
+              companyId: true,
+              status: true,
+              supplierErpCode: true,
+              supplierName: true,
+              company: { select: { code: true } },
+              requester: { select: { id: true, name: true } },
+            },
+          },
+        },
+      }),
+      this.prisma.requisitionItem.count({ where }),
+    ]);
+    return { data, total, skip, take };
+  }
+
+  /** Carrega um item da fila e valida acesso + que ainda está livre. */
+  private async loadFreeItem(user: AuthenticatedUser, reqItemId: string) {
+    const item = await this.prisma.requisitionItem.findUnique({
+      where: { id: reqItemId },
+      include: { requisition: { include: { company: true } } },
+    });
+    if (!item) {
+      throw new NotFoundException('Item da requisição não encontrado.');
+    }
+    const requisition = item.requisition;
+    if (!user.companyIds.includes(requisition.companyId)) {
+      throw new ForbiddenException('Sem acesso a este item.');
+    }
+    if (item.itemErpCode) {
+      throw new BadRequestException('Este item já está classificado.');
+    }
+    if (!FiscalItemRequestsService.CLASSIFY_STATUSES.includes(requisition.status)) {
+      throw new BadRequestException(
+        'A requisição não está num estado que permita classificar itens.',
+      );
+    }
+    return { item, requisition, company: requisition.company };
+  }
+
+  /** Sugestões: itens existentes parecidos com a descrição (vinculados no topo). */
+  async classificationSuggestions(user: AuthenticatedUser, reqItemId: string) {
+    await this.assertFiscalUser(user);
+    const { item, requisition, company } = await this.loadFreeItem(
+      user,
+      reqItemId,
+    );
+    const kws = this.keywords(item.itemDescription);
+    const terms = kws.length ? kws : [item.itemDescription.trim()];
+
+    const hits = new Map<string, { item: ErpItem; n: number }>();
+    for (const t of terms) {
+      const rows = await this.integration.getItems(company.code, {
+        search: t,
+        onlyActive: true,
+      });
+      for (const r of rows) {
+        const cur = hits.get(r.codigo);
+        if (cur) cur.n += 1;
+        else hits.set(r.codigo, { item: r, n: 1 });
+      }
+    }
+
+    const linked = requisition.supplierErpCode
+      ? new Set(
+          (
+            await this.integration.getSupplierItems(
+              company.code,
+              requisition.supplierErpCode,
+            )
+          ).map((i) => i.codigo),
+        )
+      : new Set<string>();
+
+    const suggestions = Array.from(hits.values())
+      .map(({ item: i, n }) => ({
+        codigo: i.codigo,
+        descricao: i.descricao,
+        unidade: i.unidade,
+        contaContabilPadrao: i.contaContabilPadrao,
+        grupo: i.grupo,
+        linked: linked.has(i.codigo),
+        score: n,
+      }))
+      .sort(
+        (a, b) =>
+          Number(b.linked) - Number(a.linked) ||
+          b.score - a.score ||
+          a.descricao.localeCompare(b.descricao),
+      )
+      .slice(0, 12);
+
+    return { description: item.itemDescription, suggestions };
+  }
+
+  /** Notifica o solicitante que o item livre foi classificado. */
+  private async notifyClassified(
+    requisition: { id: string; companyId: string; requesterId: string },
+    description: string,
+    itemCode: string,
+    created: boolean,
+  ) {
+    await this.prisma.notification.create({
+      data: {
+        companyId: requisition.companyId,
+        userId: requisition.requesterId,
+        type: 'GENERAL',
+        title: 'Item classificado pela equipe Fiscal',
+        body:
+          `O item "${description}" foi ${created ? 'cadastrado' : 'vinculado'} ` +
+          `pela equipe Fiscal (${itemCode}). A requisição já pode virar pedido.`,
+        entityType: 'REQUISITION',
+        entityId: requisition.id,
+      },
+    });
+  }
+
+  /**
+   * Registra a ação do fiscal (vincular/cadastrar) como um FiscalItemRequest
+   * já APROVADO — é o rastro de histórico. Fica na mesma fonte do "a vincular"
+   * resolvido, então a aba Histórico mostra tudo junto (Vinculado = LINK,
+   * Cadastrado = NEW).
+   */
+  private async recordItemAction(
+    user: AuthenticatedUser,
+    requisition: {
+      companyId: string;
+      requesterId: string;
+      supplierErpCode: string | null;
+      supplierName: string;
+    },
+    type: 'LINK' | 'NEW',
+    itemErpCode: string,
+    item: { itemDescription: string; unit: string },
+  ) {
+    await this.prisma.fiscalItemRequest.create({
+      data: {
+        companyId: requisition.companyId,
+        type,
+        status: 'APPROVED',
+        supplierErpCode: requisition.supplierErpCode ?? '',
+        supplierName: requisition.supplierName,
+        itemErpCode,
+        itemDescription: item.itemDescription,
+        unit: item.unit,
+        requestedById: requisition.requesterId,
+        resolvedById: user.id,
+        resolvedAt: new Date(),
+        notes:
+          type === 'NEW'
+            ? 'Item livre cadastrado no Linx pela equipe fiscal.'
+            : 'Item livre vinculado a um item existente pela equipe fiscal.',
+      },
+    });
+  }
+
+  /** Vincula um item JÁ existente do Linx ao item livre da requisição. */
+  async resolveLink(
+    user: AuthenticatedUser,
+    reqItemId: string,
+    dto: LinkItemDto,
+  ) {
+    await this.assertFiscalUser(user);
+    const { requisition, company } = await this.loadFreeItem(user, reqItemId);
+    const erpItem = await this.integration.findItem(
+      company.code,
+      dto.itemErpCode,
+    );
+    if (!erpItem) {
+      throw new BadRequestException('Item não encontrado no catálogo do Linx.');
+    }
+    const conta = erpItem.contaContabilPadrao?.trim();
+    if (!conta) {
+      throw new BadRequestException(
+        'O item escolhido não tem conta contábil no Linx. Escolha outro ou cadastre um novo.',
+      );
+    }
+    const account = await this.integration.findAccount(company.code, conta);
+
+    // Vínculo item↔fornecedor (se o fornecedor já está no ERP).
+    if (requisition.supplierErpCode) {
+      await this.integration.linkSupplierItem(
+        company.erpDbName,
+        requisition.supplierErpCode,
+        erpItem.codigo,
+      );
+    }
+    const updated = await this.prisma.requisitionItem.update({
+      where: { id: reqItemId },
+      data: {
+        itemErpCode: erpItem.codigo,
+        accountingAccount: conta,
+        accountName: account?.nome ?? null,
+      },
+    });
+    await this.recordItemAction(
+      user,
+      requisition,
+      'LINK',
+      erpItem.codigo,
+      updated,
+    );
+    await this.notifyClassified(
+      requisition,
+      updated.itemDescription,
+      erpItem.codigo,
+      false,
+    );
+    return updated;
+  }
+
+  /**
+   * Cria um item fiscal novo no Linx e o vincula ao item livre. Com
+   * `confirm !== true`, só devolve a PRÉVIA do que será gravado (não grava).
+   */
+  async resolveCreate(
+    user: AuthenticatedUser,
+    reqItemId: string,
+    dto: CreateClassifiedItemDto,
+  ) {
+    await this.assertFiscalUser(user);
+    const { item, requisition, company } = await this.loadFreeItem(
+      user,
+      reqItemId,
+    );
+    const account = await this.integration.findAccount(
+      company.code,
+      dto.accountingAccount,
+    );
+    if (!account) {
+      throw new BadRequestException(
+        `Conta contábil inválida: ${dto.accountingAccount}`,
+      );
+    }
+    const fields = {
+      descricao: (dto.descricao ?? item.itemDescription).trim().slice(0, 80),
+      unidade: (dto.unidade ?? item.unit).trim().slice(0, 5),
+      contaContabil: dto.accountingAccount,
+      ncm: dto.ncm?.trim() || null,
+      origem: dto.origem?.trim() || null,
+      grupo: dto.grupo?.trim() || null,
+      tipoSped: dto.tipoSped?.trim() || null,
+      cfop: dto.cfop ?? null,
+      rateioFilial: item.branchRateioCode || null,
+      rateioCc: item.costCenterRateioCode || null,
+    };
+
+    // Prévia: mostra o item EXATO que vai ser gravado, sem gravar.
+    if (dto.confirm !== true) {
+      const codigo = await this.integration.nextItemFiscalCode(
+        company.erpDbName,
+      );
+      return {
+        preview: true,
+        item: {
+          codigo,
+          ...fields,
+          ncm: fields.ncm ?? '00000000',
+          origem: fields.origem ?? '0',
+          contaNome: account.nome,
+        },
+      };
+    }
+
+    const codigo = await this.integration.createItemFiscal(
+      company.erpDbName,
+      fields,
+    );
+    if (requisition.supplierErpCode) {
+      await this.integration.linkSupplierItem(
+        company.erpDbName,
+        requisition.supplierErpCode,
+        codigo,
+      );
+    }
+    const updated = await this.prisma.requisitionItem.update({
+      where: { id: reqItemId },
+      data: {
+        itemErpCode: codigo,
+        accountingAccount: dto.accountingAccount,
+        accountName: account.nome,
+      },
+    });
+    await this.recordItemAction(user, requisition, 'NEW', codigo, updated);
+    await this.notifyClassified(
+      requisition,
+      updated.itemDescription,
+      codigo,
+      true,
+    );
+    return { preview: false, created: codigo, item: updated };
   }
 }

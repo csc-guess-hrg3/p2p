@@ -549,6 +549,69 @@ export class IntegrationService {
     this.logger.log(`Vínculo gravado no Linx: ${supplierCode}/${itemCode}`);
   }
 
+  /**
+   * Próximo código de item nascido no P2P: prefixo `P2P` + sequencial
+   * zero-paddeado (P2P000001, P2P000002…). O prefixo é reservado (conferido:
+   * zero códigos `P2P%` nos dois bancos), então não colide com o cadastro
+   * existente e deixa rastreável a origem — igual ao `[AUTO_CAD]` do HRG3.
+   */
+  async nextItemFiscalCode(erpDbName: string): Promise<string> {
+    const db = this.assertDbName(erpDbName);
+    const rows = await this.prisma.$queryRaw<{ maxSeq: number | null }[]>(
+      Prisma.sql`
+      SELECT MAX(TRY_CONVERT(int, SUBSTRING(RTRIM(CODIGO_ITEM), 4, 20))) AS maxSeq
+      FROM ${Prisma.raw(db)}.dbo.CADASTRO_ITEM_FISCAL
+      WHERE CODIGO_ITEM LIKE 'P2P%'`,
+    );
+    const next = (Number(rows[0]?.maxSeq ?? 0) || 0) + 1;
+    return 'P2P' + String(next).padStart(6, '0');
+  }
+
+  /**
+   * Cria um item fiscal novo no Linx (CADASTRO_ITEM_FISCAL), coluna a coluna
+   * (nunca clonando template — memória "de/para por coluna"). Só as 5
+   * obrigatórias + conta + fiscais; NCM e origem entram com o padrão que 90%
+   * dos itens reais já usam (00000000 / 0=nacional) quando não informados.
+   * Retorna o código gerado.
+   */
+  async createItemFiscal(
+    erpDbName: string,
+    fields: {
+      descricao: string;
+      unidade: string;
+      contaContabil: string;
+      ncm?: string | null;
+      origem?: string | null;
+      grupo?: string | null;
+      tipoSped?: string | null;
+      cfop?: number | null;
+      rateioFilial?: string | null;
+      rateioCc?: string | null;
+    },
+  ): Promise<string> {
+    const db = this.assertDbName(erpDbName);
+    const codigo = await this.nextItemFiscalCode(erpDbName);
+    // Guarda de colisão: o código não é IDENTITY (é gerado por MAX+1).
+    const clash = await this.prisma.$queryRaw<{ n: number }[]>(Prisma.sql`
+      SELECT COUNT(*) AS n FROM ${Prisma.raw(db)}.dbo.CADASTRO_ITEM_FISCAL
+      WHERE CODIGO_ITEM = ${codigo}`);
+    if (Number(clash[0]?.n ?? 0) > 0) {
+      throw new Error(`Código de item ${codigo} já existe — tente novamente.`);
+    }
+    await this.prisma.$executeRaw(Prisma.sql`
+      INSERT INTO ${Prisma.raw(db)}.dbo.CADASTRO_ITEM_FISCAL
+        (CODIGO_ITEM, ITEM_DESCRICAO, UNIDADE, INATIVO, LX_STATUS_REGISTRO,
+         CONTA_CONTABIL, CLASSIF_FISCAL, TRIBUT_ORIGEM, ITEM_FISCAL_GRUPO,
+         TIPO_ITEM_SPED, INDICADOR_CFOP, RATEIO_FILIAL, RATEIO_CENTRO_CUSTO,
+         PRECO_UNITARIO, COMISSAO_ITEM, COMISSAO_ITEM_GERENTE, PARTICIPA_INTEGRACAO)
+      VALUES (${codigo}, ${fields.descricao}, ${fields.unidade}, 0, 0,
+         ${fields.contaContabil}, ${fields.ncm ?? '00000000'}, ${fields.origem ?? '0'},
+         ${fields.grupo ?? null}, ${fields.tipoSped ?? null}, ${fields.cfop ?? null},
+         ${fields.rateioFilial ?? null}, ${fields.rateioCc ?? null}, 0, 0, 0, 0)`);
+    this.logger.log(`Item fiscal criado no Linx: ${codigo} (${db})`);
+    return codigo;
+  }
+
   /** Agrupa linhas de rateio (uma linha por destino) em templates. */
   private groupRateios(
     rows: Array<{

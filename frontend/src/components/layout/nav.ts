@@ -7,7 +7,6 @@ import {
   Shirt,
   Banknote,
   PackageCheck,
-  ClipboardCheck,
   Settings,
   Wallet,
   Receipt,
@@ -152,45 +151,15 @@ export const NAV_SECTIONS: NavSection[] = [
     icon: Truck,
     roles: ['ADMIN', 'REVIEWER'],
   },
-  // ─── Grupo Fiscal ───
+  // ─── Fiscal ─── um só item → hub com abas (Requisições · Itens ·
+  // Fornecedores · Notas Fiscais). Antes eram 4 itens soltos + duplicata.
   {
-    key: 'fiscal',
+    to: '/fiscal',
     label: 'Fiscal',
     icon: Gavel,
-    children: [
-      {
-        // Só o REVISOR classifica (o admin age por simulação) — não incluir
-        // ADMIN aqui, senão ele via a fila mas o detalhe o barrava.
-        to: '/fiscal/classificacao',
-        label: 'Classificação Fiscal',
-        icon: ClipboardCheck,
-        roles: ['REVIEWER'],
-      },
-      {
-        to: '/fiscal/pendencias-fiscais',
-        label: 'Pendências Fiscais',
-        icon: ClipboardCheck,
-        roles: FISCAL,
-        module: 'FISCAL_QUEUE',
-        badgeKey: 'fiscal-pending',
-      },
-      {
-        // ADMIN/REVISOR por perfil OU membro de equipe Fiscal via módulo
-        // FISCAL_QUEUE — alinhado ao backend (isReviewer = ADMIN|isFiscal).
-        to: '/fornecedores/validacoes',
-        label: 'Validação de Fornecedor',
-        icon: ClipboardCheck,
-        roles: FISCAL,
-        module: 'FISCAL_QUEUE',
-      },
-      {
-        to: '/fiscal/notas-fiscais',
-        label: 'Notas Fiscais',
-        icon: ClipboardCheck,
-        roles: FISCAL,
-        module: 'FISCAL_QUEUE',
-      },
-    ],
+    roles: FISCAL,
+    module: 'FISCAL_QUEUE',
+    badgeKey: 'fiscal-pending',
   },
   // ─── Grupo Financeiro ───
   // Rótulos em português direto (as siglas ITP/IAD viram contexto na tela,

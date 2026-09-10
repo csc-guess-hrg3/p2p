@@ -304,15 +304,36 @@ export class RequisitionsService {
     let totalAmount = 0;
 
     for (const it of items) {
-      const account = await this.integration.findAccount(
-        companyCode,
-        it.accountingAccount,
-      );
-      if (!account) {
-        throw new BadRequestException(
-          `Conta contábil inválida: ${it.accountingAccount}`,
-        );
+      // Resolve o item do catálogo (se houver). Item livre — sem código —
+      // entra só como descrição, pra equipe fiscal classificar depois.
+      let erpItem: Awaited<ReturnType<typeof this.integration.findItem>> = null;
+      if (it.itemErpCode) {
+        erpItem = await this.integration.findItem(companyCode, it.itemErpCode);
+        if (!erpItem) {
+          throw new BadRequestException(`Item inválido: ${it.itemErpCode}`);
+        }
       }
+
+      // Conta contábil NÃO é decisão do solicitante: herda do item do
+      // catálogo quando existe; senão fica vazia (item aguardando
+      // classificação fiscal). O conversor barra a virada em PC enquanto a
+      // conta estiver ausente, então nada sem conta chega ao ERP.
+      const contaCode =
+        erpItem?.contaContabilPadrao?.trim() ||
+        it.accountingAccount?.trim() ||
+        '';
+      let accountName: string | null = null;
+      if (contaCode) {
+        const account = await this.integration.findAccount(
+          companyCode,
+          contaCode,
+        );
+        if (!account) {
+          throw new BadRequestException(`Conta contábil inválida: ${contaCode}`);
+        }
+        accountName = account.nome;
+      }
+
       const branchRateio = await this.integration.findBranchRateio(
         companyCode,
         it.branchRateioCode,
@@ -330,15 +351,6 @@ export class RequisitionsService {
         throw new BadRequestException(
           `Rateio de centro de custo inválido: ${it.costCenterRateioCode}`,
         );
-      }
-      if (it.itemErpCode) {
-        const erpItem = await this.integration.findItem(
-          companyCode,
-          it.itemErpCode,
-        );
-        if (!erpItem) {
-          throw new BadRequestException(`Item inválido: ${it.itemErpCode}`);
-        }
       }
 
       // Escopo da equipe: o item só pode usar rateios liberados para ela.
@@ -398,8 +410,8 @@ export class RequisitionsService {
           unit: it.unit,
           estimatedPrice: it.estimatedPrice,
           totalPrice,
-          accountingAccount: it.accountingAccount,
-          accountName: account.nome,
+          accountingAccount: contaCode,
+          accountName,
           branchRateioCode: it.branchRateioCode,
           branchRateioDesc: branchRateio.descricao,
           costCenterRateioCode: it.costCenterRateioCode,
@@ -457,7 +469,10 @@ export class RequisitionsService {
         supplierErpCode: supplier.supplierErpCode,
         supplierName: supplier.supplierName,
         supplierCnpj: supplier.supplierCnpj,
-        supplierFantasia: supplier.supplierFantasia,
+        // Apelido do solicitante ("Stanley") ganha da fantasia da Receita
+        // ("PMI South America…") — é o nome amigável exibido nas telas.
+        supplierFantasia:
+          dto.supplierKnownName?.trim() || supplier.supplierFantasia,
         supplierEmail: supplier.supplierEmail,
         supplierTelefone: supplier.supplierTelefone,
         supplierLogradouro: supplier.supplierLogradouro,
@@ -507,7 +522,11 @@ export class RequisitionsService {
       // automaticamente na aprovação, que já viraram pedido) — poluiriam a
       // lista. Elas são acessíveis pelo pai / pelos pedidos que originaram.
       recurrenceParentId: null,
-      ...(status ? { status } : {}),
+      // status aceita 1 valor ("APPROVED") ou vários separados por vírgula
+      // ("DRAFT,REVISION") — usado pelos atalhos de "Minhas pendências".
+      ...(status
+        ? { status: status.includes(',') ? { in: status.split(',') } : status }
+        : {}),
       ...(search
         ? {
             OR: [
@@ -851,7 +870,8 @@ export class RequisitionsService {
       data.supplierErpCode = supplier.supplierErpCode;
       data.supplierName = supplier.supplierName;
       data.supplierCnpj = supplier.supplierCnpj;
-      data.supplierFantasia = supplier.supplierFantasia;
+      data.supplierFantasia =
+        dto.supplierKnownName?.trim() || supplier.supplierFantasia;
       data.supplierEmail = supplier.supplierEmail;
       data.supplierTelefone = supplier.supplierTelefone;
       data.supplierLogradouro = supplier.supplierLogradouro;
@@ -1007,6 +1027,23 @@ export class RequisitionsService {
         realQuotationsCount,
       );
     }
+    // Fornecedor novo: garante o registro de validação (pós-aprovação) TAMBÉM
+    // no reenvio — igual ao submit. Sem isso, a req aprovava sem a validação
+    // existir e ficava presa (aprovada + needsErp=true + sem SupplierValidation).
+    if (req.needsSupplierErpCreation) {
+      const existing = await this.prisma.supplierValidation.findUnique({
+        where: { requisitionId: req.id },
+        select: { status: true },
+      });
+      if (existing?.status !== 'APPROVED') {
+        await this.supplierValidation.ensureGate({
+          id: req.id,
+          companyId: req.companyId,
+          number: req.number,
+          supplierCnpj: req.supplierCnpj,
+        });
+      }
+    }
     // Fail-safe (decisão PO): bloqueia se a equipe não tem alçada — nunca auto-aprova.
     await this.approvals.assertChainConfigured(req.teamId);
     await this.approvals.resetForRequisition(id);
@@ -1159,31 +1196,29 @@ export class RequisitionsService {
       );
     }
 
-    // Gate de fornecedor novo (RN André): se a requisição traz um fornecedor
-    // NÃO cadastrado no ERP, ela para pra validação do Revisor ANTES da cadeia
-    // do gestor. Ao aprovar, o Revisor cadastra o fornecedor no Linx e a
-    // requisição retoma pela cadeia normal (mesmo helper). Já validado
-    // (SupplierValidation APPROVED) segue direto.
+    // Fornecedor novo: as aprovações vêm PRIMEIRO (decisão PO 09/09 — inverte
+    // a RN antiga que travava na validação antes do gestor). Aqui só
+    // garantimos o registro de validação (PENDING), SEM travar a cadeia. O
+    // revisor valida/cadastra o fornecedor DEPOIS que a requisição é aprovada
+    // (a fila só mostra pós-aprovação), e a conversão em PC fica barrada até lá.
     if (req.needsSupplierErpCreation) {
       const existing = await this.prisma.supplierValidation.findUnique({
         where: { requisitionId: req.id },
         select: { status: true },
       });
       if (existing?.status !== 'APPROVED') {
-        await this.supplierValidation.openGate({
+        await this.supplierValidation.ensureGate({
           id: req.id,
           companyId: req.companyId,
           number: req.number,
           supplierCnpj: req.supplierCnpj,
         });
-        return this.findOne(user, id);
       }
     }
 
-    // Arranque da cadeia de aprovação do gestor. Fonte única (reusada pela
-    // aprovação do fornecedor): faz o fail-safe de alçada, limpa cadeia órfã
-    // (audit M13), gera os steps e transiciona o status (cadeia vazia →
-    // APPROVED; senão IN_APPROVAL).
+    // Arranque da cadeia de aprovação do gestor. Fonte única: faz o fail-safe
+    // de alçada, limpa cadeia órfã (audit M13), gera os steps e transiciona o
+    // status (cadeia vazia → APPROVED; senão IN_APPROVAL).
     await this.approvals.startRequisitionApprovalChain(req.id);
     return this.findOne(user, id);
   }

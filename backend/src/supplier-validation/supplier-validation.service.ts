@@ -124,6 +124,40 @@ export class SupplierValidationService {
     await this.notifyReviewers(req.companyId, req.number, req.id);
   }
 
+  /**
+   * Garante o registro de validação de fornecedor em PENDING SEM travar a
+   * cadeia de aprovação nem mexer no status da requisição. A validação agora
+   * é PÓS-aprovação/pré-pedido (decisão PO 09/09 — inverte a RN antiga): a
+   * requisição segue direto pra aprovação do gestor; a fila do revisor só
+   * mostra a validação quando a req está APROVADA (findAll filtra), e a
+   * conversão em PC fica barrada até o revisor validar (guarda no conversor).
+   */
+  async ensureGate(req: {
+    id: string;
+    companyId: string;
+    number: string;
+    supplierCnpj: string | null;
+  }): Promise<void> {
+    const cnpj = (req.supplierCnpj ?? '').replace(/\D/g, '');
+    await this.prisma.supplierValidation.upsert({
+      where: { requisitionId: req.id },
+      create: {
+        companyId: req.companyId,
+        requisitionId: req.id,
+        status: 'PENDING',
+        supplierCnpj: cnpj,
+      },
+      update: {
+        status: 'PENDING',
+        supplierCnpj: cnpj,
+        supplierErpCode: null,
+        validatorId: null,
+        justification: null,
+        decidedAt: null,
+      },
+    });
+  }
+
   /** Avisa os revisores (equipe Fiscal) da empresa que há fornecedor a validar. */
   private async notifyReviewers(
     companyId: string,
@@ -165,13 +199,20 @@ export class SupplierValidationService {
   async findAll(user: AuthenticatedUser, query: QuerySupplierValidationsDto) {
     const reviewer = await this.isReviewer(user);
     const { companyId, status, skip = 0, take = 50 } = query;
+    // Filtro por requisição: não-revisor só vê as próprias; e as PENDENTES só
+    // aparecem depois que a requisição foi APROVADA (validação é pós-aprovação
+    // — decisão PO 09/09). Resolvidas (Aprovados/Devolvidos) aparecem no
+    // histórico independentemente do status atual da requisição.
+    const reqWhere: Prisma.RequisitionWhereInput = {};
+    if (!reviewer) reqWhere.requesterId = user.id;
+    if (status === 'PENDING') reqWhere.status = RequisitionStatus.APPROVED;
     const where: Prisma.SupplierValidationWhereInput = {
       companyId:
         companyId && user.companyIds.includes(companyId)
           ? companyId
           : { in: user.companyIds },
       ...(status ? { status } : {}),
-      ...(reviewer ? {} : { requisition: { requesterId: user.id } }),
+      ...(Object.keys(reqWhere).length ? { requisition: reqWhere } : {}),
     };
     const [data, total] = await Promise.all([
       this.prisma.supplierValidation.findMany({
@@ -223,15 +264,15 @@ export class SupplierValidationService {
       },
     });
 
-    // Só agora a requisição entra na cadeia de aprovação do gestor.
-    await this.approvals.startRequisitionApprovalChain(requisitionId);
-
+    // A requisição JÁ está aprovada (validação é pós-aprovação); agora que o
+    // fornecedor está no ERP, ela pode virar pedido de compra. NÃO reinicia a
+    // cadeia de aprovação (decisão PO 09/09).
     await this.notifications.create({
       companyId: sv.companyId,
       userId: sv.requisition.requester.id,
       type: NotificationType.GENERAL,
       title: `Fornecedor validado: ${sv.requisition.number}`,
-      body: `O fornecedor da requisição ${sv.requisition.number} foi cadastrado no ERP (${clifor}) e ela seguiu para aprovação.`,
+      body: `O fornecedor da requisição ${sv.requisition.number} foi cadastrado no ERP (${clifor}). A requisição já pode virar pedido de compra.`,
       entityType: 'REQUISITION',
       entityId: requisitionId,
     });
@@ -263,9 +304,13 @@ export class SupplierValidationService {
         decidedAt: new Date(),
       },
     });
+    // A req já tinha passado pela aprovação; ao devolver o fornecedor, descarta
+    // a cadeia e volta pro solicitante como DEVOLVIDA (REVISION). Ao reenviar,
+    // a aprovação recomeça do zero.
+    await this.approvals.resetForRequisition(requisitionId);
     await this.prisma.requisition.update({
       where: { id: requisitionId },
-      data: { status: RequisitionStatus.DRAFT },
+      data: { status: RequisitionStatus.REVISION },
     });
     await this.notifications.create({
       companyId: sv.companyId,

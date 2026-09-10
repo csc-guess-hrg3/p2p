@@ -44,10 +44,15 @@ export class CreateRequisitionItemDto {
   @Min(0)
   estimatedPrice!: number;
 
-  @ApiProperty({ description: 'Conta contábil (CONTA_CONTABIL do ERP)' })
+  @ApiPropertyOptional({
+    description:
+      'Conta contábil (CONTA_CONTABIL do ERP). NÃO é decisão do solicitante: ' +
+      'herda do item do catálogo. Vazia = item livre aguardando ' +
+      'classificação pela equipe fiscal.',
+  })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  accountingAccount!: string;
+  accountingAccount?: string;
 
   @ApiProperty({ description: 'Código do template de rateio de filial' })
   @IsString()
@@ -110,6 +115,16 @@ export class CreateRequisitionDto {
   @IsOptional()
   @IsString()
   supplierNameOverride?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Nome conhecido/apelido do fornecedor que o solicitante reconhece ' +
+      '(ex.: "Stanley" para a razão "PMI South America…"). Exibido junto da ' +
+      'razão social. Guardado em supplierFantasia.',
+  })
+  @IsOptional()
+  @IsString()
+  supplierKnownName?: string;
 
   @ApiProperty()
   @IsString()

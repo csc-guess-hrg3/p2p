@@ -29,6 +29,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { usePendingApprovals } from '@/lib/approvals';
 import { useAuth } from '@/lib/auth';
 import { useCompany } from '@/lib/company';
+import { SupplierDetailDialog } from '@/pages/suppliers/SupplierDetailDialog';
 import { ConvertToPoDialog } from '@/pages/purchase-orders/ConvertToPoDialog';
 import { FiscalClassifyDialog } from './FiscalClassifyDialog';
 import { DecideDialog } from '@/pages/approvals/DecideDialog';
@@ -86,6 +87,7 @@ export function RequisitionDetailPage() {
   const { toast } = useToast();
   const { data: pendingApprovals = [] } = usePendingApprovals();
   const [convertOpen, setConvertOpen] = useState(false);
+  const [supplierDetailOpen, setSupplierDetailOpen] = useState(false);
   const [fiscalOpen, setFiscalOpen] = useState(false);
   const [waiverOpen, setWaiverOpen] = useState(false);
   const [revisionOpen, setRevisionOpen] = useState(false);
@@ -456,6 +458,13 @@ export function RequisitionDetailPage() {
           companyCode={activeCompany.code}
         />
       )}
+      <SupplierDetailDialog
+        open={supplierDetailOpen}
+        onOpenChange={setSupplierDetailOpen}
+        companyCode={activeCompany?.code}
+        cnpj={req.supplierCnpj}
+        fallbackName={req.supplierName}
+      />
       {decision && myPendingStep && (
         <DecideDialog
           step={myPendingStep}
@@ -548,7 +557,31 @@ export function RequisitionDetailPage() {
         </CardHeader>
         <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Filial" value={req.branchName} />
-          <Field label="Fornecedor" value={req.supplierName} />
+          <Field
+            label="Fornecedor"
+            value={
+              <div>
+                {req.supplierCnpj ? (
+                  <button
+                    type="button"
+                    onClick={() => setSupplierDetailOpen(true)}
+                    className="text-left text-primary hover:underline"
+                    title="Ver detalhes do fornecedor (Receita)"
+                  >
+                    {req.supplierFantasia || req.supplierName}
+                  </button>
+                ) : (
+                  req.supplierFantasia || req.supplierName
+                )}
+                {req.supplierFantasia &&
+                  req.supplierFantasia !== req.supplierName && (
+                    <div className="text-xs text-muted-foreground">
+                      {req.supplierName}
+                    </div>
+                  )}
+              </div>
+            }
+          />
           <Field
             label="Com adiantamento"
             value={req.tipoNotaFiscal === 'NF_FUTURA' ? 'Sim' : 'Não'}

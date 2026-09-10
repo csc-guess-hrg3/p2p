@@ -11,6 +11,7 @@ import {
 } from '@/lib/supplier-validation';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { SupplierDetailDialog } from './SupplierDetailDialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
@@ -53,9 +54,19 @@ function maskCnpj(v: string | null): string {
   return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
 }
 
-export function SupplierValidationQueuePage() {
+export function SupplierValidationQueuePage({
+  embedded = false,
+}: {
+  /** Dentro do hub Fiscal: esconde o voltar/heading próprios (a aba já dá contexto). */
+  embedded?: boolean;
+} = {}) {
   const { toast } = useToast();
-  const { companies } = useCompany();
+  const { companies, activeCompany } = useCompany();
+  const supplierLookupCode = activeCompany?.code ?? companies[0]?.code;
+  const [detail, setDetail] = useState<{
+    cnpj: string | null;
+    name: string | null;
+  } | null>(null);
   const [companyId, setCompanyId] = useState<string>('ALL');
   const [status, setStatus] = useState('PENDING');
   const [approveTarget, setApproveTarget] = useState<SupplierValidation | null>(
@@ -98,12 +109,14 @@ export function SupplierValidationQueuePage() {
 
   return (
     <div className="space-y-4 pb-10">
-      <Button variant="ghost" size="sm" asChild>
-        <Link to="/fornecedores">
-          <ArrowLeft className="size-4" />
-          Fornecedores
-        </Link>
-      </Button>
+      {!embedded && (
+        <Button variant="ghost" size="sm" asChild>
+          <Link to="/fornecedores">
+            <ArrowLeft className="size-4" />
+            Fornecedores
+          </Link>
+        </Button>
+      )}
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2">
@@ -184,9 +197,20 @@ export function SupplierValidationQueuePage() {
                     {sv.requisition.requester?.name ?? '—'}
                   </TableCell>
                   <TableCell>
-                    <div className="font-medium">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDetail({
+                          cnpj:
+                            sv.supplierCnpj || sv.requisition.supplierCnpj,
+                          name: sv.requisition.supplierName,
+                        })
+                      }
+                      className="text-left font-medium text-primary hover:underline"
+                      title="Ver detalhes do fornecedor (Receita)"
+                    >
                       {sv.requisition.supplierName ?? '—'}
-                    </div>
+                    </button>
                     {sv.requisition.supplierFantasia && (
                       <div className="text-xs text-muted-foreground">
                         {sv.requisition.supplierFantasia}
@@ -243,6 +267,14 @@ export function SupplierValidationQueuePage() {
           )}
         </CardContent>
       </Card>
+
+      <SupplierDetailDialog
+        open={!!detail}
+        onOpenChange={(o) => !o && setDetail(null)}
+        companyCode={supplierLookupCode}
+        cnpj={detail?.cnpj}
+        fallbackName={detail?.name}
+      />
 
       <ConfirmDialog
         open={!!approveTarget}

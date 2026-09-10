@@ -43,6 +43,13 @@ export class UpdateRequisitionDto {
   @IsString()
   supplierNameOverride?: string;
 
+  @ApiPropertyOptional({
+    description: 'Nome conhecido/apelido do fornecedor (guardado em fantasia).',
+  })
+  @IsOptional()
+  @IsString()
+  supplierKnownName?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

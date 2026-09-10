@@ -395,38 +395,62 @@ export class DashboardService {
       companyId: { in: companyIds },
       ...(team?.isFiscal ? {} : { requestedById: user.id }),
     };
-    const fiscalPending = await this.prisma.fiscalItemRequest.count({
+    const fiscalLinkPending = await this.prisma.fiscalItemRequest.count({
       where: fiscalWhere,
     });
+    // Itens LIVRES a classificar (descrição solta, sem código no ERP) — a
+    // outra metade da aba Itens. Fiscal vê os da empresa; os demais só os das
+    // próprias requisições. Somados ao "a vincular" pra o badge bater com a aba.
+    const freeTextPending = await this.prisma.requisitionItem.count({
+      where: {
+        itemErpCode: null,
+        requisition: {
+          companyId: { in: companyIds },
+          deletedAt: null,
+          status: { in: ['SUBMITTED', 'APPROVED'] },
+          ...(team?.isFiscal ? {} : { requesterId: user.id }),
+        },
+      },
+    });
+    const fiscalPending = fiscalLinkPending + freeTextPending;
 
     // 4) Requisições do próprio usuário ainda em rascunho/rejeitadas
     //    (sinaliza "você tem coisa pra retomar").
+    // "Rascunho/devolvidas — para retomar e enviar": as que o solicitante
+    // pode retomar. DEVOLVIDA = REVISION (aprovador mandou de volta). REJECTED
+    // (reprovada) é terminal, não entra aqui — antes estava REJECTED (bug).
     const myDraftRequisitions = await this.prisma.requisition.count({
       where: {
         companyId: { in: companyIds },
         requesterId: user.id,
-        status: { in: ['DRAFT', 'REJECTED'] },
+        status: { in: ['DRAFT', 'REVISION'] },
         deletedAt: null,
       },
     });
 
     // 5) Requisições do próprio usuário em aprovação (solicitante quer
     //    saber por onde anda a fila).
+    // "Em aprovação — aguardando o gestor": SÓ o que está de fato na mão do
+    // aprovador. REVISION saiu daqui (voltou pro solicitante → conta em
+    // "rascunho/devolvidas").
     const myInApproval = await this.prisma.requisition.count({
       where: {
         companyId: { in: companyIds },
         requesterId: user.id,
-        status: { in: ['SUBMITTED', 'IN_APPROVAL', 'REVISION'] },
+        status: { in: ['SUBMITTED', 'IN_APPROVAL'] },
         deletedAt: null,
       },
     });
 
-    // 6) Requisições aprovadas aguardando conversão em pedido de compra
-    //    (ação do comprador). Escopo por empresa — quem converte atua
-    //    sobre requisições aprovadas da empresa, não só as próprias.
+    // 6) Requisições aprovadas aguardando conversão em pedido. Converter é
+    //    ação do DONO (ou aprovador da cadeia) — own-only, igual à lista
+    //    /requisicoes. Antes contava a empresa toda, então o admin via "2"
+    //    mas a lista (own-only) abria vazia. Agora conta as APROVADAS do
+    //    próprio usuário, batendo com o destino.
     const toConvert = await this.prisma.requisition.count({
       where: {
         companyId: { in: companyIds },
+        requesterId: user.id,
         status: 'APPROVED',
         deletedAt: null,
       },

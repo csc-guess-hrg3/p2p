@@ -9,9 +9,14 @@ export class QueryRequisitionsDto {
   @IsString()
   companyId?: string;
 
-  @ApiPropertyOptional({ enum: Object.values(RequisitionStatus) })
+  @ApiPropertyOptional({
+    enum: Object.values(RequisitionStatus),
+    description:
+      'Status; aceita 1 valor ou vários separados por vírgula (ex.: ' +
+      '"DRAFT,REVISION"). Valores desconhecidos simplesmente não casam.',
+  })
   @IsOptional()
-  @IsIn(Object.values(RequisitionStatus))
+  @IsString()
   status?: string;
 
   @ApiPropertyOptional({ description: 'Busca por número ou título' })

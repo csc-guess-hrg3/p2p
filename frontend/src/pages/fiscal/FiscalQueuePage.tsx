@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { extractApiMessage } from '@/lib/api-errors';
 import { useToast } from '@/components/ui/use-toast';
 import {
@@ -7,6 +7,8 @@ import {
   Download,
   FileText,
   Package,
+  Receipt,
+  Truck,
 } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { useItems } from '@/lib/integration';
@@ -15,21 +17,20 @@ import {
   useFiscalItemRequest,
   useApproveFiscalItemRequest,
   useRejectFiscalItemRequest,
+  useItemClassificationQueue,
   type FiscalItemRequest,
+  type ClassificationItem,
 } from '@/lib/fiscal';
-import { useRequisitions } from '@/lib/requisitions';
-import { formatCurrency, formatDate } from '@/lib/format';
+import { useFiscalQueue } from '@/lib/requisitions';
+import { formatCurrency, formatDate, formatNumber } from '@/lib/format';
+import { ClassifyItemDialog } from './ClassifyItemDialog';
+import { SupplierValidationQueuePage } from '@/pages/suppliers/SupplierValidationQueuePage';
+import { FiscalDocumentsListPage } from '@/pages/fiscal-documents/FiscalDocumentsListPage';
+import { useSupplierValidations } from '@/lib/supplier-validation';
 import { StatusBadge } from '@/components/StatusBadge';
 import { ItemCombobox } from '@/pages/requisitions/ItemCombobox';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -56,10 +57,6 @@ import { Pagination } from '@/components/ui/pagination';
 import { usePagination } from '@/lib/use-pagination';
 import { exportToCsv } from '@/lib/csv';
 
-const STATUS_OPTIONS = [
-  { value: 'PENDING', label: 'Pendentes' },
-  { value: 'APPROVED', label: 'Resolvidas' },
-];
 
 /** Diálogo de aprovação — permite vincular um item diferente do solicitado. */
 function ApproveDialog({
@@ -231,9 +228,11 @@ function ItensTab({
   companyCode?: string;
   companyId?: string;
 }) {
-  const [status, setStatus] = useState('PENDING');
   const [approving, setApproving] = useState<FiscalItemRequest | null>(null);
-  const { data, isLoading } = useFiscalItemRequests({ status, companyId });
+  const { data, isLoading } = useFiscalItemRequests({
+    status: 'PENDING',
+    companyId,
+  });
   const rows = data?.data ?? [];
   const isFiscal = data?.isFiscalUser ?? false;
   const pag = usePagination(rows);
@@ -272,18 +271,6 @@ function ItensTab({
             <Download className="size-4" />
             Exportar
           </Button>
-          <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger className="w-44">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {STATUS_OPTIONS.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
       </div>
 
@@ -376,21 +363,11 @@ function ItensTab({
 function RequisicoesTab() {
   const { activeCompany } = useCompany();
   const navigate = useNavigate();
-  const { data, isLoading } = useRequisitions({
-    companyId: activeCompany?.id,
-    status: 'APPROVED',
-  });
-  // Aqui SÓ entram requisições APROVADAS e ainda não classificadas. Por
-  // segurança filtramos status no cliente também — qualquer requisição
-  // rejeitada/cancelada/em rascunho/convertida sai fora explicitamente.
-  const pending = useMemo(() => {
-    return (data?.data ?? []).filter(
-      (r) =>
-        r.status === 'APPROVED' &&
-        r.tipoNotaFiscal !== 'SEM_NF' &&
-        (r.ctbTipoOperacao == null || !r.naturezaEntrada),
-    );
-  }, [data?.data]);
+  // Fila fiscal de TODA a empresa (NÃO own-only): o revisor precisa ver as
+  // requisições dos OUTROS pra classificar. Já vem filtrada pelo backend
+  // (aprovada + com NF + ctb/natureza ainda pendente).
+  const { data, isLoading } = useFiscalQueue({ companyId: activeCompany?.id });
+  const pending = data?.data ?? [];
   const pag = usePagination(pending);
 
   return (
@@ -477,59 +454,333 @@ function RequisicoesTab() {
   );
 }
 
+/**
+ * Aba "Itens a classificar" — itens LIVRES (descrição solta que o solicitante
+ * escreveu, sem código no ERP). A equipe fiscal vincula um item existente ou
+ * cadastra um novo no Linx. Trava a virada em pedido até classificar.
+ */
+function ItensLivresTab({
+  companyCode,
+  companyId,
+}: {
+  companyCode?: string;
+  companyId?: string;
+}) {
+  const { data, isLoading } = useItemClassificationQueue({ companyId });
+  const [classifying, setClassifying] = useState<ClassificationItem | null>(
+    null,
+  );
+  const rows = data?.data ?? [];
+  const pag = usePagination(rows);
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Itens descritos à mão pelo solicitante (não estão no catálogo). Vincule
+        a um item que já existe ou cadastre um novo — a conta contábil é
+        definida aqui.
+      </p>
+
+      <div className="rounded-lg border bg-card">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Descrição</TableHead>
+                <TableHead>Fornecedor</TableHead>
+                <TableHead>Requisição</TableHead>
+                <TableHead>Solicitante</TableHead>
+                <TableHead className="text-right">Qtde</TableHead>
+                <TableHead className="w-32" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading && (
+                <TableRow>
+                  <TableCell
+                    colSpan={6}
+                    className="py-8 text-center text-muted-foreground"
+                  >
+                    Carregando…
+                  </TableCell>
+                </TableRow>
+              )}
+              {!isLoading && rows.length === 0 && (
+                <TableRow>
+                  <TableCell
+                    colSpan={6}
+                    className="py-8 text-center text-muted-foreground"
+                  >
+                    Nenhum item aguardando classificação.
+                  </TableCell>
+                </TableRow>
+              )}
+              {pag.pageRows.map((r) => (
+                <TableRow key={r.id}>
+                  <TableCell className="font-medium">
+                    {r.itemDescription}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {r.requisition.supplierName}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {r.requisition.number}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {r.requisition.requester?.name ?? '—'}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {formatNumber(r.quantity)} {r.unit}
+                  </TableCell>
+                  <TableCell>
+                    <Button size="sm" onClick={() => setClassifying(r)}>
+                      Classificar
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+        <Pagination
+          page={pag.page}
+          pageSize={pag.pageSize}
+          total={pag.total}
+          totalPages={pag.totalPages}
+          onPageChange={pag.setPage}
+          onPageSizeChange={pag.setPageSize}
+        />
+      </div>
+
+      {classifying && (
+        <ClassifyItemDialog
+          item={classifying}
+          companyCode={companyCode}
+          onClose={() => setClassifying(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Histórico de itens já resolvidos pela equipe fiscal — vinculados a um item
+ * existente (LINK) ou cadastrados novos no Linx (NEW). Fonte: FiscalItemRequest
+ * APROVADO (o "a vincular" resolvido e a classificação de item livre caem aqui).
+ */
+function ItensHistorico({ companyId }: { companyId?: string }) {
+  const { data, isLoading } = useFiscalItemRequests({
+    status: 'APPROVED',
+    companyId,
+  });
+  const rows = data?.data ?? [];
+  const pag = usePagination(rows);
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Itens já resolvidos pela equipe fiscal — vinculados a um item existente
+        ou cadastrados novos no Linx.
+      </p>
+      <div className="rounded-lg border bg-card">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Ação</TableHead>
+                <TableHead>Item</TableHead>
+                <TableHead>Fornecedor</TableHead>
+                <TableHead>Por</TableHead>
+                <TableHead>Quando</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading && (
+                <TableRow>
+                  <TableCell
+                    colSpan={5}
+                    className="py-8 text-center text-muted-foreground"
+                  >
+                    Carregando…
+                  </TableCell>
+                </TableRow>
+              )}
+              {!isLoading && rows.length === 0 && (
+                <TableRow>
+                  <TableCell
+                    colSpan={5}
+                    className="py-8 text-center text-muted-foreground"
+                  >
+                    Nenhuma ação registrada ainda.
+                  </TableCell>
+                </TableRow>
+              )}
+              {pag.pageRows.map((r) => (
+                <TableRow key={r.id}>
+                  <TableCell>
+                    <span
+                      className={
+                        r.type === 'NEW'
+                          ? 'inline-block rounded-full bg-info/15 px-2 py-0.5 text-xs font-medium text-info'
+                          : 'inline-block rounded-full bg-success/15 px-2 py-0.5 text-xs font-medium text-success'
+                      }
+                    >
+                      {r.type === 'NEW' ? 'Cadastrado' : 'Vinculado'}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <div className="font-medium">{r.itemDescription}</div>
+                    <span className="text-xs text-muted-foreground">
+                      {r.itemErpCode ?? '—'}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {r.supplierName}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {r.resolvedBy?.name ?? '—'}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {formatDate(r.resolvedAt)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+        <Pagination
+          page={pag.page}
+          pageSize={pag.pageSize}
+          total={pag.total}
+          totalPages={pag.totalPages}
+          onPageChange={pag.setPage}
+          onPageSizeChange={pag.setPageSize}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** Badge de contagem numa aba do hub. */
+function TabCount({ n }: { n: number }) {
+  return (
+    <span className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-warning/20 px-1.5 text-xs font-semibold text-warning">
+      {n}
+    </span>
+  );
+}
+
+/**
+ * Hub Fiscal — um só lugar para tudo do fiscal, em abas:
+ *  Requisições (classificar ctb+natureza) · Itens (classificar livres +
+ *  vincular ao fornecedor) · Fornecedores (validar novos) · Notas Fiscais.
+ */
 export function FiscalQueuePage() {
   const { activeCompany } = useCompany();
-  const [tab, setTab] = useState<'itens' | 'requisicoes'>('requisicoes');
+  // Aba na URL (?tab=…) — deep-link, back do detalhe e redirects das URLs
+  // antigas caem na aba certa.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawTab = searchParams.get('tab') ?? '';
+  const tab = ['itens', 'fornecedores', 'notas'].includes(rawTab)
+    ? rawTab
+    : 'requisicoes';
+  const setTab = (v: string) =>
+    setSearchParams(
+      (p) => {
+        p.set('tab', v);
+        return p;
+      },
+      { replace: true },
+    );
 
-  // Carrega prévia das requisições para mostrar contagem nas tabs (mesma query
-  // que a RequisicoesTab vai usar — React Query reaproveita a cache).
-  const reqsQ = useRequisitions({
-    companyId: activeCompany?.id,
-    status: 'APPROVED',
-  });
-  const pendingReqsCount = (reqsQ.data?.data ?? []).filter(
-    (r) =>
-      r.status === 'APPROVED' &&
-      r.tipoNotaFiscal !== 'SEM_NF' &&
-      (r.ctbTipoOperacao == null || !r.naturezaEntrada),
-  ).length;
+  // Contagens das abas (React Query reaproveita a cache das próprias telas).
+  const reqsQ = useFiscalQueue({ companyId: activeCompany?.id });
+  const pendingReqsCount = reqsQ.data?.total ?? 0;
 
   const itemsQ = useFiscalItemRequests({
     status: 'PENDING',
     companyId: activeCompany?.id,
   });
-  const pendingItemsCount = itemsQ.data?.data?.length ?? 0;
+  const livresQ = useItemClassificationQueue({ companyId: activeCompany?.id });
+  const itensCount = (itemsQ.data?.data?.length ?? 0) + (livresQ.data?.total ?? 0);
+
+  const validQ = useSupplierValidations({
+    status: 'PENDING',
+    companyId: activeCompany?.id,
+  });
+  const validCount = validQ.data?.data?.length ?? 0;
 
   return (
-    <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
+    <Tabs value={tab} onValueChange={setTab}>
       <TabsList>
         <TabsTrigger value="requisicoes" className="gap-2">
           <FileText className="size-4" />
-          Requisições a classificar
-          {pendingReqsCount > 0 && (
-            <span className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-warning/20 px-1.5 text-xs font-semibold text-warning">
-              {pendingReqsCount}
-            </span>
-          )}
+          Requisições
+          {pendingReqsCount > 0 && <TabCount n={pendingReqsCount} />}
         </TabsTrigger>
         <TabsTrigger value="itens" className="gap-2">
           <Package className="size-4" />
-          Itens a vincular
-          {pendingItemsCount > 0 && (
-            <span className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-warning/20 px-1.5 text-xs font-semibold text-warning">
-              {pendingItemsCount}
-            </span>
-          )}
+          Itens
+          {itensCount > 0 && <TabCount n={itensCount} />}
+        </TabsTrigger>
+        <TabsTrigger value="fornecedores" className="gap-2">
+          <Truck className="size-4" />
+          Fornecedores
+          {validCount > 0 && <TabCount n={validCount} />}
+        </TabsTrigger>
+        <TabsTrigger value="notas" className="gap-2">
+          <Receipt className="size-4" />
+          Notas Fiscais
         </TabsTrigger>
       </TabsList>
+
       <TabsContent value="requisicoes">
         <RequisicoesTab />
       </TabsContent>
+
       <TabsContent value="itens">
-        <ItensTab
-          companyCode={activeCompany?.code}
-          companyId={activeCompany?.id}
-        />
+        <Tabs defaultValue="pendentes">
+          <TabsList>
+            <TabsTrigger value="pendentes" className="gap-2">
+              Pendentes
+              {itensCount > 0 && <TabCount n={itensCount} />}
+            </TabsTrigger>
+            <TabsTrigger value="historico">Histórico</TabsTrigger>
+          </TabsList>
+          <TabsContent value="pendentes">
+            <div className="space-y-8">
+              <section className="space-y-3">
+                <h3 className="text-sm font-semibold text-foreground">
+                  A classificar — descrição livre
+                </h3>
+                <ItensLivresTab
+                  companyCode={activeCompany?.code}
+                  companyId={activeCompany?.id}
+                />
+              </section>
+              <section className="space-y-3">
+                <h3 className="text-sm font-semibold text-foreground">
+                  A vincular ao fornecedor
+                </h3>
+                <ItensTab
+                  companyCode={activeCompany?.code}
+                  companyId={activeCompany?.id}
+                />
+              </section>
+            </div>
+          </TabsContent>
+          <TabsContent value="historico">
+            <ItensHistorico companyId={activeCompany?.id} />
+          </TabsContent>
+        </Tabs>
+      </TabsContent>
+
+      <TabsContent value="fornecedores">
+        <SupplierValidationQueuePage embedded />
+      </TabsContent>
+
+      <TabsContent value="notas">
+        <FiscalDocumentsListPage />
       </TabsContent>
     </Tabs>
   );

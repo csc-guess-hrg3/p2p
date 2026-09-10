@@ -1,14 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { PencilLine, Sparkles } from 'lucide-react';
 import {
   useSupplierItems,
   useItems,
-  useAccounts,
   useBranchRateios,
   useCcRateios,
   type ErpItem,
 } from '@/lib/integration';
 import type { RequisitionItemForm } from '@/lib/requisitions';
-import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CurrencyInput } from '@/components/ui/currency-input';
@@ -30,8 +29,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
-type ItemMode = 'SUPPLIER' | 'CATALOG';
-
 interface ItemDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -40,11 +37,6 @@ interface ItemDialogProps {
   initial?: RequisitionItemForm | null;
   onConfirm: (item: RequisitionItemForm) => void;
 }
-
-const MODES: { value: ItemMode; label: string }[] = [
-  { value: 'SUPPLIER', label: 'Item do fornecedor' },
-  { value: 'CATALOG', label: 'Itens não vinculados ao fornecedor' },
-];
 
 export function ItemDialog({
   open,
@@ -56,16 +48,19 @@ export function ItemDialog({
 }: ItemDialogProps) {
   const supplierItems = useSupplierItems(company, supplierCode);
   const catalog = useItems(company);
-  const accounts = useAccounts(company);
   const branchRateios = useBranchRateios(company);
   const ccRateios = useCcRateios(company);
 
-  const [mode, setMode] = useState<ItemMode>('SUPPLIER');
+  // Descrição livre: o item não está no catálogo. Sai sem código e sem
+  // conta — a equipe fiscal cadastra/classifica depois.
+  const [describe, setDescribe] = useState(false);
   const [itemErpCode, setItemErpCode] = useState('');
   const [itemDescription, setItemDescription] = useState('');
   const [unit, setUnit] = useState('');
   const [quantity, setQuantity] = useState('');
   const [estimatedPrice, setEstimatedPrice] = useState(0);
+  // Conta contábil não é campo do solicitante: herda do item (catálogo) ou
+  // fica vazia (fiscal define). Mantida em estado só para trafegar no payload.
   const [accountingAccount, setAccountingAccount] = useState('');
   const [branchRateioCode, setBranchRateioCode] = useState('');
   const [costCenterRateioCode, setCostCenterRateioCode] = useState('');
@@ -76,7 +71,7 @@ export function ItemDialog({
     if (!open) return;
     setError(null);
     if (initial) {
-      setMode(initial.fiscalMode === 'LINK' ? 'CATALOG' : 'SUPPLIER');
+      setDescribe(initial.fiscalMode === 'NEW' || !initial.itemErpCode);
       setItemErpCode(initial.itemErpCode ?? '');
       setItemDescription(initial.itemDescription);
       setUnit(initial.unit);
@@ -86,7 +81,7 @@ export function ItemDialog({
       setBranchRateioCode(initial.branchRateioCode);
       setCostCenterRateioCode(initial.costCenterRateioCode);
     } else {
-      setMode('SUPPLIER');
+      setDescribe(false);
       setItemErpCode('');
       setItemDescription('');
       setUnit('');
@@ -107,63 +102,71 @@ export function ItemDialog({
     if (primary) setCostCenterRateioCode(primary.codigo);
   }, [open, costCenterRateioCode, ccRateios.data]);
 
-  // Fornecedor sem itens vinculados.
-  const noSupplierItems =
-    !supplierItems.isLoading && (supplierItems.data ?? []).length === 0;
+  // Itens vinculados ao fornecedor (não geram pendência de vínculo).
+  const linkedCodes = useMemo(
+    () => new Set((supplierItems.data ?? []).map((i) => i.codigo)),
+    [supplierItems.data],
+  );
 
-  // Sem itens vinculados: direciona o usuário ao catálogo.
-  useEffect(() => {
-    if (open && noSupplierItems && mode === 'SUPPLIER') {
-      setMode('CATALOG');
-    }
-  }, [open, noSupplierItems, mode]);
-
-  /** Ao escolher um item do ERP, preenche descrição, unidade e padrões. */
+  /** Ao escolher um item do catálogo, preenche descrição, unidade e padrões. */
   function applyItem(it: ErpItem | undefined) {
     if (!it) return;
     setItemErpCode(it.codigo);
     setItemDescription(it.descricao);
     setUnit(it.unidade ?? '');
     setAccountingAccount(it.contaContabilPadrao ?? '');
-    setBranchRateioCode(it.rateioFilialPadrao ?? '');
-    setCostCenterRateioCode(it.rateioCcPadrao ?? '');
+    if (it.rateioFilialPadrao) setBranchRateioCode(it.rateioFilialPadrao);
+    if (it.rateioCcPadrao) setCostCenterRateioCode(it.rateioCcPadrao);
   }
 
-  function changeMode(m: ItemMode) {
-    setMode(m);
+  /** Alterna entre escolher do catálogo e descrever manualmente. */
+  function toggleDescribe(next: boolean) {
+    setDescribe(next);
     setItemErpCode('');
+    setAccountingAccount('');
+    if (next) {
+      // Vindo do catálogo, limpa a descrição herdada pra a pessoa escrever.
+      setItemDescription('');
+      setUnit('');
+    }
   }
 
   function handleConfirm() {
     const qty = Number(quantity);
     const price = estimatedPrice;
-    if (!itemErpCode) {
-      return setError('Selecione o item.');
+    if (!describe && !itemErpCode) {
+      return setError('Selecione o item ou marque "descrever manualmente".');
     }
     if (!itemDescription.trim()) return setError('Informe a descrição.');
     if (!unit.trim()) return setError('Informe a unidade.');
     if (!(qty > 0)) return setError('Quantidade inválida.');
     if (!(price >= 0)) return setError('Preço inválido.');
-    if (!accountingAccount) return setError('Selecione a conta contábil.');
     if (!branchRateioCode) return setError('Selecione o rateio de filial.');
     if (!costCenterRateioCode) {
       return setError('Selecione o rateio de centro de custo.');
     }
+    // Conta contábil não é exigida do solicitante: item do catálogo herda a
+    // dele; item livre vai sem conta e a equipe fiscal classifica.
+    const fiscalMode = describe
+      ? 'NEW'
+      : linkedCodes.has(itemErpCode)
+        ? 'NONE'
+        : 'LINK';
     onConfirm({
-      fiscalMode: mode === 'CATALOG' ? 'LINK' : 'NONE',
-      itemErpCode,
+      fiscalMode,
+      itemErpCode: describe ? null : itemErpCode,
       itemDescription: itemDescription.trim(),
       unit: unit.trim(),
       quantity: qty,
       estimatedPrice: price,
-      accountingAccount,
+      accountingAccount: describe ? '' : accountingAccount,
       branchRateioCode,
       costCenterRateioCode,
     });
     onOpenChange(false);
   }
 
-  const supplierList = supplierItems.data ?? [];
+  const linkPending = !describe && !!itemErpCode && !linkedCodes.has(itemErpCode);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -171,75 +174,64 @@ export function ItemDialog({
         <DialogHeader>
           <DialogTitle>{initial ? 'Editar item' : 'Adicionar item'}</DialogTitle>
           <DialogDescription>
-            Itens vêm do catálogo do Linx. Sem vínculo com o fornecedor, abre-se
-            uma pendência para a equipe Fiscal.
+            Escolha o item no catálogo do Linx. Não encontrou? Descreva à mão —
+            a equipe fiscal cuida do cadastro e da classificação contábil.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Modo de escolha do item */}
-          <div className="flex gap-1 rounded-md bg-muted p-1">
-            {MODES.map((m) => {
-              const disabled = m.value === 'SUPPLIER' && noSupplierItems;
-              return (
-                <button
-                  key={m.value}
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => changeMode(m.value)}
-                  className={cn(
-                    'flex-1 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors',
-                    mode === m.value
-                      ? 'bg-background shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground',
-                    disabled && 'cursor-not-allowed opacity-40',
-                  )}
-                >
-                  {m.label}
-                </button>
-              );
-            })}
-          </div>
-
-          {noSupplierItems && (
-            <p className="rounded-md bg-warning/10 px-3 py-2 text-sm text-warning">
-              Nenhum item vinculado ao fornecedor — selecione um item do
-              catálogo abaixo.
-            </p>
-          )}
-
-          {mode === 'SUPPLIER' && (
-            <div className="space-y-1.5">
-              <Label>Item vinculado ao fornecedor</Label>
-              <ItemCombobox
-                items={supplierList}
-                value={itemErpCode}
-                loading={supplierItems.isLoading}
-                placeholder="Selecione o item"
-                emptyText="Nenhum item vinculado a este fornecedor"
-                onSelect={applyItem}
-              />
+          {/* Item — catálogo ou descrição livre */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label>{describe ? 'Descrição do item' : 'Item'}</Label>
+              <button
+                type="button"
+                onClick={() => toggleDescribe(!describe)}
+                className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+              >
+                {describe ? (
+                  <>
+                    <Sparkles className="size-3.5" /> Buscar no catálogo
+                  </>
+                ) : (
+                  <>
+                    <PencilLine className="size-3.5" /> Não encontrei — descrever
+                    manualmente
+                  </>
+                )}
+              </button>
             </div>
-          )}
 
-          {mode === 'CATALOG' && (
-            <div className="space-y-1.5">
-              <Label>Item do catálogo (será vinculado ao fornecedor)</Label>
+            {describe ? (
+              <Input
+                placeholder="Ex.: Manutenção do ar-condicionado da sala 3"
+                value={itemDescription}
+                onChange={(e) => setItemDescription(e.target.value)}
+              />
+            ) : (
               <ItemCombobox
                 items={catalog.data ?? []}
                 value={itemErpCode}
-                loading={catalog.isLoading}
-                placeholder="Selecione o item do catálogo"
+                loading={catalog.isLoading || supplierItems.isLoading}
+                linkedCodes={linkedCodes}
+                placeholder={
+                  linkedCodes.size > 0
+                    ? 'Itens do fornecedor (ou busque no catálogo)'
+                    : 'Buscar item no catálogo'
+                }
                 onSelect={applyItem}
               />
-              <p className="text-xs text-warning">
-                Abrirá uma pendência fiscal para vincular este item ao
-                fornecedor.
-              </p>
-            </div>
-          )}
+            )}
 
-          {/* Quantidade / preço */}
+            {linkPending && (
+              <p className="text-xs text-muted-foreground">
+                Item ainda não vinculado a este fornecedor — a equipe fiscal fará
+                o vínculo automaticamente.
+              </p>
+            )}
+          </div>
+
+          {/* Quantidade / unidade / preço */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div className="space-y-1.5">
               <Label>Quantidade</Label>
@@ -249,45 +241,26 @@ export function ItemDialog({
                 min={1}
                 inputMode="numeric"
                 value={quantity}
-                onChange={(e) =>
-                  // só aceita inteiro: descarta tudo que não for dígito.
-                  setQuantity(e.target.value.replace(/\D/g, ''))
-                }
+                onChange={(e) => setQuantity(e.target.value.replace(/\D/g, ''))}
               />
             </div>
             <div className="space-y-1.5">
               <Label>Unidade</Label>
-              <Input value={unit} placeholder="UN" disabled />
+              <Input
+                value={unit}
+                placeholder="UN"
+                disabled={!describe}
+                onChange={(e) => setUnit(e.target.value.toUpperCase())}
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Preço estimado</Label>
-              <CurrencyInput
-                value={estimatedPrice}
-                onChange={setEstimatedPrice}
-              />
+              <CurrencyInput value={estimatedPrice} onChange={setEstimatedPrice} />
             </div>
           </div>
 
-          {/* Conta e rateios — preenchidos com o padrão do item, editáveis */}
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label>Conta contábil</Label>
-              <Select
-                value={accountingAccount}
-                onValueChange={setAccountingAccount}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione a conta" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(accounts.data ?? []).map((a) => (
-                    <SelectItem key={a.codigo} value={a.codigo}>
-                      {a.codigo} — {a.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+          {/* Rateio — decisão do solicitante (pra quais filiais / CC vai) */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Rateio de filial</Label>
               <Select

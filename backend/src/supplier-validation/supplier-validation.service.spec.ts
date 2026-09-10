@@ -33,12 +33,14 @@ describe('SupplierValidationService — gate de fornecedor novo', () => {
   let service: SupplierValidationService;
   let ensureSupplier: jest.Mock;
   let startChain: jest.Mock;
+  let resetChain: jest.Mock;
   let notify: jest.Mock;
 
   beforeEach(() => {
     prisma = createPrismaMock();
     ensureSupplier = jest.fn().mockResolvedValue('006123');
     startChain = jest.fn().mockResolvedValue(undefined);
+    resetChain = jest.fn().mockResolvedValue(undefined);
     notify = jest.fn().mockResolvedValue(undefined);
     const linx = {
       ensureSupplierForRequisition: ensureSupplier,
@@ -46,7 +48,7 @@ describe('SupplierValidationService — gate de fornecedor novo', () => {
     const notifications = { create: notify } as unknown as NotificationsService;
     const approvals = {
       startRequisitionApprovalChain: startChain,
-      resetForRequisition: jest.fn().mockResolvedValue(undefined),
+      resetForRequisition: resetChain,
     } as unknown as ApprovalsService;
     service = new SupplierValidationService(
       prisma as unknown as PrismaService,
@@ -77,7 +79,7 @@ describe('SupplierValidationService — gate de fornecedor novo', () => {
     expect(notify).toHaveBeenCalledTimes(2);
   });
 
-  it('approve: cadastra o fornecedor no Linx, marca APPROVED e retoma a cadeia', async () => {
+  it('approve: cadastra o fornecedor no Linx e marca APPROVED — SEM reiniciar a aprovação (validação é pós-aprovação)', async () => {
     prisma.supplierValidation.findUnique
       .mockResolvedValueOnce(sv()) // findOne
       .mockResolvedValueOnce(sv({ status: 'APPROVED', supplierErpCode: '006123' })); // retorno final
@@ -89,7 +91,8 @@ describe('SupplierValidationService — gate de fornecedor novo', () => {
     const updArg = prisma.supplierValidation.update.mock.calls[0][0];
     expect(updArg.data.status).toBe('APPROVED');
     expect(updArg.data.supplierErpCode).toBe('006123');
-    expect(startChain).toHaveBeenCalledWith('req-1');
+    // A requisição já está aprovada; não reinicia a cadeia.
+    expect(startChain).not.toHaveBeenCalled();
     expect(notify).toHaveBeenCalledTimes(1); // avisa o solicitante
   });
 
@@ -112,7 +115,7 @@ describe('SupplierValidationService — gate de fornecedor novo', () => {
     expect(startChain).not.toHaveBeenCalled();
   });
 
-  it('returnToRequester: marca RETURNED, manda a requisição pra DRAFT e avisa o solicitante', async () => {
+  it('returnToRequester: marca RETURNED, devolve a requisição (REVISION), descarta a cadeia e avisa o solicitante', async () => {
     prisma.supplierValidation.findUnique
       .mockResolvedValueOnce(sv())
       .mockResolvedValueOnce(sv({ status: 'RETURNED' }));
@@ -125,8 +128,28 @@ describe('SupplierValidationService — gate de fornecedor novo', () => {
     const updArg = prisma.supplierValidation.update.mock.calls[0][0];
     expect(updArg.data.status).toBe('RETURNED');
     const reqUpd = prisma.requisition.update.mock.calls[0][0];
-    expect(reqUpd.data.status).toBe('DRAFT');
+    expect(reqUpd.data.status).toBe('REVISION');
+    // Descarta a cadeia de aprovação (ao reenviar, recomeça do zero).
+    expect(resetChain).toHaveBeenCalledWith('req-1');
     expect(startChain).not.toHaveBeenCalled();
     expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  it('ensureGate: cria a validação PENDING sem travar a cadeia nem mudar o status da requisição', async () => {
+    await service.ensureGate({
+      id: 'req-1',
+      companyId: 'company-test',
+      number: 'REQ-2026-000001',
+      supplierCnpj: '12.345.678/0001-99',
+    });
+    const upsertArg = prisma.supplierValidation.upsert.mock.calls[0][0];
+    expect(upsertArg.create.status).toBe('PENDING');
+    expect(upsertArg.create.supplierCnpj).toBe('12345678000199');
+    // NÃO mexe no status da requisição (a aprovação corre normal)…
+    expect(prisma.requisition.update).not.toHaveBeenCalled();
+    // …e NÃO notifica no submit (a validação é pós-aprovação).
+    expect(notify).not.toHaveBeenCalled();
+    expect(startChain).not.toHaveBeenCalled();
+    expect(resetChain).not.toHaveBeenCalled();
   });
 });

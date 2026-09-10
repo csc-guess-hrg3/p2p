@@ -79,7 +79,7 @@ export function PendingTasksPanel({ companyId }: { companyId?: string }) {
         hint: 'Itens sem vínculo fiscal no ERP.',
         count: data?.fiscalPending ?? 0,
         icon: ClipboardCheck,
-        to: '/fiscal/pendencias-fiscais',
+        to: '/fiscal?tab=itens',
         kind: 'act' as const,
       },
       {
@@ -87,7 +87,7 @@ export function PendingTasksPanel({ companyId }: { companyId?: string }) {
         hint: 'Suas requisições para retomar e enviar.',
         count: data?.myDraftRequisitions ?? 0,
         icon: FileText,
-        to: '/requisicoes?status=DRAFT',
+        to: '/requisicoes?status=DRAFT,REVISION',
         kind: 'act' as const,
       },
       {
@@ -95,7 +95,7 @@ export function PendingTasksPanel({ companyId }: { companyId?: string }) {
         hint: 'Aguardando a decisão do gestor.',
         count: data?.myInApproval ?? 0,
         icon: PackageCheck,
-        to: '/requisicoes',
+        to: '/requisicoes?status=SUBMITTED,IN_APPROVAL',
         kind: 'track' as const,
       },
     ].filter(Boolean) as TaskItem[]

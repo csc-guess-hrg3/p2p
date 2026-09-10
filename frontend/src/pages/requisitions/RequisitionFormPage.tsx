@@ -145,6 +145,8 @@ export function RequisitionFormPage() {
     isExternal: false,
     suggestedPaymentCondition: null,
   });
+  // Apelido/nome conhecido do fornecedor (ex.: "Stanley") — opcional.
+  const [supplierKnownName, setSupplierKnownName] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [dialogInitial, setDialogInitial] =
@@ -265,6 +267,9 @@ export function RequisitionFormPage() {
       isExternal: !r.supplierErpCode,
       suggestedPaymentCondition: r.paymentConditionCode ?? null,
     });
+    // Apelido só faz sentido pra fornecedor novo (sem erpCode); pra
+    // cadastrado, o campo nem aparece — então não hidrata estado morto.
+    setSupplierKnownName(!r.supplierErpCode ? r.supplierFantasia ?? '' : '');
     setItems(
       (r.items ?? []).map((it) => ({
         fiscalMode: 'NONE' as const,
@@ -404,6 +409,9 @@ export function RequisitionFormPage() {
       supplierNameOverride: supplier.isExternal
         ? supplier.supplierName
         : undefined,
+      supplierKnownName: supplier.isExternal
+        ? supplierKnownName.trim() || undefined
+        : undefined,
       title: values.title,
       justification: values.justification,
       tipoNotaFiscal: values.comAdiantamento ? 'NF_FUTURA' : 'NF_EXISTENTE',
@@ -472,6 +480,9 @@ export function RequisitionFormPage() {
       supplierErpCode: supplier.supplierErpCode || undefined,
       supplierCnpj: supplier.isExternal ? supplier.supplierCnpj : undefined,
       supplierNameOverride: supplier.isExternal ? supplier.supplierName : undefined,
+      supplierKnownName: supplier.isExternal
+        ? supplierKnownName.trim() || undefined
+        : undefined,
       title: values.title,
       justification: values.justification,
       tipoNotaFiscal: values.comAdiantamento ? 'NF_FUTURA' : 'NF_EXISTENTE',
@@ -732,6 +743,10 @@ export function RequisitionFormPage() {
                 setValue('supplierErpCode', next.supplierErpCode, {
                   shouldValidate: true,
                 });
+                // Apelido só vale pra fornecedor novo (externo). Se trocou,
+                // limpou, ou virou um cadastrado no ERP, zera o apelido pra
+                // não vazar pro fornecedor errado.
+                if (cleared || changed) setSupplierKnownName('');
                 if (cleared) {
                   // Limpou o fornecedor → zera tudo que dependia dele:
                   // condição de pagamento sugerida + itens (catálogo do
@@ -755,6 +770,28 @@ export function RequisitionFormPage() {
               }}
             />
           </div>
+
+          {/* Apelido/nome conhecido — SÓ para fornecedor novo (externo), que
+              ainda vai ser cadastrado no Linx pela equipe fiscal. Pra
+              fornecedor já cadastrado, a razão + fantasia já vêm do ERP, então
+              o campo não aparece (era ruído). */}
+          {supplier.isExternal && (
+            <div className="space-y-1.5">
+              <Label htmlFor="knownName">
+                Nome conhecido do fornecedor (opcional)
+              </Label>
+              <Input
+                id="knownName"
+                placeholder='Ex.: "Stanley" para PMI South America…'
+                value={supplierKnownName}
+                onChange={(e) => setSupplierKnownName(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Como este fornecedor será cadastrado, informe o apelido pelo
+                qual você o reconhece — aparece junto da razão social nas telas.
+              </p>
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <Label htmlFor="title">Título</Label>
@@ -953,9 +990,14 @@ export function RequisitionFormPage() {
                         {it.fiscalMode === 'LINK' && (
                           <Badge variant="warning">pendência fiscal</Badge>
                         )}
+                        {it.fiscalMode === 'NEW' && (
+                          <Badge variant="info">classificação fiscal</Badge>
+                        )}
                       </div>
                       <span className="text-xs text-muted-foreground">
-                        Conta {it.accountingAccount}
+                        {it.accountingAccount
+                          ? `Conta ${it.accountingAccount}`
+                          : 'Conta a definir pela equipe fiscal'}
                       </span>
                     </TableCell>
                     <TableCell className="text-right">

@@ -17,6 +17,13 @@ interface ItemComboboxProps {
   emptyText?: string;
   /** Exibe o código junto da descrição (usado pela equipe Fiscal). */
   showCode?: boolean;
+  /**
+   * Códigos vinculados ao fornecedor (SS_ITEM_FISCAL_FORNECEDOR). Quando
+   * fornecido: sem busca, mostra SÓ os vinculados (os ~2 relevantes de 300);
+   * ao buscar, mostra o catálogo todo com os vinculados no topo e os demais
+   * marcados como "não vinculado" (geram pendência de vínculo ao salvar).
+   */
+  linkedCodes?: Set<string>;
   onSelect: (item: ErpItem) => void;
 }
 
@@ -28,6 +35,7 @@ export function ItemCombobox({
   placeholder,
   emptyText,
   showCode,
+  linkedCodes,
   onSelect,
 }: ItemComboboxProps) {
   const [open, setOpen] = useState(false);
@@ -37,15 +45,26 @@ export function ItemCombobox({
     showCode ? `${i.codigo} — ${i.descricao}` : i.descricao;
   const selected = items.find((i) => i.codigo === value);
   const term = search.trim().toLowerCase();
+  const isLinked = (i: ErpItem) => !!linkedCodes && linkedCodes.has(i.codigo);
+  // Sem busca + há vínculo → só os vinculados (a lista curta do fornecedor).
+  // Com busca → catálogo inteiro, vinculados no topo.
+  const base = term
+    ? items.filter(
+        (i) =>
+          i.descricao.toLowerCase().includes(term) ||
+          i.codigo.toLowerCase().includes(term),
+      )
+    : linkedCodes
+      ? items.filter(isLinked)
+      : items;
   const filtered = (
-    term
-      ? items.filter(
-          (i) =>
-            i.descricao.toLowerCase().includes(term) ||
-            i.codigo.toLowerCase().includes(term),
+    linkedCodes
+      ? [...base].sort(
+          (a, b) => (isLinked(b) ? 1 : 0) - (isLinked(a) ? 1 : 0),
         )
-      : items
+      : base
   ).slice(0, 100);
+  const showCatalogHint = !!linkedCodes && !term;
 
   return (
     <Popover
@@ -90,23 +109,38 @@ export function ItemCombobox({
           )}
           {!loading && filtered.length === 0 && (
             <p className="px-2 py-3 text-sm text-muted-foreground">
-              {emptyText ?? 'Nenhum item encontrado.'}
+              {linkedCodes && !term
+                ? 'Nenhum item vinculado a este fornecedor. Digite para buscar no catálogo.'
+                : (emptyText ?? 'Nenhum item encontrado.')}
             </p>
           )}
-          {filtered.map((i) => (
-            <button
-              key={i.codigo}
-              type="button"
-              onClick={() => {
-                onSelect(i);
-                setOpen(false);
-                setSearch('');
-              }}
-              className="w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
-            >
-              {label(i)}
-            </button>
-          ))}
+          {!loading && showCatalogHint && filtered.length > 0 && (
+            <p className="px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Itens deste fornecedor
+            </p>
+          )}
+          {filtered.map((i) => {
+            const catalogOnly = !!linkedCodes && !isLinked(i);
+            return (
+              <button
+                key={i.codigo}
+                type="button"
+                onClick={() => {
+                  onSelect(i);
+                  setOpen(false);
+                  setSearch('');
+                }}
+                className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+              >
+                <span className="truncate">{label(i)}</span>
+                {catalogOnly && (
+                  <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">
+                    catálogo
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </PopoverContent>
     </Popover>

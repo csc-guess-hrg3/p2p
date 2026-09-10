@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, Download, Plus, Search } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { useRequisitions } from '@/lib/requisitions';
@@ -32,6 +32,7 @@ const STATUS_OPTIONS = [
   { value: 'DRAFT', label: 'Rascunho' },
   { value: 'SUBMITTED', label: 'Enviada' },
   { value: 'IN_APPROVAL', label: 'Em aprovação' },
+  { value: 'REVISION', label: 'Devolvida' },
   { value: 'APPROVED', label: 'Aprovada' },
   { value: 'REJECTED', label: 'Rejeitada' },
   { value: 'CONVERTED', label: 'Convertida' },
@@ -41,7 +42,10 @@ const STATUS_OPTIONS = [
 export function RequisitionsListPage() {
   const { activeCompany } = useCompany();
   const navigate = useNavigate();
-  const [status, setStatus] = useState('ALL');
+  // Filtro inicial vem da URL (?status=) — os atalhos de "Minhas pendências"
+  // linkam pra cá já filtrado (ex.: ?status=APPROVED, ?status=DRAFT,REVISION).
+  const [searchParams] = useSearchParams();
+  const [status, setStatus] = useState(searchParams.get('status') ?? 'ALL');
   const [search, setSearch] = useState('');
 
   const { data, isLoading, isError } = useRequisitions({

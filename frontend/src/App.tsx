@@ -108,17 +108,9 @@ const FiscalQueuePage = lazyPage(
   () => import('@/pages/fiscal/FiscalQueuePage'),
   'FiscalQueuePage',
 );
-const FiscalDocumentsListPage = lazyPage(
-  () => import('@/pages/fiscal-documents/FiscalDocumentsListPage'),
-  'FiscalDocumentsListPage',
-);
 const FiscalDocumentDetailPage = lazyPage(
   () => import('@/pages/fiscal-documents/FiscalDocumentDetailPage'),
   'FiscalDocumentDetailPage',
-);
-const FiscalClassificationQueuePage = lazyPage(
-  () => import('@/pages/fiscal/FiscalClassificationQueuePage'),
-  'FiscalClassificationQueuePage',
 );
 const ContasPagarPage = lazyPage(
   () => import('@/pages/financeiro/ContasPagarPage'),
@@ -164,10 +156,6 @@ const BranchesPage = lazyPage(
 const BranchDetailPage = lazyPage(
   () => import('@/pages/admin/BranchDetailPage'),
   'BranchDetailPage',
-);
-const SupplierValidationQueuePage = lazyPage(
-  () => import('@/pages/suppliers/SupplierValidationQueuePage'),
-  'SupplierValidationQueuePage',
 );
 const SuppliersPage = lazyPage(
   () => import('@/pages/suppliers/SuppliersPage'),
@@ -284,22 +272,11 @@ function App() {
                     element={<FundRequestDetailPage />}
                   />
 
-                  {/* Validação de Fornecedor — ADMIN/REVISOR por perfil OU
-                      equipe Fiscal via módulo FISCAL_QUEUE, alinhado ao
-                      backend (isReviewer = ADMIN|isFiscal). */}
+                  {/* Validação de Fornecedor virou aba do hub Fiscal. */}
                   <Route
-                    element={
-                      <RequireProfile
-                        roles={['ADMIN', 'REVIEWER']}
-                        module="FISCAL_QUEUE"
-                      />
-                    }
-                  >
-                    <Route
-                      path="fornecedores/validacoes"
-                      element={<SupplierValidationQueuePage />}
-                    />
-                  </Route>
+                    path="fornecedores/validacoes"
+                    element={<Navigate to="/fiscal?tab=fornecedores" replace />}
+                  />
 
                   {/* Fornecedores (cadastro De-Para Linx) — Admin/Revisor. */}
                   <Route
@@ -331,9 +308,9 @@ function App() {
                     />
                   </Route>
 
-                  {/* Pendências Fiscais — Admin/Revisor + equipes com FISCAL_QUEUE.
-                      URL nova é hierárquica (/fiscal/pendencias-fiscais);
-                      a antiga redireciona pra não quebrar bookmarks. */}
+                  {/* Fiscal — HUB único (abas: Requisições · Itens ·
+                      Fornecedores · Notas Fiscais). Admin/Revisor + equipes
+                      com FISCAL_QUEUE. */}
                   <Route
                     element={
                       <RequireProfile
@@ -342,33 +319,30 @@ function App() {
                       />
                     }
                   >
-                    <Route
-                      path="fiscal/pendencias-fiscais"
-                      element={<FiscalQueuePage />}
-                    />
-                    <Route
-                      path="fiscal/notas-fiscais"
-                      element={<FiscalDocumentsListPage />}
-                    />
+                    <Route path="fiscal" element={<FiscalQueuePage />} />
                     <Route
                       path="fiscal/notas-fiscais/:id"
                       element={<FiscalDocumentDetailPage />}
                     />
                   </Route>
+                  {/* URLs antigas → hub (não quebra bookmarks). O menu antes
+                      tinha 4 itens soltos + duplicata; agora é só "Fiscal". */}
                   <Route
                     path="pendencias-fiscais"
-                    element={<Navigate to="/fiscal/pendencias-fiscais" replace />}
+                    element={<Navigate to="/fiscal" replace />}
                   />
-
-                  {/* Classificação Fiscal — fila do revisor (aprovadas
-                      aguardando CTB+natureza). Admin/Revisor, sem exigir o
-                      módulo FISCAL_QUEUE (é a função-base do revisor). */}
-                  <Route element={<RequireProfile roles={['REVIEWER']} />}>
-                    <Route
-                      path="fiscal/classificacao"
-                      element={<FiscalClassificationQueuePage />}
-                    />
-                  </Route>
+                  <Route
+                    path="fiscal/pendencias-fiscais"
+                    element={<Navigate to="/fiscal" replace />}
+                  />
+                  <Route
+                    path="fiscal/classificacao"
+                    element={<Navigate to="/fiscal" replace />}
+                  />
+                  <Route
+                    path="fiscal/notas-fiscais"
+                    element={<Navigate to="/fiscal?tab=notas" replace />}
+                  />
 
 
                   {/* Financeiro — Admin + equipes com módulo FINANCE

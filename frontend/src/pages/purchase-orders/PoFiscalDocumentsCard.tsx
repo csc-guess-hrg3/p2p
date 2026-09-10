@@ -75,7 +75,7 @@ export function PoFiscalDocumentsCard({
               <>
                 Nenhuma NF vinculada a este PC ainda. Vincule pela tela{' '}
                 <Link
-                  to="/fiscal/notas-fiscais"
+                  to="/fiscal?tab=notas"
                   className="text-primary hover:underline"
                 >
                   Fiscal &gt; Notas Fiscais

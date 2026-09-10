@@ -121,7 +121,7 @@ export function FiscalDocumentDetailPage() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => navigate('/fiscal/notas-fiscais')}
+          onClick={() => navigate('/fiscal?tab=notas')}
         >
           <ArrowLeft className="mr-2 h-4 w-4" />
           Voltar
