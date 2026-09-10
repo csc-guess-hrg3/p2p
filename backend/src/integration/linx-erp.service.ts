@@ -1295,16 +1295,25 @@ export class LinxErpService {
       );
 
       await this.prisma.$executeRawUnsafe(
+        // Duas FKs obrigatórias que o INSERT antes NÃO preenchia (achadas
+        // reproduzindo o cadastro; sem elas dá "Falha ao consultar o banco do
+        // ERP" — FK que o translateLinx não reconhece). Ver [[erp_integracao_depara_por_coluna]]:
+        //  • COD_CLIFOR = CLIFOR — FORNECEDORES.COD_FORNECEDOR tem FK
+        //    (XFK13504) pra CADASTRO_CLI_FOR.COD_CLIFOR; sem isso o 2º INSERT quebra.
+        //  • PAIS/COBRANCA_PAIS/ENTREGA_PAIS = 'BRASIL' — FK (XFK13128) pra
+        //    PAISES.PAIS, que no Linx é a STRING 'BRASIL' (não código numérico).
         `INSERT INTO [${erpDb}].dbo.CADASTRO_CLI_FOR
-         (CLIFOR, NOME_CLIFOR, RAZAO_SOCIAL, CGC_CPF, RG_IE,
+         (CLIFOR, COD_CLIFOR, NOME_CLIFOR, RAZAO_SOCIAL, CGC_CPF, RG_IE,
           UF, COBRANCA_UF, ENTREGA_UF,
+          PAIS, COBRANCA_PAIS, ENTREGA_PAIS,
           COBRANCA_CGC, ENTREGA_CGC, COBRANCA_IE, ENTREGA_IE,
           ENDERECO, BAIRRO, CIDADE, CEP, TELEFONE1,
           COBRANCA_ENDERECO, COBRANCA_BAIRRO, COBRANCA_CIDADE, COBRANCA_CEP,
           CADASTRAMENTO, PJ_PF, INDICA_FORNECEDOR, INDICA_CLIENTE)
        VALUES
-         (@P1, @P2, @P3, @P4, N'ISENTO',
+         (@P1, @P1, @P2, @P3, @P4, N'ISENTO',
           @P5, @P5, @P5,
+          N'BRASIL', N'BRASIL', N'BRASIL',
           @P4, @P4, N'ISENTO', N'ISENTO',
           @P6, @P7, @P8, @P9, @P10,
           @P6, @P7, @P8, @P9,
