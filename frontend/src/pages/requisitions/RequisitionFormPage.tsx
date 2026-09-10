@@ -698,6 +698,13 @@ export function RequisitionFormPage() {
           <CardTitle>Dados gerais</CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {/* Título primeiro (acima da Filial) — é o nome da requisição. */}
+          <div className="col-span-2 space-y-1.5">
+            <Label htmlFor="title">Título</Label>
+            <Input id="title" {...register('title')} />
+            <FieldError msg={errors.title?.message} />
+          </div>
+
           <div className="space-y-1.5">
             <Label>Filial</Label>
             <Controller
@@ -725,8 +732,12 @@ export function RequisitionFormPage() {
             <FieldError msg={errors.branchErpCode?.message} />
           </div>
 
-          <div className="space-y-1.5">
-            <Label>Fornecedor</Label>
+          {/* Fornecedor + apelido na mesma célula: o apelido fica sempre logo
+              abaixo do fornecedor (mesma coluna) e some/aparece sem mexer no
+              resto do grid. */}
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Fornecedor</Label>
             <SupplierPicker
               key={`supplier-${resetNonce}`}
               company={code}
@@ -792,11 +803,6 @@ export function RequisitionFormPage() {
               </p>
             </div>
           )}
-
-          <div className="space-y-1.5">
-            <Label htmlFor="title">Título</Label>
-            <Input id="title" {...register('title')} />
-            <FieldError msg={errors.title?.message} />
           </div>
 
           <div className="space-y-1.5">
