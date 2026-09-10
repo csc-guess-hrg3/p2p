@@ -91,7 +91,7 @@ export function SupplierValidationQueuePage({
       await approveMut.mutateAsync(sv.requisitionId);
       toast({
         title: 'Fornecedor validado',
-        description: `${sv.requisition.supplierName ?? 'Fornecedor'} cadastrado no ERP. A requisição ${sv.requisition.number} seguiu para aprovação.`,
+        description: `${sv.requisition.supplierName ?? 'Fornecedor'} cadastrado no ERP!`,
         variant: 'success',
       });
       setApproveTarget(null);
