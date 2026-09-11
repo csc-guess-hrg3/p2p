@@ -439,7 +439,11 @@ function ApprovalLevelsDialog({
 export function TeamsPage() {
   const { toast } = useToast();
   const { data: teams = [], isLoading } = useTeams();
-  const { data: usersPage } = useUsers({ status: 'ACTIVE' });
+  // take alto de propósito: a lista de aprovadores filtra MANAGER/ADMIN no
+  // cliente, então precisa buscar TODOS os ativos. Com o default (50, ordenado
+  // por nome) um gestor/admin no fim do alfabeto sumia do dropdown — ex.:
+  // Thomaz Hering, 67º de 71 ativos, não aparecia como opção de alçada.
+  const { data: usersPage } = useUsers({ status: 'ACTIVE', take: 1000 });
   const updateMut = useUpdateTeam();
   const modulesMut = useSetTeamModules();
   const deactivateMut = useDeactivateTeam();
