@@ -382,7 +382,7 @@ ol.steps>li:not(:last-child)::after{ content:""; position:absolute; left:14.5px;
       <div class="grp"><a class="g-title" href="#c7"><span class="g-num">7</span>Solicitações de Verba</a><a class="item" href="#c7-1">7.1 O que é uma SV</a><a class="item" href="#c7-2">7.2 Lista e integração</a></div>
       <div class="grp"><a class="g-title" href="#c8"><span class="g-num">8</span>Recebimentos</a><a class="item" href="#c8-1">8.1 Registrar</a><a class="item" href="#c8-2">8.2 Confirmar/divergências</a><a class="item" href="#c8-3">8.3 Medição de serviço</a></div>
       <div class="grp"><a class="g-title" href="#c9"><span class="g-num">9</span>Produto Acabado</a><a class="item" href="#c9-1">9.1 Aprovar/reprovar</a><a class="item" href="#c9-2">9.2 Reagendar e grade</a></div>
-      <div class="grp"><a class="g-title" href="#c10"><span class="g-num">10</span>Fiscal</a><a class="item" href="#c10-1">10.1 Pendências fiscais</a><a class="item" href="#c10-2">10.2 Notas fiscais (Qive)</a></div>
+      <div class="grp"><a class="g-title" href="#c10"><span class="g-num">10</span>Fiscal</a><a class="item" href="#c10-1">10.1 Requisições a classificar</a><a class="item" href="#c10-2">10.2 Itens a classificar</a><a class="item" href="#c10-3">10.3 Validar fornecedor</a><a class="item" href="#c10-4">10.4 Notas fiscais</a></div>
       <div class="grp"><a class="g-title" href="#c11"><span class="g-num">11</span>Financeiro</a><a class="item" href="#c11-1">11.1 Títulos a pagar</a><a class="item" href="#c11-2">11.2 Adiantamentos</a><a class="item" href="#c11-3">11.3 DDAs</a><a class="item" href="#c11-4">11.4 Provisões</a></div>
       <div class="grp"><a class="g-title" href="#c12"><span class="g-num">12</span>Pedidos externos</a></div>
       <div class="grp"><a class="g-title" href="#c13"><span class="g-num">13</span>Relatórios</a></div>
@@ -724,7 +724,8 @@ ol.steps>li:not(:last-child)::after{ content:""; position:absolute; left:14.5px;
     <thead><tr><th style="width:30%">Campo</th><th>Como preencher</th></tr></thead>
     <tbody>
       <tr><td><strong>Filial</strong> <span class="badge b-red">obrigatório</span></td><td>A unidade que receberá a compra.</td></tr>
-      <tr><td><strong>Fornecedor</strong> <span class="badge b-red">obrigatório</span></td><td>Busque pelo nome ou CNPJ. Pode ser um fornecedor já cadastrado ou um fornecedor externo (informe CNPJ + nome).</td></tr>
+      <tr><td><strong>Fornecedor</strong> <span class="badge b-red">obrigatório</span></td><td>Digite o <strong>nome ou o CNPJ</strong> num campo só. Se já estiver cadastrado no ERP, é só selecionar. Se for um <strong>fornecedor novo</strong> (CNPJ não cadastrado), o sistema puxa os dados da Receita e o marca como <span class="badge b-blue">em validação</span> — a equipe fiscal o cadastra no Linx depois que a compra for aprovada (ver 10.3).</td></tr>
+      <tr><td><strong>Nome conhecido do fornecedor</strong></td><td>Aparece <em>só</em> para fornecedor novo. Um <strong>apelido</strong> pelo qual você reconhece o fornecedor (ex.: “Stanley”), já que a razão social costuma ser diferente. Ele aparece em destaque nas telas, com a razão social logo abaixo.</td></tr>
       <tr><td><strong>Título</strong> <span class="badge b-red">obrigatório</span></td><td>Um nome curto que identifique a compra (ex.: “Material de limpeza – maio”).</td></tr>
       <tr><td><strong>Com adiantamento</strong></td><td>Ligue quando a <strong>nota fiscal ainda não foi emitida</strong> e o pagamento será antecipado. O sistema gerará uma Solicitação de Verba junto do pedido.</td></tr>
       <tr><td><strong>Condição de pagamento</strong> <span class="badge b-red">obrigatório</span></td><td>À vista, 30 dias etc. (vem do ERP). Pode ser sugerida automaticamente pelo fornecedor.</td></tr>
@@ -740,18 +741,25 @@ ol.steps>li:not(:last-child)::after{ content:""; position:absolute; left:14.5px;
   </div>
 
   <h2 class="sec" id="c4-4">4.4 Adicionar itens</h2>
-  <p>Com o fornecedor escolhido, clique em <strong>Adicionar item</strong>. Na janela do item:</p>
+  <p>Com o fornecedor escolhido, clique em <strong>Adicionar item</strong>. A ideia é simples: aqui você só precisa
+  dizer <strong>o que</strong> quer comprar — sem se preocupar com classificação contábil (isso é trabalho do fiscal,
+  depois). Na janela do item há um <strong>campo único</strong> onde você:</p>
   <ul>
-    <li>Escolha entre <strong>Item do fornecedor</strong> (já vinculado, recomendado) ou <strong>Itens não
-    vinculados ao fornecedor</strong> (abre uma pendência fiscal depois).</li>
-    <li>Selecione o item pela busca — isso preenche <strong>unidade</strong>, <strong>conta contábil</strong> e os
-    <strong>rateios</strong> padrão.</li>
-    <li>Informe a <strong>quantidade</strong> (número inteiro) e o <strong>preço estimado</strong>.</li>
-    <li>Confira a <strong>conta contábil</strong>, o <strong>rateio de filial</strong> e o <strong>rateio de centro
-    de custo</strong> (o CC principal da sua equipe já vem pré-selecionado).</li>
+    <li><strong>Escolhe um item do catálogo</strong> — comece a digitar e a lista aparece, com os <strong>itens do
+    fornecedor primeiro</strong> e o restante do catálogo em seguida (marcado como “catálogo”).</li>
+    <li>Ou <strong>descreve manualmente</strong> — ative <em>“descrever manualmente”</em> e escreva o item com suas
+    palavras (ex.: “Resma de papel A4 75g”), informando a <strong>unidade</strong>. Use quando o item não está no
+    catálogo — a equipe fiscal vincula ou cadastra o item depois (ver 10.2).</li>
   </ul>
+  <p>Depois informe a <strong>quantidade</strong> e o <strong>preço estimado</strong>, e confira o <strong>rateio de
+  filial</strong> e o <strong>rateio de centro de custo</strong> (o CC principal da sua equipe já vem pré-selecionado).</p>
   <p>Cada item aparece na tabela com Quantidade, Unidade, Preço, Total e botões para <strong>editar</strong>,
   <strong>duplicar</strong> e <strong>remover</strong>. O rodapé mostra o <strong>Total da requisição</strong>.</p>
+  <div class="callout c-info">
+    <span class="ct">Cadê a conta contábil?</span>
+    <p>Ela não aparece mais para você. Quem define a conta e a classificação fiscal é a <strong>equipe fiscal</strong>,
+    depois da aprovação. Você não precisa saber a classificação — só descrever o que precisa comprar.</p>
+  </div>
   <div class="callout c-info">
     <span class="ct">O que é “rateio”</span>
     <p>O rateio define <em>para qual filial e centro de custo</em> o gasto será distribuído. Você não digita
@@ -1079,37 +1087,90 @@ ol.steps>li:not(:last-child)::after{ content:""; position:absolute; left:14.5px;
   <div class="chapter-kicker">Capítulo 10</div>
   <h1 class="chapter">Fiscal</h1>
   <div class="chapter-rule"></div>
-  <p>O módulo <strong>Fiscal</strong> é onde o Revisor/Fiscal garante que cada compra está classificada corretamente
-  e que as notas fiscais estão vinculadas aos pedidos.</p>
-
-  <h2 class="sec" id="c10-1">10.1 Pendências fiscais</h2>
-  <p>A tela <strong>Pendências Fiscais</strong> tem duas abas:</p>
-  <h3 class="sub">Requisições a classificar</h3>
-  <p>Lista as requisições aprovadas que ainda <strong>não têm classificação fiscal</strong> (operação contábil e
-  natureza de entrada) e, por isso, não podem virar pedido. Clique numa linha para abrir o detalhe e preencher.</p>
-  <ol class="steps">
-    <li>No detalhe, clique em <b>Classificar fiscalmente</b>.</li>
-    <li>Escolha a <b>Operação contábil</b> e a <b>Natureza de entrada</b> (a lista de naturezas depende da operação).</li>
-    <li>Clique em <b>Salvar</b>. O aviso some e o botão <b>Converter em Pedido de Compra</b> é liberado.</li>
-  </ol>
-  <h3 class="sub">Itens a vincular</h3>
-  <p>Quando um item não estava vinculado ao fornecedor, abre-se uma pendência aqui. O Fiscal pode:</p>
-  <ul>
-    <li><strong>Aprovar e vincular</strong> — confirma (ou troca) o item e grava o vínculo no Linx. Se trocar o item,
-    o solicitante é notificado.</li>
-    <li><strong>Rejeitar</strong> — com motivo (mín. 3 caracteres), por exemplo quando a requisição de origem foi
-    cancelada.</li>
-  </ul>
+  <p>O módulo <strong>Fiscal</strong> é o posto de trabalho do <strong>Revisor/Fiscal</strong>. É uma tela só, com
+  <strong>quatro abas</strong> — cada uma é uma fila de coisas que dependem do fiscal para a compra andar:</p>
+  <div class="tbl"><div class="tbl"><table>
+    <thead><tr><th style="width:26%">Aba</th><th>O que você resolve nela</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Requisições</strong></td><td>Requisições aprovadas que ainda precisam da <em>classificação contábil</em> para virarem pedido.</td></tr>
+      <tr><td><strong>Itens</strong></td><td>Itens “descritos” pelo solicitante que precisam ser <em>vinculados ou cadastrados</em> no ERP.</td></tr>
+      <tr><td><strong>Fornecedores</strong></td><td>Fornecedores novos que precisam ser <em>validados e cadastrados</em> no Linx.</td></tr>
+      <tr><td><strong>Notas</strong></td><td>Notas fiscais baixadas da Qive para <em>vincular</em> aos pedidos.</td></tr>
+    </tbody>
+  </table></div></div>
+  <p>Cada aba tem duas visões: <strong>Pendentes</strong> (o que falta fazer) e <strong>Histórico</strong> (o que já
+  foi feito) — assim você acompanha e também consulta o que passou.</p>
   <div class="callout c-info">
-    <span class="ct">A equipe Fiscal corrige, não rejeita a compra</span>
-    <p>O papel do Fiscal é <em>destravar</em> a compra: corrigir o item e seguir. Pendências sem requisição de origem
-    (“órfãs”) podem ser rejeitadas com segurança.</p>
+    <span class="ct">O papel do Fiscal é destravar, não julgar a compra</span>
+    <p>Quem decide <em>se</em> a empresa compra é a cadeia de aprovação (os gestores). O Fiscal entra depois, para
+    <strong>deixar a compra pronta para o ERP</strong>: dizer em que “caixinha” contábil ela entra, garantir que o
+    item existe no Linx e cadastrar o fornecedor. Ele corrige e segue — não reprova a necessidade da compra.</p>
   </div>
 
-  <h2 class="sec" id="c10-2">10.2 Notas fiscais (Qive)</h2>
-  <p>A tela <strong>Notas Fiscais</strong> lista as NFes baixadas da <strong>Qive</strong> (provedor fiscal) para
-  serem vinculadas aos pedidos. Filtre por status (Pendentes, Vinculadas, Ignoradas, Transferências internas) e
-  busque por número, chave ou fornecedor.</p>
+  <h2 class="sec" id="c10-1">10.1 Aba Requisições — classificar para virar pedido</h2>
+  <p>Uma requisição aprovada só vira Pedido de Compra depois de <strong>classificada</strong>. Enquanto isso não
+  acontece, ela fica com a etiqueta <span class="badge b-yellow">Não classificada</span> nesta aba. Classificar é
+  dizer ao ERP <em>como lançar</em> essa compra na contabilidade.</p>
+  <ol class="steps">
+    <li>Clique na linha da requisição para abrir o detalhe.</li>
+    <li>Clique em <b>Classificação fiscal e contábil</b>.</li>
+    <li>Preencha os três campos:
+      <ul>
+        <li><strong>Tipo de compra</strong> — a “caixinha” contábil da compra no Linx (ex.: <em>Compra Consumíveis</em>,
+        <em>Serviços de Terceiros</em>, <em>Reparos e Manutenções</em>). É o que define como o pedido é contabilizado.</li>
+        <li><strong>Operação contábil</strong> — o tipo de operação (CTB) daquele lançamento.</li>
+        <li><strong>Natureza de entrada</strong> — a natureza fiscal; a lista depende da operação contábil escolhida.</li>
+      </ul>
+    </li>
+    <li>Clique em <b>Salvar</b>. A etiqueta some e o botão <b>Converter em Pedido de Compra</b> é liberado.</li>
+  </ol>
+  <div class="callout c-info">
+    <span class="ct">Por que o solicitante não escolhe isso</span>
+    <p>Tipo de compra, operação e natureza são decisões <strong>contábeis</strong>. Deixá-las com o fiscal evita erro
+    de classificação e libera o solicitante de saber jargão fiscal — ele só descreve o que precisa comprar.</p>
+  </div>
+
+  <h2 class="sec" id="c10-2">10.2 Aba Itens — vincular ou cadastrar no Linx</h2>
+  <p>Quando o solicitante <strong>descreve</strong> um item (em vez de escolher um já cadastrado), esse item cai aqui
+  para o fiscal ligá-lo ao ERP. Clique na pendência para abrir e escolha um dos dois caminhos:</p>
+  <ol class="steps">
+    <li><strong>Vincular a um item existente</strong> — o sistema sugere itens parecidos (priorizando os já ligados ao
+    fornecedor). Escolha o certo e confirme: o item da requisição passa a apontar para o código do Linx.</li>
+    <li><strong>Cadastrar item novo</strong> — quando não existe um equivalente. Você revê a descrição, a unidade e a
+    conta, clica em <b>Prever item</b> (mostra como ele ficará, com um código <code>P2Pxxxxxx</code>) e depois em
+    <b>Gravar no Linx</b>. O item é criado no ERP e vinculado na hora.</li>
+  </ol>
+  <div class="callout c-dica">
+    <span class="ct">Histórico dos itens</span>
+    <p>Tudo que você vincula ou cadastra fica registrado na aba <strong>Histórico</strong> — dá para consultar depois
+    quem resolveu, quando e para qual item do Linx.</p>
+  </div>
+
+  <h2 class="sec" id="c10-3">10.3 Aba Fornecedores — validar fornecedor novo</h2>
+  <p>Quando uma requisição traz um <strong>fornecedor que ainda não existe no Linx</strong>, ela passa por esta aba.
+  O fluxo é: primeiro os <strong>gestores aprovam</strong> a compra normalmente; <em>só depois</em> de aprovada é que
+  o fornecedor cai aqui para o fiscal cadastrar. Assim não se gasta cadastro com compra que o gestor vai reprovar.</p>
+  <p>Na fila <strong>Pendentes</strong>, cada linha mostra a requisição, o solicitante, o fornecedor, o CNPJ e o
+  valor. Clicando no nome do fornecedor, abre uma janela com <strong>todos os dados da Receita</strong> (razão social,
+  nome fantasia, situação, endereço, CNAE etc.) — para você conferir antes de decidir. Então:</p>
+  <ol class="steps">
+    <li><strong>Aprovar</strong> — o fornecedor é <strong>criado no Linx</strong> (ganha um código de cadastro) e a
+    requisição fica liberada para virar pedido.</li>
+    <li><strong>Devolver</strong> — com um motivo, quando algo está errado (CNPJ, dados). A requisição volta para o
+    solicitante ajustar e reenviar.</li>
+  </ol>
+  <p>As decisões ficam registradas nas abas <strong>Aprovados</strong> e <strong>Devolvidos</strong>.</p>
+  <div class="callout c-info">
+    <span class="ct">“Nome conhecido” do fornecedor</span>
+    <p>Fornecedores costumam ter razão social pouco amigável (ex.: um CNPJ que aparece como <em>PMI South America
+    Consumer Goods Ltda</em>). Por isso o solicitante pode informar um <strong>apelido</strong> na requisição — ele
+    aparece em destaque nas telas, com a razão social logo abaixo, para todos reconhecerem o fornecedor.</p>
+  </div>
+
+  <h2 class="sec" id="c10-4">10.4 Aba Notas — notas fiscais (Qive)</h2>
+  <p>A aba <strong>Notas</strong> lista as NFes baixadas da <strong>Qive</strong> (provedor fiscal) para serem
+  vinculadas aos pedidos. Filtre por status (Pendentes, Vinculadas, Ignoradas, Transferências internas) e busque por
+  número, chave ou fornecedor.</p>
   <p>O Administrador usa <strong>Sincronizar Qive</strong> para baixar notas novas. No detalhe de uma NF pendente,
   você pode:</p>
   <ul>
