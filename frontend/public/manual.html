@@ -517,9 +517,7 @@ ol.steps>li:not(:last-child)::after{ content:""; position:absolute; left:14.5px;
 
   <h2 class="sec" id="c2-1">2.1 Acessando o sistema (login)</h2>
   <p>Ao abrir o endereço do P2P, você verá a tela de entrada com o logo <span class="logo sm"><span class="hrg">HRG</span><span class="three">3</span></span>
-  e o subtítulo <em>Procure-to-Pay</em>. Há duas formas de entrar, em abas:</p>
-
-  <h3 class="sub">Aba “Corporativo” (a maioria dos usuários)</h3>
+  e o subtítulo <em>Procure-to-Pay</em>. É um <strong>login único</strong>, o mesmo para todos os perfis internos:</p>
   <div class="tbl"><div class="tbl"><table>
     <thead><tr><th style="width:25%">Campo</th><th>Como preencher</th></tr></thead>
     <tbody>
@@ -528,22 +526,20 @@ ol.steps>li:not(:last-child)::after{ content:""; position:absolute; left:14.5px;
     </tbody>
   </table></div></div>
   <p>Clique em <span class="badge b-blue">Entrar</span>. O sistema primeiro tenta validar você no diretório
-  corporativo (AD); se não encontrar, tenta como usuário local.</p>
-
-  <h3 class="sub">Aba “Loja” (vendedores)</h3>
-  <p>Vendedores de loja entram pelo <strong>CPF</strong> (aceita pontos e hífen). O sistema verifica o CPF no
-  cadastro de vendedores:</p>
-  <ul>
-    <li>Se for o primeiro acesso, leva você direto para <em>definir uma senha</em>.</li>
-    <li>Se já tiver senha, pede a senha.</li>
-    <li>Se o CPF não estiver cadastrado, aparece: <em>“CPF não encontrado no cadastro de vendedores. Procure o RH.”</em></li>
-  </ul>
+  corporativo (AD); se não encontrar, tenta como <strong>usuário local</strong> (ex.: um supervisor cadastrado à mão).</p>
+  <div class="callout c-info">
+    <span class="ct">Vendedores de loja e fornecedores</span>
+    <p>Esta tela é para os usuários internos (Operador, Gestor, Revisor/Fiscal, Administrador). O antigo login de
+    vendedor de loja por CPF <strong>não existe mais</strong>. Representantes e fornecedores acessam pelo
+    <strong>portal externo</strong>, que tem endereço e tela de login próprios.</p>
+  </div>
 
   <div class="callout c-atencao">
     <span class="ct">Ambiente: Produção × Homologação</span>
-    <p>No rodapé do login há a opção <strong>Verificar ambiente</strong>. <strong>Produção (PROD)</strong> tem os dados
-    reais. <strong>Homologação (HML)</strong> é só para testes. Quando você está em HML, aparece uma etiqueta laranja
-    <span class="badge b-yellow">Homologação</span> no topo do sistema. Na dúvida, use Produção.</p>
+    <p>Na própria tela de login você escolhe o <strong>ambiente</strong>. <strong>Produção (PROD)</strong> tem os dados
+    reais; <strong>Homologação (HML)</strong> é só para testes. O ambiente fica <strong>travado durante a sessão</strong>
+    — para trocar, saia e escolha de novo ao entrar. Em HML aparece uma etiqueta laranja
+    <span class="badge b-yellow">Homologação</span> no topo. Na dúvida, use Produção.</p>
   </div>
   <div class="callout c-info">
     <span class="ct">Mensagem de erro genérica</span>
@@ -1300,8 +1296,7 @@ ol.steps>li:not(:last-child)::after{ content:""; position:absolute; left:14.5px;
 
   <h2 class="sec" id="c14-4">14.4 Filiais</h2>
   <p>Os dados das <strong>filiais</strong> (código, nome, CNPJ, endereço) vêm do ERP e são somente leitura no P2P.
-  O que o Administrador edita aqui é o <strong>e-mail da filial</strong>, usado para recuperação de senha do vendedor
-  de loja e para notificações da filial.</p>
+  O que o Administrador edita aqui é o <strong>e-mail da filial</strong>, usado para notificações da filial.</p>
 
   <h2 class="sec" id="c14-5">14.5 Delegações</h2>
   <p>A <strong>delegação</strong> permite transferir temporariamente a sua autoridade de aprovação para outra pessoa
@@ -1373,9 +1368,9 @@ ol.steps>li:not(:last-child)::after{ content:""; position:absolute; left:14.5px;
   <div class="chapter-rule"></div>
 
   <h3 class="sub">Não consigo entrar. O que faço?</h3>
-  <p>Confira se está na aba certa (<em>Corporativo</em> ou <em>Loja</em>) e se o Caps Lock está desligado. Se for
-  usuário local e esqueceu a senha, peça ao Administrador para reenviar o link de definição de senha. Vendedores sem
-  cadastro devem procurar o RH.</p>
+  <p>Use seu <strong>login corporativo</strong> (o mesmo da rede) e confira se o Caps Lock está desligado. Se for
+  usuário local e esqueceu a senha, peça ao Administrador para reenviar o link de definição de senha (há um botão de
+  envelope ao lado do seu nome na tela de Usuários).</p>
 
   <h3 class="sub">Por que não vejo um menu que meu colega vê?</h3>
   <p>O menu depende do seu <strong>perfil</strong> e dos <strong>módulos liberados para a sua equipe</strong>. Se
