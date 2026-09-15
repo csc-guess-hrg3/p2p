@@ -46,7 +46,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
-      include: { companies: true },
+      include: { companies: true, branchAssignments: true },
     });
 
     // Só conta ACTIVE acessa o app. PENDING_SETUP (recém-provisionada via
@@ -84,6 +84,8 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       // que sustenta o isolamento do ExternalRealmGuard.
       realm: user.realm,
       externalCategory: user.externalCategory,
+      branchScoped: user.branchScoped,
+      branchErpCodes: user.branchAssignments.map((a) => a.branchErpCode),
       // Simulação: o ADMIN real vem do payload (não do banco — é próprio da
       // sessão). A identidade EFETIVA acima é a do alvo; isto é só a trilha.
       impersonatedBy: payload.impersonatedBy ?? null,

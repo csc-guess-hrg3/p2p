@@ -41,6 +41,12 @@ export interface AuthenticatedUser {
   realm: string;
   /** Categoria do usuário externo (REPRESENTANTE | VENDEDOR_LOJA | ...); null se INTERNAL. */
   externalCategory: string | null;
+  /**
+   * Conta de loja: vê/age no escopo da(s) filial(is) em vez de own-only.
+   * `branchErpCodes` = filiais atribuídas (UserBranchAssignment) da empresa ativa.
+   */
+  branchScoped?: boolean;
+  branchErpCodes?: string[];
   /** Simulação de login: id do ADMIN real que está "vendo como" este usuário. */
   impersonatedBy?: string | null;
 }

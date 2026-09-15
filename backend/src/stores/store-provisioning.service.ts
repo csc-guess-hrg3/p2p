@@ -282,6 +282,7 @@ export class StoreProvisioningService {
         // (e-mail); a alçada vem da equipe (teamId).
         profile: UserProfile.OPERATOR,
         realm: UserRealm.INTERNAL,
+        branchScoped: true, // vê/age no escopo da filial (não own-only)
         loginType: 'LOCAL',
         status: UserStatus.ACTIVE,
         teamId: teamId ?? null,

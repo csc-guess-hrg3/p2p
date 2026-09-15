@@ -524,6 +524,10 @@ model User {
   // = REPRESENTANTE | VENDEDOR_LOJA | ... (null quando INTERNAL).
   realm            String  @default("INTERNAL") @db.NVarChar(10)
   externalCategory String? @db.NVarChar(30)
+  // Conta presa a uma filial (loja): vê e age no escopo da(s) filial(is) do
+  // UserBranchAssignment (não own-only). Marca de acesso — nunca inferida por
+  // nome/username. Usuário comum e supervisor seguem false (own-only).
+  branchScoped     Boolean @default(false)
   /**
    * Proteção contra força bruta: contador de tentativas seguidas que
    * falharam (zera em login bem-sucedido). Quando `lockedUntil` está no

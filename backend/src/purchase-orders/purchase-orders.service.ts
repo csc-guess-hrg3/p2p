@@ -41,6 +41,10 @@ export class PurchaseOrdersService {
         { buyerId: user.id },
         { requisition: { requesterId: user.id } },
         ...(isDefaultAdmin(user) ? [{ buyerId: null }] : []),
+        // Conta de loja: vê TODOS os pedidos da(s) filial(is) dela (não own-only).
+        ...(user.branchScoped && (user.branchErpCodes?.length ?? 0) > 0
+          ? [{ branchErpCode: { in: user.branchErpCodes ?? [] } }]
+          : []),
       ],
       ...(status ? { status } : {}),
       ...(search ? { number: { contains: search } } : {}),

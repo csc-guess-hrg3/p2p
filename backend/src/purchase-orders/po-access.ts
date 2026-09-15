@@ -22,6 +22,7 @@ export function assertPoTeamAccess(
   po: {
     companyId: string;
     buyerId: string | null;
+    branchErpCode?: string | null;
     requisition?: { requesterId: string | null } | null;
   },
 ): void {
@@ -33,7 +34,12 @@ export function assertPoTeamAccess(
   const isReviewer = user.profile === UserProfile.REVIEWER;
   const isOrphanForDefaultAdmin =
     po.buyerId === null && isDefaultAdmin(user);
-  if (!isOwner && !isReviewer && !isOrphanForDefaultAdmin) {
+  // Conta de loja: abre qualquer PC da(s) filial(is) dela (escopo por filial).
+  const isBranchStore =
+    !!user.branchScoped &&
+    !!po.branchErpCode &&
+    (user.branchErpCodes?.includes(po.branchErpCode) ?? false);
+  if (!isOwner && !isReviewer && !isOrphanForDefaultAdmin && !isBranchStore) {
     throw new ForbiddenException('Sem acesso a este pedido.');
   }
 }
