@@ -495,7 +495,7 @@ export function TeamsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Nome</TableHead>
+                <TableHead className="min-w-[180px]">Nome</TableHead>
                 <TableHead>Níveis de aprovação</TableHead>
                 <TableHead>Membros</TableHead>
                 <TableHead title="Rateios de filial · rateios de centro de custo">
@@ -525,7 +525,7 @@ export function TeamsPage() {
               )}
               {teams.map((t) => (
                 <TableRow key={t.id}>
-                  <TableCell className="font-medium">
+                  <TableCell className="min-w-[180px] font-medium">
                     <Input
                       defaultValue={t.name}
                       onBlur={(e) => {
@@ -541,9 +541,13 @@ export function TeamsPage() {
                   <TableCell className="text-muted-foreground">
                     {t._count?.members ?? 0}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {t._count?.branchRateios ?? 0} rateios ·{' '}
-                    {t._count?.costCenterRateios ?? 0} CC
+                  <TableCell
+                    className="whitespace-nowrap text-muted-foreground"
+                    title={`${t._count?.branchRateios ?? 0} rateios de filial · ${
+                      t._count?.costCenterRateios ?? 0
+                    } centros de custo`}
+                  >
+                    {t._count?.branchRateios ?? 0} / {t._count?.costCenterRateios ?? 0}
                   </TableCell>
                   <TableCell>
                     <TeamModulesCell
