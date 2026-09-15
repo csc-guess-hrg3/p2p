@@ -10,7 +10,9 @@ import {
   Split,
   Trash2,
   Workflow,
+  Users,
 } from 'lucide-react';
+import { TeamMembersDialog } from './TeamMembersDialog';
 import { TeamRateiosDialog } from './TeamRateiosDialog';
 import {
   useCreateTeam,
@@ -449,6 +451,7 @@ export function TeamsPage() {
   const deactivateMut = useDeactivateTeam();
   const [levelsOpenFor, setLevelsOpenFor] = useState<string | null>(null);
   const [rateiosOpenFor, setRateiosOpenFor] = useState<string | null>(null);
+  const [membersOpenFor, setMembersOpenFor] = useState<string | null>(null);
   const [deactivateTarget, setDeactivateTarget] = useState<{ id: string; name: string } | null>(null);
 
   const approvers = (usersPage?.data ?? []).filter(
@@ -494,6 +497,10 @@ export function TeamsPage() {
               <TableRow>
                 <TableHead>Nome</TableHead>
                 <TableHead>Níveis de aprovação</TableHead>
+                <TableHead>Membros</TableHead>
+                <TableHead title="Rateios de filial · rateios de centro de custo">
+                  Rateios / CC
+                </TableHead>
                 <TableHead title="Módulos extras liberados para os membros da equipe">
                   Módulos extras
                 </TableHead>
@@ -504,14 +511,14 @@ export function TeamsPage() {
             <TableBody>
               {isLoading && (
                 <TableRow>
-                  <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
                     Carregando…
                   </TableCell>
                 </TableRow>
               )}
               {!isLoading && teams.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
                     Nenhuma equipe cadastrada.
                   </TableCell>
                 </TableRow>
@@ -529,7 +536,14 @@ export function TeamsPage() {
                     />
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {(t.approvalLevels?.length ?? 0)} nível(eis)
+                    {(t._count?.approvalLevels ?? 0)} nível(eis)
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {t._count?.members ?? 0}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {t._count?.branchRateios ?? 0} rateios ·{' '}
+                    {t._count?.costCenterRateios ?? 0} CC
                   </TableCell>
                   <TableCell>
                     <TeamModulesCell
@@ -575,6 +589,15 @@ export function TeamsPage() {
                       <Button
                         size="sm"
                         variant="outline"
+                        onClick={() => setMembersOpenFor(t.id)}
+                        title="Adicionar/remover participantes desta equipe"
+                      >
+                        <Users className="size-4" />
+                        Membros
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
                         onClick={() => setLevelsOpenFor(t.id)}
                       >
                         <Workflow className="size-4" />
@@ -610,6 +633,14 @@ export function TeamsPage() {
           teamId={rateiosOpenFor}
           open={!!rateiosOpenFor}
           onOpenChange={(v) => !v && setRateiosOpenFor(null)}
+        />
+      )}
+      {membersOpenFor && (
+        <TeamMembersDialog
+          teamId={membersOpenFor}
+          teamName={teams.find((t) => t.id === membersOpenFor)?.name ?? ''}
+          open={!!membersOpenFor}
+          onOpenChange={(v) => !v && setMembersOpenFor(null)}
         />
       )}
       <ConfirmDialog

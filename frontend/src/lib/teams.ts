@@ -41,6 +41,13 @@ export interface AdminTeam {
   createdAt: string;
   updatedAt: string;
   approvalLevels?: ApprovalLevel[];
+  /** Contagens da listagem (Prisma _count). */
+  _count?: {
+    members?: number;
+    approvalLevels?: number;
+    branchRateios?: number;
+    costCenterRateios?: number;
+  };
   members?: Array<{ id: string; name: string; profile: string }>;
 }
 

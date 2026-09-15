@@ -42,11 +42,17 @@ export class TeamsService {
       where: { deletedAt: null },
       orderBy: { name: 'asc' },
       include: {
-        _count: { select: { members: true } },
+        // Contagens exibidas na listagem: membros, níveis, rateios de filial e
+        // rateios de centro de custo.
+        _count: {
+          select: {
+            members: true,
+            approvalLevels: true,
+            branchRateios: true,
+            costCenterRateios: true,
+          },
+        },
         moduleAccess: { select: { module: true } },
-        // Só os ids — a listagem exibe a CONTAGEM de níveis (t.approvalLevels.length).
-        // Sem isso o array vem undefined e a coluna mostrava "0 nível(eis)".
-        approvalLevels: { select: { id: true } },
       },
     });
   }
