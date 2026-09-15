@@ -9,9 +9,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TurnstileWidget, TURNSTILE_ENABLED } from '@/components/TurnstileWidget';
 
 /**
- * Login do portal externo — usuário = CÓDIGO do representante + senha.
- * Reusa o /auth/login-local (mesmo mecanismo dos usuários locais). No 1º
- * acesso o rep define a senha pelo link recebido por e-mail (/definir-senha).
+ * Login do portal externo — casca COMPARTILHADA por todas as categorias
+ * (representante, loja, ...). Usuário = código/username + senha; reusa o
+ * /auth/login-local (mesmo mecanismo dos usuários locais). No 1º acesso a senha
+ * é definida pelo link recebido por e-mail (/definir-senha). O rótulo por
+ * categoria aparece depois de logar (ExternalLayout).
  *
  * Anti-bot: envia o token do Turnstile ao login-local, igual à LoginPage
  * interna. Sem a chave (VITE_TURNSTILE_SITE_KEY) o widget não renderiza e
@@ -52,20 +54,20 @@ export function ExternalLoginPage() {
         <CardHeader className="space-y-1 text-center">
           <div className="text-xl font-semibold tracking-tight">GUESS</div>
           <CardTitle className="text-base font-medium text-muted-foreground">
-            Portal do Representante
+            Acesso externo
           </CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="codigo">Código do representante</Label>
+              <Label htmlFor="codigo">E-mail ou usuário</Label>
               <Input
                 id="codigo"
                 autoFocus
                 autoComplete="username"
                 value={codigo}
                 onChange={(e) => setCodigo(e.target.value)}
-                placeholder="ex.: 007713"
+                placeholder="e-mail ou código de acesso"
               />
             </div>
             <div className="space-y-1.5">

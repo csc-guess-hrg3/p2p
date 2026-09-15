@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ChevronRight, Eye, EyeOff, Search } from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { useBranchesAdmin, useSetBranchOverride } from '@/lib/branches';
+import { useProvisionAllStores } from '@/lib/stores';
+import { ImportStoresDialog } from './ImportStoresDialog';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -37,6 +39,7 @@ export function BranchesPage() {
   const { companies, activeCompany } = useCompany();
   const [companyId, setCompanyId] = useState<string>(activeCompany?.id ?? '');
   const [search, setSearch] = useState('');
+  const [importOpen, setImportOpen] = useState(false);
 
   useEffect(() => {
     if (!companyId && activeCompany) setCompanyId(activeCompany.id);
@@ -45,6 +48,26 @@ export function BranchesPage() {
   const { data: rows = [], isLoading } = useBranchesAdmin(companyId);
   const { toast } = useToast();
   const setOverrideMut = useSetBranchOverride();
+  const provisionAllMut = useProvisionAllStores();
+  const empresaCode = companies.find((c) => c.id === companyId)?.code ?? '';
+
+  async function provisionAll() {
+    if (!empresaCode) return;
+    try {
+      const results = await provisionAllMut.mutateAsync({ empresa: empresaCode });
+      const by = (s: string) => results.filter((r) => r.status === s).length;
+      toast({
+        title: 'Provisionamento das lojas concluído',
+        description: `${by('PROVISIONED')} criadas · ${by('ALREADY')} já existiam · ${by('SKIPPED_NO_EMAIL')} sem e-mail · ${by('ERROR')} com erro`,
+        variant: 'success',
+      });
+    } catch {
+      toast({
+        title: 'Falha no provisionamento das lojas',
+        variant: 'destructive',
+      });
+    }
+  }
 
   async function toggleHidden(
     e: React.MouseEvent,
@@ -133,6 +156,23 @@ export function BranchesPage() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
+            <Button
+              className="h-9 whitespace-nowrap"
+              disabled={!empresaCode}
+              title="Cola código;email (de uma planilha): grava o e-mail em cada filial e provisiona as lojas num passo só."
+              onClick={() => setImportOpen(true)}
+            >
+              Importar e-mails
+            </Button>
+            <Button
+              variant="outline"
+              className="h-9 whitespace-nowrap"
+              disabled={!empresaCode || provisionAllMut.isPending}
+              title="Provisiona as filiais ativas que JÁ têm e-mail cadastrado (sem colar nada). Roda de novo quando cadastrar mais — quem já tem acesso é ignorado."
+              onClick={provisionAll}
+            >
+              {provisionAllMut.isPending ? 'Provisionando…' : 'Provisionar lojas'}
+            </Button>
           </div>
 
           <div className="overflow-x-auto rounded-md border">
@@ -247,6 +287,12 @@ export function BranchesPage() {
           />
         </CardContent>
       </Card>
+
+      <ImportStoresDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        defaultEmpresa={empresaCode}
+      />
     </div>
   );
 }

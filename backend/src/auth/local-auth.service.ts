@@ -158,8 +158,12 @@ export class LocalAuthService {
    * como username. (Não há mais login por CPF.)
    */
   async login(username: string, password: string): Promise<string> {
-    const user = await this.prisma.user.findUnique({
-      where: { username: username.trim() },
+    // Aceita login por username OU e-mail — a loja entra pelo e-mail cadastrado;
+    // rep/supervisor seguem pelo código/username. Ambos são únicos e não se
+    // sobrepõem (e-mail tem '@'), então o OR resolve no máximo 1 usuário.
+    const id = username.trim().toLowerCase();
+    const user = await this.prisma.user.findFirst({
+      where: { OR: [{ username: id }, { email: id }] },
     });
     // Mensagens genéricas em todos os 401 — sem revelar se foi user/senha/status.
     // Evita enumeração de usernames válidos.
@@ -313,13 +317,11 @@ export class LocalAuthService {
       throw new NotFoundException('Usuário local não encontrado.');
     }
     const token = await this.issuePasswordToken(userId, purpose);
-    await this.sendSetupEmail(
-      user.email,
-      user.name,
-      token,
-      purpose,
-      user.username,
-    );
+    // A loja entra pelo e-mail (não pelo username interno "loja-..."); então o
+    // e-mail mostra o próprio e-mail como login. Rep/supervisor: username/código.
+    const loginHint =
+      user.username?.startsWith('loja-') ? user.email : user.username;
+    await this.sendSetupEmail(user.email, user.name, token, purpose, loginHint);
     return { ok: true };
   }
 
@@ -344,13 +346,9 @@ export class LocalAuthService {
     // Sem senha ainda = primeiro acesso (SETUP); com senha = redefinição (RESET).
     const purpose = user.passwordHash ? 'RESET' : 'SETUP';
     const token = await this.issuePasswordToken(user.id, purpose);
-    await this.sendSetupEmail(
-      user.email,
-      user.name,
-      token,
-      purpose,
-      user.username,
-    );
+    const loginHint =
+      user.username?.startsWith('loja-') ? user.email : user.username;
+    await this.sendSetupEmail(user.email, user.name, token, purpose, loginHint);
     this.logger.log(`Recuperação (${purpose}) enviada para user ${user.id}.`);
   }
 

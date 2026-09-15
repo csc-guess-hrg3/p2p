@@ -4,6 +4,11 @@ import { useAuth } from '@/lib/auth';
 import { useAreas } from '@/lib/portal';
 import { Button } from '@/components/ui/button';
 
+/** Rótulo do portal por categoria externa (a casca é compartilhada). */
+const PORTAL_LABEL: Record<string, string> = {
+  REPRESENTANTE: 'Portal do Representante',
+};
+
 /**
  * Shell ISOLADO do portal externo — nada do app interno. Só a marca, as áreas
  * do usuário e o logout.
@@ -12,6 +17,8 @@ export function ExternalLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const areas = useAreas();
+  const portalLabel =
+    PORTAL_LABEL[user?.externalCategory ?? ''] ?? 'Área Externa';
 
   const onLogout = async () => {
     await logout();
@@ -25,7 +32,7 @@ export function ExternalLayout() {
           <div className="flex items-center gap-3">
             <span className="text-lg font-semibold tracking-tight">GUESS</span>
             <span className="hidden text-sm text-muted-foreground sm:inline">
-              Portal do Representante
+              {portalLabel}
             </span>
           </div>
           <div className="flex items-center gap-3">

@@ -40,13 +40,19 @@ import { ProductOrdersPaModule } from './product-orders-pa/product-orders-pa.mod
 import { NotificationsModule } from './notifications/notifications.module';
 import { AdminModule } from './admin/admin.module';
 import { RepresentantesModule } from './representantes/representantes.module';
+import { StoresModule } from './stores/stores.module';
 import { PortalModule } from './portal/portal.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    // Jobs agendados (cron). Hoje só rodam: notificação PA pendente.
-    ScheduleModule.forRoot(),
+    // Jobs agendados (cron). Desligáveis por env (SCHEDULERS_ENABLED=false) — p/
+    // rodar uma 2ª instância contra o MESMO banco (ex.: teste local apontando
+    // pra prod) sem disparar jobs de integração/e-mail em duplicado. Em prod a
+    // var não é definida, então os jobs seguem ligados normalmente.
+    ...(process.env.SCHEDULERS_ENABLED === 'false'
+      ? []
+      : [ScheduleModule.forRoot()]),
     // Throttle global — 300 req / minuto por IP. App interno corporativo,
     // com uploads/downloads de anexos em burst (preview, listas com
     // várias chamadas paralelas, etc.) — 60/min era curto demais.
@@ -86,6 +92,7 @@ import { PortalModule } from './portal/portal.module';
     NotificationsModule,
     AdminModule,
     RepresentantesModule,
+    StoresModule,
     PortalModule,
   ],
   controllers: [AppController],
