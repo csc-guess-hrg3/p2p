@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, IsUUID } from 'class-validator';
 
 export class UpdateTeamDto {
   @ApiPropertyOptional()
@@ -16,4 +16,11 @@ export class UpdateTeamDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Empresa de origem da equipe (null remove a classificação).',
+  })
+  @IsOptional()
+  @IsUUID()
+  companyId?: string | null;
 }

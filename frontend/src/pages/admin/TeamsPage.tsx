@@ -22,9 +22,11 @@ import {
   useTeams,
   useSetTeamModules,
   useUpdateTeam,
+  useBackfillTeamOrigins,
   type ApprovalLevelInput,
 } from '@/lib/teams';
 import { useUsers, type AdminUser } from '@/lib/users';
+import { useCompany } from '@/lib/company';
 import { usePositions } from '@/lib/positions';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -449,9 +451,12 @@ export function TeamsPage() {
   const updateMut = useUpdateTeam();
   const modulesMut = useSetTeamModules();
   const deactivateMut = useDeactivateTeam();
+  const backfillMut = useBackfillTeamOrigins();
   const [levelsOpenFor, setLevelsOpenFor] = useState<string | null>(null);
   const [rateiosOpenFor, setRateiosOpenFor] = useState<string | null>(null);
   const [membersOpenFor, setMembersOpenFor] = useState<string | null>(null);
+  const { companies } = useCompany();
+  const [companyFilter, setCompanyFilter] = useState<string>('ALL');
   const [deactivateTarget, setDeactivateTarget] = useState<{ id: string; name: string } | null>(null);
 
   const approvers = (usersPage?.data ?? []).filter(
@@ -474,6 +479,26 @@ export function TeamsPage() {
     }
   }
 
+  async function backfillOrigins() {
+    try {
+      const r = await backfillMut.mutateAsync();
+      toast({
+        title: 'Empresa de origem pré-preenchida',
+        description: `${r.classificadasHrg3} HRG3 · ${r.classificadasGuess} Guess · ${r.semSinal} sem sinal (classifique na mão)`,
+        variant: 'success',
+      });
+    } catch {
+      toast({ title: 'Falha ao pré-preencher', variant: 'destructive' });
+    }
+  }
+
+  const shownTeams =
+    companyFilter === 'ALL'
+      ? teams
+      : companyFilter === 'NONE'
+        ? teams.filter((t) => !t.company)
+        : teams.filter((t) => t.company?.id === companyFilter);
+
   return (
     <div className="space-y-4 pb-10">
       <div className="flex items-center justify-between">
@@ -483,7 +508,18 @@ export function TeamsPage() {
             Administração
           </Link>
         </Button>
-        <NewTeamButton />
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={backfillMut.isPending}
+            title="Preenche a empresa de origem das equipes sem classificação (toca HRG3 → HRG3; senão Guess). Não sobrescreve as já classificadas."
+            onClick={backfillOrigins}
+          >
+            {backfillMut.isPending ? 'Preenchendo…' : 'Pré-preencher empresa'}
+          </Button>
+          <NewTeamButton />
+        </div>
       </div>
 
       <Card>
@@ -491,11 +527,29 @@ export function TeamsPage() {
           <CardTitle>Equipes e cadeias de aprovação</CardTitle>
         </CardHeader>
         <CardContent>
+         <div className="mb-3 flex items-center gap-2">
+           <span className="text-sm text-muted-foreground">Empresa:</span>
+           <Select value={companyFilter} onValueChange={setCompanyFilter}>
+             <SelectTrigger className="h-8 w-48">
+               <SelectValue />
+             </SelectTrigger>
+             <SelectContent>
+               <SelectItem value="ALL">Todas</SelectItem>
+               <SelectItem value="NONE">Sem empresa</SelectItem>
+               {companies.map((c) => (
+                 <SelectItem key={c.id} value={c.id}>
+                   {c.name}
+                 </SelectItem>
+               ))}
+             </SelectContent>
+           </Select>
+         </div>
          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead className="min-w-[180px]">Nome</TableHead>
+                <TableHead>Empresa</TableHead>
                 <TableHead>Níveis de aprovação</TableHead>
                 <TableHead>Membros</TableHead>
                 <TableHead title="Rateios de filial · rateios de centro de custo">
@@ -511,19 +565,19 @@ export function TeamsPage() {
             <TableBody>
               {isLoading && (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
                     Carregando…
                   </TableCell>
                 </TableRow>
               )}
-              {!isLoading && teams.length === 0 && (
+              {!isLoading && shownTeams.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
                     Nenhuma equipe cadastrada.
                   </TableCell>
                 </TableRow>
               )}
-              {teams.map((t) => (
+              {shownTeams.map((t) => (
                 <TableRow key={t.id}>
                   <TableCell className="min-w-[180px] font-medium">
                     <Input
@@ -534,6 +588,36 @@ export function TeamsPage() {
                       }}
                       className="h-8"
                     />
+                  </TableCell>
+                  <TableCell>
+                    <Select
+                      value={t.company?.id ?? 'NONE'}
+                      onValueChange={(v) =>
+                        updateMut
+                          .mutateAsync({
+                            id: t.id,
+                            patch: { companyId: v === 'NONE' ? null : v },
+                          })
+                          .catch(() =>
+                            toast({
+                              title: 'Falha ao definir a empresa',
+                              variant: 'destructive',
+                            }),
+                          )
+                      }
+                    >
+                      <SelectTrigger className="h-8 w-32">
+                        <SelectValue placeholder="—" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="NONE">— Sem empresa —</SelectItem>
+                        {companies.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {(t._count?.approvalLevels ?? 0)} nível(eis)

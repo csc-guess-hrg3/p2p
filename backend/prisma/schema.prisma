@@ -81,6 +81,7 @@ model Company {
   fiscalDocuments       FiscalDocument[]
   fiscalDocumentSyncStates FiscalDocumentSyncState[]
   externalScopes        ExternalScopeAssignment[]
+  teams                 Team[] @relation("TeamCompany")
 
   @@map("companies")
 }
@@ -304,6 +305,10 @@ model Team {
   id        String    @id @default(uuid()) @db.UniqueIdentifier
   name      String    @db.NVarChar(150)
   managerId String?   @db.UniqueIdentifier  // gestor — visibilidade + dono do orçamento
+  // Empresa de ORIGEM (dona da equipe, tipo a separação do AD). Só rótulo/filtro
+  // p/ identificar e desambiguar nomes iguais — NÃO restringe onde a equipe opera
+  // (isso segue multi-empresa pelos rateios). Null = ainda não classificada.
+  companyId String?   @db.UniqueIdentifier
   active    Boolean   @default(true)
   isFiscal  Boolean   @default(false)       // equipe Fiscal — resolve pendências de item
   createdAt DateTime  @default(now())
@@ -311,6 +316,7 @@ model Team {
   deletedAt DateTime?
 
   manager           User?  @relation("teamManager", fields: [managerId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  company           Company? @relation("TeamCompany", fields: [companyId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   members           User[] @relation("teamMembers")
   branchRateios     TeamBranchRateio[]
   costCenterRateios TeamCostCenterRateio[]

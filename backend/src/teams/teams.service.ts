@@ -34,7 +34,65 @@ export class TeamsService {
   ) {}
 
   async create(dto: CreateTeamDto) {
-    return this.prisma.team.create({ data: { name: dto.name } });
+    return this.prisma.team.create({
+      data: { name: dto.name, companyId: dto.companyId ?? null },
+    });
+  }
+
+  /**
+   * Pré-preenche a EMPRESA DE ORIGEM das equipes ainda sem classificação, pela
+   * regra do PO: toca HRG3 → HRG3; senão toca Guess → Guess; sem rateio → deixa
+   * em branco (admin classifica na mão). Só mexe em quem está com companyId null
+   * (idempotente) — não sobrescreve classificação já feita.
+   */
+  async inferCompanyOrigins() {
+    const companies = await this.prisma.company.findMany({
+      where: { deletedAt: null },
+      select: { id: true, code: true },
+    });
+    const hrg3 = companies.find((c) => c.code === 'HRG3')?.id ?? null;
+    const guess = companies.find((c) => c.code === 'GUESS')?.id ?? null;
+
+    const teams = await this.prisma.team.findMany({
+      where: { deletedAt: null, companyId: null },
+      select: {
+        id: true,
+        branchRateios: { select: { companyId: true } },
+        costCenterRateios: { select: { companyId: true } },
+      },
+    });
+
+    let classificadasHrg3 = 0;
+    let classificadasGuess = 0;
+    let semSinal = 0;
+    for (const t of teams) {
+      const touched = new Set<string>([
+        ...t.branchRateios.map((r) => r.companyId),
+        ...t.costCenterRateios.map((r) => r.companyId),
+      ]);
+      const origin =
+        hrg3 && touched.has(hrg3)
+          ? hrg3
+          : guess && touched.has(guess)
+            ? guess
+            : null;
+      if (!origin) {
+        semSinal++;
+        continue;
+      }
+      await this.prisma.team.update({
+        where: { id: t.id },
+        data: { companyId: origin },
+      });
+      if (origin === hrg3) classificadasHrg3++;
+      else classificadasGuess++;
+    }
+    return {
+      avaliadas: teams.length,
+      classificadasHrg3,
+      classificadasGuess,
+      semSinal,
+    };
   }
 
   async findAll() {
@@ -53,6 +111,7 @@ export class TeamsService {
           },
         },
         moduleAccess: { select: { module: true } },
+        company: { select: { id: true, code: true, name: true } },
       },
     });
   }
@@ -97,6 +156,7 @@ export class TeamsService {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
         ...(dto.managerId !== undefined ? { managerId: dto.managerId } : {}),
         ...(dto.active !== undefined ? { active: dto.active } : {}),
+        ...(dto.companyId !== undefined ? { companyId: dto.companyId } : {}),
       },
     });
   }

@@ -46,6 +46,15 @@ export class TeamsController {
     return this.teams.findAll();
   }
 
+  @Post('backfill-company-origin')
+  @ApiOperation({
+    summary:
+      'Pré-preenche a empresa de origem das equipes sem classificação (toca HRG3 → HRG3; senão Guess). Idempotente.',
+  })
+  backfillCompanyOrigin() {
+    return this.teams.inferCompanyOrigins();
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Detalhe da equipe (rateios e membros)' })
   findOne(@Param('id') id: string) {

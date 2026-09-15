@@ -28,6 +28,8 @@ export interface AdminTeam {
   managerId: string | null;
   isFiscal: boolean;
   active: boolean;
+  /** Empresa de origem (rótulo; não restringe operação). Vem no findAll/list. */
+  company?: { id: string; code: string; name: string } | null;
   /** Módulos extras liberados (PA, FISCAL_QUEUE, REPORTS, RECEIVING, APPROVALS). */
   moduleAccess?: Array<{ module: string }>;
   /** Rateios de filial liberados por (companyId, code) — só no findOne. */
@@ -75,6 +77,25 @@ export function useCreateTeam() {
   });
 }
 
+export interface BackfillOriginsResult {
+  avaliadas: number;
+  classificadasHrg3: number;
+  classificadasGuess: number;
+  semSinal: number;
+}
+
+/** Pré-preenche a empresa de origem das equipes sem classificação (regra HRG3/Guess). */
+export function useBackfillTeamOrigins() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () =>
+      (
+        await api.post<BackfillOriginsResult>('/teams/backfill-company-origin')
+      ).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['teams'] }),
+  });
+}
+
 export function useUpdateTeam() {
   const qc = useQueryClient();
   return useMutation({
@@ -83,7 +104,7 @@ export function useUpdateTeam() {
       patch,
     }: {
       id: string;
-      patch: { name?: string; active?: boolean };
+      patch: { name?: string; active?: boolean; companyId?: string | null };
     }) => (await api.patch<AdminTeam>(`/teams/${id}`, patch)).data,
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['teams'] });
