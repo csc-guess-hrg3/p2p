@@ -44,6 +44,9 @@ export class TeamsService {
       include: {
         _count: { select: { members: true } },
         moduleAccess: { select: { module: true } },
+        // Só os ids — a listagem exibe a CONTAGEM de níveis (t.approvalLevels.length).
+        // Sem isso o array vem undefined e a coluna mostrava "0 nível(eis)".
+        approvalLevels: { select: { id: true } },
       },
     });
   }
