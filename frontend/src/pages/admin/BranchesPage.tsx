@@ -1,10 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ChevronRight, Eye, EyeOff, Search } from 'lucide-react';
+import {
+  ArrowLeft,
+  ChevronRight,
+  Eye,
+  EyeOff,
+  Search,
+  UserPlus,
+} from 'lucide-react';
 import { useCompany } from '@/lib/company';
 import { useBranchesAdmin, useSetBranchOverride } from '@/lib/branches';
 import { useProvisionAllStores } from '@/lib/stores';
+import { useTeams } from '@/lib/teams';
 import { ImportStoresDialog } from './ImportStoresDialog';
+import { ProvisionStoreDialog } from './ProvisionStoreDialog';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -28,6 +37,9 @@ import { Pagination } from '@/components/ui/pagination';
 import { Badge } from '@/components/ui/badge';
 import { usePagination } from '@/lib/use-pagination';
 
+/** Radix Select não aceita value="" — sentinela para "sem equipe". */
+const SEM_EQUIPE = '__none__';
+
 /**
  * Lista de filiais — dados base vêm do ERP (`v_p2p_branches`, read-only).
  * Clique numa linha abre o cadastro completo, onde editamos os campos
@@ -40,6 +52,12 @@ export function BranchesPage() {
   const [companyId, setCompanyId] = useState<string>(activeCompany?.id ?? '');
   const [search, setSearch] = useState('');
   const [importOpen, setImportOpen] = useState(false);
+  const [bulkTeamId, setBulkTeamId] = useState<string>(SEM_EQUIPE);
+  const [provBranch, setProvBranch] = useState<{
+    codigo: string;
+    nome: string;
+    email: string | null;
+  } | null>(null);
 
   useEffect(() => {
     if (!companyId && activeCompany) setCompanyId(activeCompany.id);
@@ -49,12 +67,16 @@ export function BranchesPage() {
   const { toast } = useToast();
   const setOverrideMut = useSetBranchOverride();
   const provisionAllMut = useProvisionAllStores();
+  const { data: teams = [] } = useTeams();
   const empresaCode = companies.find((c) => c.id === companyId)?.code ?? '';
 
   async function provisionAll() {
     if (!empresaCode) return;
     try {
-      const results = await provisionAllMut.mutateAsync({ empresa: empresaCode });
+      const results = await provisionAllMut.mutateAsync({
+        empresa: empresaCode,
+        teamId: bulkTeamId === SEM_EQUIPE ? undefined : bulkTeamId,
+      });
       const by = (s: string) => results.filter((r) => r.status === s).length;
       toast({
         title: 'Provisionamento das lojas concluído',
@@ -156,6 +178,27 @@ export function BranchesPage() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
+            <Select value={bulkTeamId} onValueChange={setBulkTeamId}>
+              <SelectTrigger
+                className="h-9 sm:w-56"
+                title="Equipe/alçada aplicada ao provisionar em massa e sugerida ao provisionar uma loja."
+              >
+                <SelectValue placeholder="Equipe (alçada)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SEM_EQUIPE}>
+                  Sem equipe (definir depois)
+                </SelectItem>
+                {teams
+                  .filter((t) => t.active !== false)
+                  .map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                      {t.company ? ` · ${t.company.code}` : ''}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
             <Button
               className="h-9 whitespace-nowrap"
               disabled={!empresaCode}
@@ -184,6 +227,7 @@ export function BranchesPage() {
                   <TableHead>CNPJ</TableHead>
                   <TableHead>Cidade/UF</TableHead>
                   <TableHead>E-mail</TableHead>
+                  <TableHead className="w-24 text-center">Acesso</TableHead>
                   <TableHead className="w-20 text-center">Visível</TableHead>
                   <TableHead className="w-8" />
                 </TableRow>
@@ -192,7 +236,7 @@ export function BranchesPage() {
                 {isLoading && (
                   <TableRow>
                     <TableCell
-                      colSpan={7}
+                      colSpan={8}
                       className="py-8 text-center text-muted-foreground"
                     >
                       Carregando…
@@ -202,7 +246,7 @@ export function BranchesPage() {
                 {!isLoading && filtered.length === 0 && (
                   <TableRow>
                     <TableCell
-                      colSpan={7}
+                      colSpan={8}
                       className="py-8 text-center text-muted-foreground"
                     >
                       Nenhuma filial encontrada.
@@ -258,6 +302,24 @@ export function BranchesPage() {
                         variant="ghost"
                         size="icon"
                         className="size-8"
+                        title="Provisionar login da loja (e-mail + equipe)"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setProvBranch({
+                            codigo: b.codigo,
+                            nome: b.nomeExibicao,
+                            email: b.email ?? null,
+                          });
+                        }}
+                      >
+                        <UserPlus className="size-4" />
+                      </Button>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
                         title={b.hidden ? 'Reexibir filial' : 'Ocultar filial'}
                         disabled={setOverrideMut.isPending}
                         onClick={(e) => toggleHidden(e, b)}
@@ -292,6 +354,15 @@ export function BranchesPage() {
         open={importOpen}
         onOpenChange={setImportOpen}
         defaultEmpresa={empresaCode}
+        defaultTeamId={bulkTeamId === SEM_EQUIPE ? undefined : bulkTeamId}
+      />
+
+      <ProvisionStoreDialog
+        open={!!provBranch}
+        onOpenChange={(v) => !v && setProvBranch(null)}
+        empresa={empresaCode}
+        branch={provBranch}
+        defaultTeamId={bulkTeamId === SEM_EQUIPE ? undefined : bulkTeamId}
       />
     </div>
   );

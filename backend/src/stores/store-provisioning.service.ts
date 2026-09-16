@@ -262,13 +262,28 @@ export class StoreProvisioningService {
       select: { username: true, email: true },
     });
     if (conflict) {
+      // Mesma loja (o username bate): se veio uma equipe, atualiza a alçada
+      // aqui mesmo — sem precisar abrir a tela de usuário. Se o e-mail é de
+      // OUTRO usuário, aí é conflito de verdade.
+      if (conflict.username === username) {
+        if (teamId) {
+          await this.prisma.user.update({
+            where: { username },
+            data: { teamId },
+          });
+        }
+        return {
+          branchErpCode: code,
+          status: 'ALREADY',
+          detail: teamId
+            ? 'Loja já existia — equipe atualizada.'
+            : 'Loja já provisionada.',
+        };
+      }
       return {
         branchErpCode: code,
         status: 'ALREADY',
-        detail:
-          conflict.username === username
-            ? 'Loja já provisionada.'
-            : 'E-mail já está em uso por outro usuário.',
+        detail: 'E-mail já está em uso por outro usuário.',
       };
     }
 

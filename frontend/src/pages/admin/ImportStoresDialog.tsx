@@ -5,6 +5,7 @@ import {
   useImportProvisionStores,
   type StoreProvisionResult,
 } from '@/lib/stores';
+import { useTeams } from '@/lib/teams';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -25,11 +26,16 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 
+/** Radix Select não aceita value="" — sentinela para "sem equipe". */
+const SEM_EQUIPE = '__none__';
+
 interface Props {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   /** Código da empresa (GUESS/HRG3) já selecionada na tela de Filiais. */
   defaultEmpresa?: string;
+  /** Equipe pré-selecionada (default do toolbar de Filiais). */
+  defaultTeamId?: string;
 }
 
 interface ParsedItem {
@@ -62,22 +68,26 @@ export function ImportStoresDialog({
   open,
   onOpenChange,
   defaultEmpresa,
+  defaultTeamId,
 }: Props) {
   const { toast } = useToast();
   const { companies } = useCompany();
   const importMut = useImportProvisionStores();
+  const { data: teams = [] } = useTeams();
 
   const [empresa, setEmpresa] = useState(defaultEmpresa ?? '');
+  const [teamId, setTeamId] = useState<string>(defaultTeamId || SEM_EQUIPE);
   const [text, setText] = useState('');
   const [results, setResults] = useState<StoreProvisionResult[] | null>(null);
 
   useEffect(() => {
     if (open) {
       setEmpresa(defaultEmpresa ?? '');
+      setTeamId(defaultTeamId || SEM_EQUIPE);
       setText('');
       setResults(null);
     }
-  }, [open, defaultEmpresa]);
+  }, [open, defaultEmpresa, defaultTeamId]);
 
   const parsed = useMemo(() => parseLines(text), [text]);
   const problems = (results ?? []).filter(
@@ -97,7 +107,11 @@ export function ImportStoresDialog({
       return;
     }
     try {
-      const res = await importMut.mutateAsync({ empresa, itens: parsed });
+      const res = await importMut.mutateAsync({
+        empresa,
+        itens: parsed,
+        teamId: teamId === SEM_EQUIPE ? undefined : teamId,
+      });
       setResults(res);
       const by = (s: string) => res.filter((r) => r.status === s).length;
       toast({
@@ -149,6 +163,29 @@ export function ImportStoresDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Equipe (alçada) — opcional</Label>
+            <Select value={teamId} onValueChange={setTeamId}>
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="Definir depois" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SEM_EQUIPE}>Definir depois</SelectItem>
+                {teams
+                  .filter((t) => t.active !== false)
+                  .map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                      {t.company ? ` · ${t.company.code}` : ''}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">
+              Aplica a mesma equipe a todas as lojas deste lote.
+            </p>
           </div>
 
           <div className="space-y-1.5">
