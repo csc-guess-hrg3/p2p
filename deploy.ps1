@@ -17,9 +17,9 @@
   3. RASTREIO: cada deploy grava no log de I:\p2p qual commit (SHA) subiu e se
      a arvore estava suja (codigo nao commitado). E o "o que esta no ar".
 
-  O backend roda no .21 via pm2 (processo p2p-api-prod). Este script NAO
-  reinicia o pm2 - ele roda no .21, nao daqui. O script copia o dist e
-  imprime o comando exato pra voce rodar la.
+  O backend roda no .21 como servico Windows NSSM (P2PApi na :3000, P2PApiHml
+  na :3001). Este script NAO reinicia o servico - ele roda no .21, nao daqui.
+  O script copia o dist e imprime o comando exato pra voce rodar la.
 
 .PARAMETER Target
   frontend (padrao) | backend | both
@@ -32,7 +32,7 @@
 
 .EXAMPLE
   .\deploy.ps1                 # build + deploy do frontend (sem downtime)
-  .\deploy.ps1 -Target both    # frontend + backend (backend pede pm2 restart no .21)
+  .\deploy.ps1 -Target both    # frontend + backend (backend pede nssm restart no .21)
   .\deploy.ps1 -Target backend # so backend
 #>
 
@@ -161,12 +161,13 @@ if ($doBack) {
   }
 
   Say "[backend] copiando dist (aditivo, /E)..."
-  # O processo pm2 que esta rodando ja carregou o codigo na memoria - sobrescrever
-  # os .js no disco nao afeta nada ate o restart. A troca acontece no pm2 restart.
+  # O servico que esta rodando ja carregou o codigo na memoria - sobrescrever
+  # os .js no disco nao afeta nada ate o restart. A troca acontece no nssm restart.
   Invoke-Robocopy -Src $distSrc -Dst $distDst -Extra @()
   Ok "[backend] dist copiado"
-  Warn "`n[backend] ACAO NECESSARIA no .21 (o pm2 roda la, nao daqui):"
-  Warn "          pm2 restart p2p-api-prod"
+  Warn "`n[backend] ACAO NECESSARIA no .21 (o servico roda la, nao daqui):"
+  Warn "          nssm restart P2PApi      # e, se mexeu no que o HML usa: nssm restart P2PApiHml"
+  Warn "          (se ainda nao migrou pro servico: pm2 restart p2p-api-prod)"
 }
 
 # ---------------------------------------------------------------------------
@@ -190,7 +191,7 @@ try {
 
 Ok "Deploy concluido: $logLine"
 if ($doFront) { Say "Frontend vale no refresh (Cloudflare respeita no-cache do index.html)." }
-if ($doBack)  { Warn "Backend so vale DEPOIS do 'pm2 restart p2p-api-prod' no .21." }
+if ($doBack)  { Warn "Backend so vale DEPOIS do 'nssm restart P2PApi' no .21." }
 
 # Sai 0 no sucesso. Sem isso, o processo herda o exit do ultimo robocopy
 # (3 = "copiou + havia extras"), que qualquer chamador leria como falha.
