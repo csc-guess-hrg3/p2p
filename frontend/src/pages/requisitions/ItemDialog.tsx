@@ -98,9 +98,19 @@ export function ItemDialog({
   // item do catálogo — o usuário pode trocar (ex.: TI lançando no CC de Loja).
   useEffect(() => {
     if (!open || costCenterRateioCode) return;
-    const primary = (ccRateios.data ?? []).find((r) => r.isPrimary);
+    const list = ccRateios.data ?? [];
+    const primary = list.find((r) => r.isPrimary);
     if (primary) setCostCenterRateioCode(primary.codigo);
+    else if (list.length === 1) setCostCenterRateioCode(list[0].codigo);
   }, [open, costCenterRateioCode, ccRateios.data]);
+
+  // Pré-seleciona o rateio de filial quando só há uma opção — o caso da loja,
+  // presa à própria filial (o back devolve só o rateio dela). Não sobrescreve.
+  useEffect(() => {
+    if (!open || branchRateioCode) return;
+    const list = branchRateios.data ?? [];
+    if (list.length === 1) setBranchRateioCode(list[0].codigo);
+  }, [open, branchRateioCode, branchRateios.data]);
 
   // Itens vinculados ao fornecedor (não geram pendência de vínculo).
   const linkedCodes = useMemo(
@@ -115,8 +125,21 @@ export function ItemDialog({
     setItemDescription(it.descricao);
     setUnit(it.unidade ?? '');
     setAccountingAccount(it.contaContabilPadrao ?? '');
-    if (it.rateioFilialPadrao) setBranchRateioCode(it.rateioFilialPadrao);
-    if (it.rateioCcPadrao) setCostCenterRateioCode(it.rateioCcPadrao);
+    // Só aplica o padrão do item se ele for uma opção válida — a loja tem a
+    // lista restrita (só a filial dela / o CC de varejo), então um padrão fora
+    // dessa lista é ignorado em vez de virar um valor inválido no seletor.
+    if (
+      it.rateioFilialPadrao &&
+      (branchRateios.data ?? []).some((r) => r.codigo === it.rateioFilialPadrao)
+    ) {
+      setBranchRateioCode(it.rateioFilialPadrao);
+    }
+    if (
+      it.rateioCcPadrao &&
+      (ccRateios.data ?? []).some((r) => r.codigo === it.rateioCcPadrao)
+    ) {
+      setCostCenterRateioCode(it.rateioCcPadrao);
+    }
   }
 
   /** Alterna entre escolher do catálogo e descrever manualmente. */

@@ -219,6 +219,7 @@ export class IntegrationService {
     company: string,
     onlyActive = true,
     teamId: string | null = null,
+    branchErpCodes: string[] | null = null,
   ): Promise<ErpRateio[]> {
     const c = this.assertCompany(company);
     const rows = await this.prisma.$queryRaw<
@@ -238,6 +239,13 @@ export class IntegrationService {
         ${onlyActive ? Prisma.sql`AND rateio_inativo = 0` : Prisma.empty}
       ORDER BY rateio_descricao`;
     const all = this.groupRateios(rows, false);
+    // Loja (branchScoped): o rateio de filial é a PRÓPRIA filial. No Linx o
+    // código do rateio de filial == COD_FILIAL (rateio "100% a filial"), então
+    // basta filtrar pelos códigos de filial da loja — a filial manda, e o filtro
+    // de equipe não se aplica ao rateio de filial dela.
+    if (branchErpCodes && branchErpCodes.length) {
+      return all.filter((r) => branchErpCodes.includes(r.codigo));
+    }
     if (!teamId) return all;
     const allowed = await this.prisma.teamBranchRateio.findMany({
       where: { teamId },
@@ -252,6 +260,7 @@ export class IntegrationService {
     company: string,
     onlyActive = true,
     teamId: string | null = null,
+    lojaScoped = false,
   ): Promise<ErpRateio[]> {
     const c = this.assertCompany(company);
     const rows = await this.prisma.$queryRaw<
@@ -272,6 +281,15 @@ export class IntegrationService {
         ${onlyActive ? Prisma.sql`AND rateio_inativo = 0` : Prisma.empty}
       ORDER BY rateio_descricao`;
     const all = this.groupRateios(rows, true);
+    // Loja (branchScoped): pedido de filial vai sempre no CC de varejo da marca
+    // (Guess 30200 SELLING-RETAIL, HRG3 300 VAREJO). Confirmado com a PO.
+    if (lojaScoped) {
+      const LOJA_CC: Record<string, string> = { GUESS: '30200', HRG3: '300' };
+      const cc = LOJA_CC[c];
+      return all
+        .filter((r) => r.codigo === cc)
+        .map((r) => ({ ...r, isPrimary: true }));
+    }
     if (!teamId) return all;
     const allowed = await this.prisma.teamCostCenterRateio.findMany({
       where: { teamId },

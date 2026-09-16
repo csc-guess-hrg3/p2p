@@ -188,6 +188,7 @@ export class IntegrationController {
       company,
       includeInactive !== 'true',
       scope === 'all' ? null : user.teamId,
+      scope === 'all' || !user.branchScoped ? null : (user.branchErpCodes ?? []),
     );
   }
 
@@ -212,6 +213,7 @@ export class IntegrationController {
       company,
       includeInactive !== 'true',
       scope === 'all' ? null : user.teamId,
+      scope !== 'all' && user.branchScoped === true,
     );
   }
 
