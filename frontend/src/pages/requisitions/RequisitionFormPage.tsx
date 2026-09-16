@@ -87,13 +87,10 @@ const schema = z
       .string()
       .min(15, 'A justificativa deve ter ao menos 15 caracteres'),
   })
-  .refine(
-    (d) => !d.recurring || Number(d.recurrenceMonths) >= 1,
-    {
-      message: 'Informe os meses de recorrência',
-      path: ['recurrenceMonths'],
-    },
-  );
+  .refine((d) => !d.recurring || Number(d.recurrenceMonths) >= 1, {
+    message: 'Informe os meses de recorrência',
+    path: ['recurrenceMonths'],
+  });
 type FormValues = z.infer<typeof schema>;
 
 function FieldError({ msg }: { msg?: string }) {
@@ -214,7 +211,8 @@ export function RequisitionFormPage() {
   // Total recalculado a cada mudança em `items` — usado pra disparar o aviso
   // de cotações ANTES do submit (RN-REQ-02) e mostrar o subtotal no rodapé.
   const itemsTotal = items.reduce(
-    (sum, it) => sum + (Number(it.quantity) || 0) * (Number(it.estimatedPrice) || 0),
+    (sum, it) =>
+      sum + (Number(it.quantity) || 0) * (Number(it.estimatedPrice) || 0),
     0,
   );
   // RN-REQ-02 ao vivo: acima do threshold e ainda sem o mínimo de cotações,
@@ -251,9 +249,7 @@ export function RequisitionFormPage() {
       comAdiantamento: r.tipoNotaFiscal === 'NF_FUTURA',
       paymentConditionCode: r.paymentConditionCode ?? '',
       recurring: r.recurring,
-      recurrenceMonths: r.recurrenceMonths
-        ? String(r.recurrenceMonths)
-        : '',
+      recurrenceMonths: r.recurrenceMonths ? String(r.recurrenceMonths) : '',
       contractRef: r.contractRef ?? '',
       justification: r.justification ?? '',
       // Paliativo: campo oculto, fixado em "COMPRAS P2P" (ver defaultValues).
@@ -269,7 +265,7 @@ export function RequisitionFormPage() {
     });
     // Apelido só faz sentido pra fornecedor novo (sem erpCode); pra
     // cadastrado, o campo nem aparece — então não hidrata estado morto.
-    setSupplierKnownName(!r.supplierErpCode ? r.supplierFantasia ?? '' : '');
+    setSupplierKnownName(!r.supplierErpCode ? (r.supplierFantasia ?? '') : '');
     setItems(
       (r.items ?? []).map((it) => ({
         fiscalMode: 'NONE' as const,
@@ -479,7 +475,9 @@ export function RequisitionFormPage() {
       branchErpCode: values.branchErpCode,
       supplierErpCode: supplier.supplierErpCode || undefined,
       supplierCnpj: supplier.isExternal ? supplier.supplierCnpj : undefined,
-      supplierNameOverride: supplier.isExternal ? supplier.supplierName : undefined,
+      supplierNameOverride: supplier.isExternal
+        ? supplier.supplierName
+        : undefined,
       supplierKnownName: supplier.isExternal
         ? supplierKnownName.trim() || undefined
         : undefined,
@@ -629,8 +627,8 @@ export function RequisitionFormPage() {
         </CardHeader>
         <CardContent className="space-y-4 text-sm text-muted-foreground">
           <p>
-            Apenas requisições em rascunho ou devolvidas para revisão podem
-            ser editadas.
+            Apenas requisições em rascunho ou devolvidas para revisão podem ser
+            editadas.
           </p>
           <Button onClick={() => navigate(`/requisicoes/${id}`)}>
             Ver requisição
@@ -738,71 +736,72 @@ export function RequisitionFormPage() {
           <div className="space-y-4">
             <div className="space-y-1.5">
               <Label>Fornecedor</Label>
-            <SupplierPicker
-              key={`supplier-${resetNonce}`}
-              company={code}
-              value={supplier}
-              onChange={(next) => {
-                const cleared =
-                  !next.supplierErpCode &&
-                  !next.supplierCnpj &&
-                  !next.supplierName;
-                const changed =
-                  next.supplierErpCode !== supplier.supplierErpCode ||
-                  next.supplierCnpj !== supplier.supplierCnpj;
-                setSupplier(next);
-                setValue('supplierErpCode', next.supplierErpCode, {
-                  shouldValidate: true,
-                });
-                // Apelido só vale pra fornecedor novo (externo). Se trocou,
-                // limpou, ou virou um cadastrado no ERP, zera o apelido pra
-                // não vazar pro fornecedor errado.
-                if (cleared || changed) setSupplierKnownName('');
-                if (cleared) {
-                  // Limpou o fornecedor → zera tudo que dependia dele:
-                  // condição de pagamento sugerida + itens (catálogo do
-                  // fornecedor anterior não vale pro próximo).
-                  setValue('paymentConditionCode', '', {
+              <SupplierPicker
+                key={`supplier-${resetNonce}`}
+                company={code}
+                value={supplier}
+                onChange={(next) => {
+                  const cleared =
+                    !next.supplierErpCode &&
+                    !next.supplierCnpj &&
+                    !next.supplierName;
+                  const changed =
+                    next.supplierErpCode !== supplier.supplierErpCode ||
+                    next.supplierCnpj !== supplier.supplierCnpj;
+                  setSupplier(next);
+                  setValue('supplierErpCode', next.supplierErpCode, {
                     shouldValidate: true,
                   });
-                  setItems([]);
-                } else if (changed) {
-                  // Trocou fornecedor → itens do anterior não fazem mais
-                  // sentido (codigo ERP, preço estimado etc. eram dele).
-                  setItems([]);
-                  if (next.suggestedPaymentCondition) {
-                    setValue(
-                      'paymentConditionCode',
-                      next.suggestedPaymentCondition,
-                      { shouldValidate: true },
-                    );
+                  // Apelido só vale pra fornecedor novo (externo). Se trocou,
+                  // limpou, ou virou um cadastrado no ERP, zera o apelido pra
+                  // não vazar pro fornecedor errado.
+                  if (cleared || changed) setSupplierKnownName('');
+                  if (cleared) {
+                    // Limpou o fornecedor → zera tudo que dependia dele:
+                    // condição de pagamento sugerida + itens (catálogo do
+                    // fornecedor anterior não vale pro próximo).
+                    setValue('paymentConditionCode', '', {
+                      shouldValidate: true,
+                    });
+                    setItems([]);
+                  } else if (changed) {
+                    // Trocou fornecedor → itens do anterior não fazem mais
+                    // sentido (codigo ERP, preço estimado etc. eram dele).
+                    setItems([]);
+                    if (next.suggestedPaymentCondition) {
+                      setValue(
+                        'paymentConditionCode',
+                        next.suggestedPaymentCondition,
+                        { shouldValidate: true },
+                      );
+                    }
                   }
-                }
-              }}
-            />
-          </div>
+                }}
+              />
+            </div>
 
-          {/* Apelido/nome conhecido — SÓ para fornecedor novo (externo), que
+            {/* Apelido/nome conhecido — SÓ para fornecedor novo (externo), que
               ainda vai ser cadastrado no Linx pela equipe fiscal. Pra
               fornecedor já cadastrado, a razão + fantasia já vêm do ERP, então
               o campo não aparece (era ruído). */}
-          {supplier.isExternal && (
-            <div className="space-y-1.5">
-              <Label htmlFor="knownName">
-                Nome conhecido do fornecedor (opcional)
-              </Label>
-              <Input
-                id="knownName"
-                placeholder='Ex.: "Stanley" para PMI South America…'
-                value={supplierKnownName}
-                onChange={(e) => setSupplierKnownName(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Como este fornecedor será cadastrado, informe o apelido pelo
-                qual você o reconhece — aparece junto da razão social nas telas.
-              </p>
-            </div>
-          )}
+            {supplier.isExternal && (
+              <div className="space-y-1.5">
+                <Label htmlFor="knownName">
+                  Nome conhecido do fornecedor (opcional)
+                </Label>
+                <Input
+                  id="knownName"
+                  placeholder='Ex.: "Stanley" para PMI South America…'
+                  value={supplierKnownName}
+                  onChange={(e) => setSupplierKnownName(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Como este fornecedor será cadastrado, informe o apelido pelo
+                  qual você o reconhece — aparece junto da razão social nas
+                  telas.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -819,9 +818,9 @@ export function RequisitionFormPage() {
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  Marque quando a Nota Fiscal ainda não foi emitida. O
-                  pagamento é antecipado e o sistema gera uma Solicitação de
-                  Verba junto do Pedido de Compra.
+                  Marque quando a Nota Fiscal ainda não foi emitida. O pagamento
+                  é antecipado e o sistema gera uma Solicitação de Verba junto
+                  do Pedido de Compra.
                 </TooltipContent>
               </Tooltip>
             </div>
@@ -837,7 +836,7 @@ export function RequisitionFormPage() {
                 )}
               />
               <span className="text-sm text-muted-foreground">
-                Nota Fiscal ainda não emitida (pagamento antecipado)
+                Pagamento anterior a emissão da nota fiscal.
               </span>
             </div>
           </div>
@@ -923,9 +922,7 @@ export function RequisitionFormPage() {
                     placeholder="meses"
                     {...register('recurrenceMonths')}
                   />
-                  <span className="text-sm text-muted-foreground">
-                    meses
-                  </span>
+                  <span className="text-sm text-muted-foreground">meses</span>
                 </div>
               )}
             </div>
@@ -1057,8 +1054,12 @@ export function RequisitionFormPage() {
 
           {items.length > 0 && (
             <div className="flex items-center justify-end gap-2 border-t pt-2 text-sm">
-              <span className="text-muted-foreground">Total da requisição:</span>
-              <span className="font-semibold">{formatCurrency(itemsTotal)}</span>
+              <span className="text-muted-foreground">
+                Total da requisição:
+              </span>
+              <span className="font-semibold">
+                {formatCurrency(itemsTotal)}
+              </span>
             </div>
           )}
 
@@ -1181,7 +1182,6 @@ export function RequisitionFormPage() {
           onOpenChange={(o) => !o && setQuotationDialogOpen(false)}
         />
       )}
-
     </form>
   );
 }
